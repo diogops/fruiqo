@@ -28,6 +28,10 @@ export default function About() {
         (iOS) para ler o texto dos prints no próprio aparelho.
       </Text>
       <Text style={ui.body}>
+        expo-image-picker e expo-document-picker (Expo) — Licença MIT. Abrem os seletores do próprio sistema (galeria,
+        arquivos e câmera); o app recebe só as imagens escolhidas.
+      </Text>
+      <Text style={ui.body}>
         Expo, React Native, React e demais bibliotecas incluídas são distribuídas sob suas próprias licenças de código
         aberto (majoritariamente MIT).
       </Text>

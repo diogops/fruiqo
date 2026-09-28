@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
 
 import { listShares } from '../src/api/client';
+import { ImportPrints } from '../src/share/ImportPrints';
 import { StatusBadge } from '../src/ui/components';
 import { sourceLabel, sourceTitle } from '../src/ui/labels';
 import { colors, ui } from '../src/ui/theme';
@@ -64,6 +65,9 @@ export default function Inbox() {
           ),
         }}
       />
+      <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+        <ImportPrints />
+      </View>
       <FlatList
         data={items}
         keyExtractor={(s) => s.id}
@@ -84,7 +88,7 @@ export default function Inbox() {
           <View style={{ flex: 1, justifyContent: 'center', gap: 8 }}>
             <Text style={ui.h2}>Nada por aqui ainda</Text>
             <Text style={ui.body}>
-              No Instagram, YouTube ou TikTok, toque em Compartilhar e escolha Fruiqo. Também dá para compartilhar prints do post (até 10 de uma vez). As recomendações aparecem aqui.
+              No Instagram, YouTube ou TikTok, toque em Compartilhar e escolha Fruiqo. Ou use "Importar prints" para escolher prints da galeria, de arquivos ou fotografar uma lista (até 10 de uma vez). As recomendações aparecem aqui.
             </Text>
           </View>
         }

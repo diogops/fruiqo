@@ -24,8 +24,9 @@ export default function Consent() {
         (provedora do modelo Claude), com servidores fora do Brasil. O conteúdo não é usado para treinar modelos.
       </Text>
       <Text style={ui.body}>
-        Prints de tela são lidos no próprio aparelho (reconhecimento de texto do Android/iOS). A imagem nunca sai do
-        seu celular: só o texto extraído dos prints é enviado ao servidor do Fruiqo.
+        Prints de tela (compartilhados, importados da galeria ou de arquivos) e fotos tiradas pelo app são lidos no próprio
+        aparelho (reconhecimento de texto do Android/iOS). A imagem nunca sai do seu celular: só o texto extraído é
+        enviado ao servidor do Fruiqo.
       </Text>
       <Text style={ui.body}>
         Para encontrar os títulos, o Fruiqo consulta serviços públicos de catálogo (como TMDB e Spotify). PDFs e outros

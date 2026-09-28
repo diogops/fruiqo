@@ -4,13 +4,26 @@
     "appVersionSource": "local"
   },
   "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "APP_VARIANT": "development",
+        "EXPO_PUBLIC_API_URL": "http://10.0.2.2:4000"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
     "preview-apk": {
       "distribution": "internal",
       "env": {
         "APP_VARIANT": "preview",
         "EXPO_PUBLIC_API_URL": "http://10.0.2.2:4000"
       },
-      "android": { "buildType": "apk" }
+      "android": {
+        "buildType": "apk"
+      }
     },
     "ios-sim": {
       "distribution": "internal",
@@ -18,7 +31,9 @@
         "APP_VARIANT": "preview",
         "EXPO_PUBLIC_API_URL": "http://localhost:4000"
       },
-      "ios": { "simulator": true }
+      "ios": {
+        "simulator": true
+      }
     }
   }
 }
