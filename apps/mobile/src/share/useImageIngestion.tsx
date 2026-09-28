@@ -1,16 +1,18 @@
 // Hook único de ingestão de prints, usado pelo ShareIntentHandler e pelo ImportPrints (RF-40).
 // Roda o OCR no device, avisa sobre limites e deixa o CreateShareRequest pendente em memória;
 // o envio à API é feito pelo ShareIntentHandler (mesmo fluxo de consentimento/login do share).
-import { MAX_SCREENSHOT_PAGES } from '@fruiqo/contracts';
+import { type CreateShareRequest, MAX_SCREENSHOT_PAGES } from '@fruiqo/contracts';
 import { randomUUID } from 'expo-crypto';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Text, View } from 'react-native';
 
 import { useAppState } from '../state/AppState';
 import { colors, ui } from '../ui/theme';
-import { ingestImages } from './ingestImages';
+import type { IncomingShare } from './buildShareRequest';
+import { ingestImages, type RecognizeFn } from './ingestImages';
 import { ocrSupported, recognizeAll, type OcrProgress } from './ocr';
-import type { ImageSelection } from './screenshotPages';
+import { receiveShare, type ReceiveResult } from './receiveShare';
+import { selectImages, type ImageSelection } from './screenshotPages';
 
 export function useImageIngestion() {
   const { setPendingShare } = useAppState();
@@ -52,6 +54,67 @@ export function useImageIngestion() {
   );
 
   return { ingest, progress };
+}
+
+/** Mostra o aviso adequado ao resultado e devolve o request, ou null quando não há o que enviar. */
+export function handleReceiveResult(result: ReceiveResult): CreateShareRequest | null {
+  switch (result.kind) {
+    case 'ok':
+      if (result.truncated) Alert.alert('Muitos prints', `Serão lidos só os ${MAX_SCREENSHOT_PAGES} primeiros prints.`);
+      if (result.ignoredOtherFiles) {
+        Alert.alert('Arquivos ignorados', 'Só as imagens foram lidas; PDF e outros arquivos ainda não são suportados.');
+      }
+      return result.request;
+    case 'ocr_unavailable':
+      Alert.alert(
+        'Leitura de prints indisponível',
+        'Este aparelho não suporta a leitura de texto em imagens. Compartilhe o link do post.',
+      );
+      return null;
+    case 'no_text':
+      Alert.alert('Nada para enviar', 'Não encontrei texto nos prints.');
+      return null;
+    case 'unsupported':
+      Alert.alert(
+        'Ainda não suportado',
+        result.reason === 'files'
+          ? 'PDF e outros arquivos ainda não são suportados nesta versão. Compartilhe prints (imagens) ou o link do post.'
+          : 'Não encontramos texto, link ou imagem neste compartilhamento.',
+      );
+      return null;
+  }
+}
+
+/**
+ * Recebe um conteúdo compartilhado pelo ponto de entrada único (receiveShare), com o modal de progresso do OCR.
+ * Usado pelo share sheet real e pelo simulador (/dev/share); o simulador injeta o OCR das fixtures.
+ */
+export function useReceiveShare() {
+  const [progress, setProgress] = useState<OcrProgress | null>(null);
+
+  const receive = useCallback(
+    async (
+      incoming: IncomingShare,
+      ocr?: { recognize: RecognizeFn; supported: boolean },
+    ): Promise<CreateShareRequest | null> => {
+      const images = selectImages(incoming.files);
+      if (images) setProgress({ current: 0, total: images.uris.length });
+      try {
+        const result = await receiveShare(incoming, {
+          recognize: ocr?.recognize ?? recognizeAll,
+          ocrSupported: ocr?.supported ?? ocrSupported,
+          newId: randomUUID,
+          onProgress: setProgress,
+        });
+        return handleReceiveResult(result);
+      } finally {
+        setProgress(null);
+      }
+    },
+    [],
+  );
+
+  return { receive, progress };
 }
 
 export function OcrProgressModal({ progress }: { progress: OcrProgress | null }) {

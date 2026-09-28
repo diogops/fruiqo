@@ -76,3 +76,15 @@ pnpm --filter @fruiqo/mobile dev
 ```
 
 O script faz `adb reverse` das portas 8081 (Metro) e 4000 (API) e sobe o Metro com `APP_VARIANT=development`. No emulador, abra **Fruiqo (dev)**; Ctrl+M abre o menu de desenvolvimento.
+
+## Preview no navegador (RF-17) e simulador de share (RF-18)
+
+```bash
+pnpm --filter @fruiqo/mobile web          # app no navegador (http://localhost:8082); API local em :4000 com WEB_ORIGIN=http://localhost:8082
+pnpm --filter @fruiqo/mobile check:prod-bundle   # prova que o simulador não entra no bundle de produção
+node tools/fixtures/build_sim_index.mjs   # (raiz) regenera o índice de fixtures do simulador
+```
+
+- No navegador não há share sheet, OCR nem Keychain: o refresh token fica só em memória (`src/api/tokenStore.web.ts`) e o OCR das imagens vem do texto de uma fixture de prints.
+- **Simulador** (`/dev/share`, link em Ajustes, só fora de produção): link, texto, imagens ou fixture sintética, enviados por `receiveShare`, o mesmo ponto de entrada do share real. "Marcar como fixture" manda o cabeçalho `X-Fruiqo-Fixture` (a API só aceita com `SANDBOX_ENABLED=true`) e o inspector (`GET /shares/:id/steps`) guarda os trechos.
+- Em produção, `metro.config.js` exclui `app/dev/` e `src/dev/` do bundle. Código importado fora dessas pastas não pode depender delas (a flag fica em `src/state/devTools.ts`).

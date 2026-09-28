@@ -29,12 +29,15 @@ import {
   SessionSchema,
   ShareListResponseSchema,
   ShareSchema,
+  TaxonomyResponseSchema,
+  type TaxonomyResponse,
   TitleConflictErrorSchema,
   TitleSchema,
   TokenPairSchema,
 } from '@fruiqo/contracts';
-import * as SecureStore from 'expo-secure-store';
 import { z } from 'zod';
+
+import { deleteToken, getToken, setToken } from './tokenStore';
 
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'http://10.0.2.2:4000').replace(/\/+$/, '');
 
@@ -64,16 +67,16 @@ export function setSessionLostHandler(handler: (() => void) | null) {
 
 async function storeTokens(pair: TokenPair) {
   accessToken = pair.accessToken;
-  await SecureStore.setItemAsync(REFRESH_KEY, pair.refreshToken);
+  await setToken(REFRESH_KEY, pair.refreshToken);
 }
 
 export async function clearTokens() {
   accessToken = null;
-  await SecureStore.deleteItemAsync(REFRESH_KEY);
+  await deleteToken(REFRESH_KEY);
 }
 
 export async function hasStoredSession() {
-  return (await SecureStore.getItemAsync(REFRESH_KEY)) !== null;
+  return (await getToken(REFRESH_KEY)) !== null;
 }
 
 async function rawFetch(path: string, init: RequestInit & { auth?: boolean } = {}): Promise<Response> {
@@ -108,7 +111,7 @@ async function toApiError(res: Response): Promise<ApiError> {
 /** Troca o refresh token por um novo par (rotação). Chamadas concorrentes compartilham a mesma troca. */
 export function refreshSession(): Promise<boolean> {
   refreshInFlight ??= (async () => {
-    const refreshToken = await SecureStore.getItemAsync(REFRESH_KEY);
+    const refreshToken = await getToken(REFRESH_KEY);
     if (!refreshToken) return false;
     const res = await rawFetch('/auth/refresh', { method: 'POST', body: JSON.stringify({ refreshToken }) });
     if (!res.ok) {
@@ -150,7 +153,7 @@ export const login = (body: LoginRequest) => authenticate('/auth/login', body);
 export const register = (body: RegisterRequest) => authenticate('/auth/register', body);
 
 export async function logout() {
-  const refreshToken = await SecureStore.getItemAsync(REFRESH_KEY);
+  const refreshToken = await getToken(REFRESH_KEY);
   try {
     if (refreshToken) {
       await rawFetch('/auth/logout', { method: 'POST', body: JSON.stringify({ refreshToken }), auth: true });
@@ -172,8 +175,13 @@ export const revokeSession = (id: string) =>
 
 // ---------- Shares ----------
 
-export const createShare = (body: CreateShareRequest): Promise<Share> =>
-  request('/shares', ShareSchema, { method: 'POST', body: JSON.stringify(body) });
+/** `fixtureId` (só o simulador de dev) marca o share como fixture; a API só aceita com SANDBOX_ENABLED. */
+export const createShare = (body: CreateShareRequest, opts: { fixtureId?: string } = {}): Promise<Share> =>
+  request('/shares', ShareSchema, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: opts.fixtureId ? { 'X-Fruiqo-Fixture': opts.fixtureId } : undefined,
+  });
 
 export const listShares = (cursor?: string | null): Promise<ShareListResponse> =>
   request(cursor ? `/shares?cursor=${encodeURIComponent(cursor)}` : '/shares', ShareListResponseSchema);
@@ -188,6 +196,9 @@ export const deleteShare = (id: string) =>
 const json = (body: unknown): RequestInit => ({ body: JSON.stringify(body) });
 
 export const getHome = (): Promise<HomeResponse> => request('/home', HomeResponseSchema);
+
+/** Gêneros e subgêneros válidos da taxonomia própria, com rótulos pt-BR. */
+export const getTaxonomy = (): Promise<TaxonomyResponse> => request('/taxonomy/genres', TaxonomyResponseSchema);
 
 /** O texto do "Como estou" só trafega nesta chamada; o app não o guarda (RNF-06). */
 export const discover = (body: DiscoverRequest): Promise<DiscoverResponse> =>

@@ -39,6 +39,10 @@ npx expo export --platform android          # checa o bundle
 EAS_NO_VCS=1 EAS_PROJECT_ROOT=../.. eas build --profile preview-apk --platform android
 ```
 
+Preview do app no navegador: `pnpm --filter @fruiqo/mobile web` (API com `WEB_ORIGIN=http://localhost:8082`). O simulador de share `/dev/share` (Ajustes, só fora de produção) envia link/texto/imagens/fixtures por `receiveShare`, o mesmo ponto de entrada do share real; `pnpm --filter @fruiqo/mobile check:prod-bundle` prova que `app/dev` e `src/dev` ficam fora do bundle de produção, então nada fora dessas pastas pode importá-las. O índice de fixtures do simulador (`apps/mobile/src/dev/fixtureIndex.generated.ts`) é gerado por `node tools/fixtures/build_sim_index.mjs` e checado no `pnpm fixtures:check`.
+
+**Não rode `pnpm add`/`pnpm install` com o Metro ligado no Windows**: ele trava arquivos do `node_modules` e a instalação fica pela metade (pacotes somem). Pare o Metro antes.
+
 O app usa módulo nativo (`expo-share-intent`), então **não roda no Expo Go**: precisa de build (EAS). O APK `preview-apk` aponta para `http://10.0.2.2:4000` (emulador → host); para celular físico, troque `EXPO_PUBLIC_API_URL` no `eas.json` pelo IP da máquina na rede.
 
 ## Arquitetura

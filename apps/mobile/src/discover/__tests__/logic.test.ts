@@ -6,6 +6,7 @@ import {
   buildFeedback,
   buildMoodRequest,
   buildSurpriseRequest,
+  capitalizeFirst,
   collectGenreOptions,
   moveItem,
   progressOf,
@@ -138,5 +139,13 @@ describe('store em memória do resultado (RNF-06)', () => {
     expect(takeRiskText(RUN)).toBeUndefined();
     forgetResult(RUN);
     expect(getResult(RUN)).toBeUndefined();
+  });
+});
+
+describe('capitalizeFirst', () => {
+  it('capitaliza a primeira letra do rótulo da intenção', () => {
+    expect(capitalizeFirst('levantar o astral')).toBe('Levantar o astral');
+    expect(capitalizeFirst('ótimo para rir')).toBe('Ótimo para rir');
+    expect(capitalizeFirst('')).toBe('');
   });
 });

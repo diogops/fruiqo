@@ -13,7 +13,7 @@
     "lint": "pnpm -r lint",
     "build:packages": "pnpm --filter @fruiqo/taxonomy build && pnpm --filter @fruiqo/contracts build",
     "eval": "pnpm --filter @fruiqo/api eval",
-    "fixtures:check": "node tools/fixtures/check.mjs",
-    "fixtures:build": "python tools/fixtures/build_fixtures.py && python tools/fixtures/render_pages.py"
+    "fixtures:check": "node tools/fixtures/check.mjs && node tools/fixtures/build_sim_index.mjs --check",
+    "fixtures:build": "python tools/fixtures/build_fixtures.py && python tools/fixtures/render_pages.py && node tools/fixtures/build_sim_index.mjs"
   }
 }

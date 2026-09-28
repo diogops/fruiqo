@@ -56,6 +56,17 @@ const EnvSchema = z.object({
   DISCARD_THRESHOLD: z.coerce.number().min(0).max(1).default(0.15),
   /** RF-18/19: aceita o cabeçalho X-Fruiqo-Fixture (nunca em produção) */
   SANDBOX_ENABLED: bool,
+  /** RF-17: origens do navegador aceitas por CORS (lista separada por vírgula; vazio = sem CORS). Sem credenciais: o web usa bearer em memória */
+  WEB_ORIGIN: z
+    .string()
+    .default('')
+    .transform((v) =>
+      v
+        .split(',')
+        .map((o) => o.trim().replace(/\/+$/, ''))
+        .filter(Boolean),
+    )
+    .pipe(z.array(z.url({ protocol: /^https?$/ }))),
   /** RNF-09: preço por milhão de tokens do modelo em uso (0 = desconhecido; custo estimado fica 0) */
   LLM_PRICE_IN_PER_MTOK: z.coerce.number().min(0).default(0),
   LLM_PRICE_OUT_PER_MTOK: z.coerce.number().min(0).default(0),

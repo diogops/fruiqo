@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 
+import { devToolsEnabled } from '../src/state/devTools';
 import { ShareIntentHandler } from '../src/share/ShareIntentHandler';
 import { AppStateProvider, useAppState } from '../src/state/AppState';
 import { colors } from '../src/ui/theme';
@@ -50,6 +51,7 @@ function Root() {
         <Stack.Screen name="list/[id]" options={{ title: 'Lista' }} />
         <Stack.Screen name="share/[id]" options={{ title: 'Compartilhamento' }} />
         <Stack.Screen name="about" options={{ title: 'Sobre' }} />
+        {devToolsEnabled ? <Stack.Screen name="dev/share" options={{ title: 'Simulador de share' }} /> : null}
       </Stack>
       <Gate />
       <ShareIntentHandler />

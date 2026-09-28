@@ -482,3 +482,20 @@ export const ApiErrorSchema = z.object({
   message: z.string(),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;
+
+// ---------- Taxonomia (GET /taxonomy/genres) ----------
+
+export const TaxonomyEntrySchema = z.object({
+  key: z.string(),
+  /** rótulo pt-BR */
+  label: z.string(),
+});
+export type TaxonomyEntry = z.infer<typeof TaxonomyEntrySchema>;
+
+/** Gêneros e subgêneros válidos (versão da taxonomia própria, docs/spec/taxonomy-v1.md). */
+export const TaxonomyResponseSchema = z.object({
+  version: z.number().int().min(1),
+  genres: z.array(TaxonomyEntrySchema),
+  subgenres: z.array(TaxonomyEntrySchema),
+});
+export type TaxonomyResponse = z.infer<typeof TaxonomyResponseSchema>;

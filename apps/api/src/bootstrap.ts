@@ -14,6 +14,16 @@ export async function createApp(env: Env): Promise<NestExpressApplication> {
   });
   app.useLogger(app.get(Logger));
   app.use(helmet());
+  // RF-17: preview do app no navegador (Expo web). Só as origens listadas; sem cookies (bearer em memória).
+  if (env.WEB_ORIGIN.length > 0) {
+    app.enableCors({
+      origin: env.WEB_ORIGIN,
+      credentials: false,
+      methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
+      allowedHeaders: ['Authorization', 'Content-Type', 'X-Fruiqo-Fixture'],
+      maxAge: 600,
+    });
+  }
   // Limite de body: text 5000 + url 2048 + até 10 prints × 8000 caracteres (até 3 bytes cada em UTF-8)
   app.useBodyParser('json', { limit: '256kb' });
   app.set('trust proxy', 1);

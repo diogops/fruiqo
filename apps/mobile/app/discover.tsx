@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Linking, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { discover, sendFeedback, updateTitle } from '../src/api/client';
-import { applyFeedback, buildFeedback, buildMoodRequest } from '../src/discover/logic';
+import { applyFeedback, buildFeedback, buildMoodRequest, capitalizeFirst } from '../src/discover/logic';
 import { forgetResult, getResult, putResult, takeRiskText } from '../src/discover/store';
 import { Button, Chip, Poster, openExternal } from '../src/ui/components';
 import { REASON_OPTIONS, titleMeta } from '../src/ui/labels';
@@ -99,7 +99,7 @@ export default function DiscoverResult() {
     );
   }
 
-  const heading = current.surprise?.label ?? current.intent?.needLabel ?? 'Sugestões';
+  const heading = capitalizeFirst(current.surprise?.label ?? current.intent?.needLabel ?? 'Sugestões');
   const sentence = current.message ?? current.intent?.message;
 
   return (

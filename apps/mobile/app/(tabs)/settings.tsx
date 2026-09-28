@@ -6,6 +6,7 @@ import { Alert, ScrollView, Text, View } from 'react-native';
 import { API_URL, listSessions, revokeSession } from '../../src/api/client';
 import { useMoodOptIn } from '../../src/discover/moodOptIn';
 import { useAppState } from '../../src/state/AppState';
+import { devToolsEnabled } from '../../src/state/devTools';
 import { Button } from '../../src/ui/components';
 import { ui } from '../../src/ui/theme';
 
@@ -76,6 +77,10 @@ export default function Settings() {
         <Button title="Desativar o Como estou" variant="secondary" onPress={() => void moodOptIn.revoke()} />
       )}
       <Button title="Sobre e créditos" variant="secondary" onPress={() => router.push('/about')} />
+      {devToolsEnabled ? (
+        // Só fora de produção (RF-18); em produção a rota nem existe no bundle.
+        <Button title="Simulador de share (dev)" variant="secondary" onPress={() => router.push('/dev/share' as never)} />
+      ) : null}
       <Button title="Sair" variant="danger" onPress={() => void signOut()} />
       <Text style={ui.muted}>Servidor: {API_URL}</Text>
     </ScrollView>

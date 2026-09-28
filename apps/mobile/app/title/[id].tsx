@@ -4,7 +4,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'react-native';
 
-import { ApiError, getLibrary, getTitle, updateTitle } from '../../src/api/client';
+import { ApiError, getLibrary, getTaxonomy, getTitle, updateTitle } from '../../src/api/client';
 import { collectGenreOptions, toggleGenre } from '../../src/discover/logic';
 import { Button, Chip, Link, Poster } from '../../src/ui/components';
 import { PRIORITY_LABEL, TITLE_STATUS_LABEL, titleMeta } from '../../src/ui/labels';
@@ -61,11 +61,17 @@ export default function TitleDetail() {
     setDraftGenres(title.genres.map((g) => g.key));
     setEditingGenres(true);
     try {
-      // Sem endpoint de taxonomia: usa os gêneros que já aparecem na biblioteca do usuário.
-      const lib = await getLibrary({ limit: '100' });
-      setGenreOptions(collectGenreOptions(lib.items, title.genres));
+      // Lista completa da taxonomia (GET /taxonomy/genres), com rótulos pt-BR.
+      const taxonomy = await getTaxonomy();
+      setGenreOptions(collectGenreOptions([{ genres: taxonomy.genres }], title.genres));
     } catch {
-      setGenreOptions(collectGenreOptions([], title.genres));
+      // Sem a taxonomia (API antiga/offline): usa os gêneros que já aparecem na biblioteca.
+      try {
+        const lib = await getLibrary({ limit: '100' });
+        setGenreOptions(collectGenreOptions(lib.items, title.genres));
+      } catch {
+        setGenreOptions(collectGenreOptions([], title.genres));
+      }
     }
   }
 

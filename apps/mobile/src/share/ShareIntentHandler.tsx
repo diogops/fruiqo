@@ -1,8 +1,7 @@
 // Recebe o conteúdo do share sheet, envia à API e abre o detalhe.
 // Sem consentimento ou sem sessão, o share fica pendente (em memória) até o usuário concluir essas etapas.
-// Prints de tela passam por OCR no device antes (useImageIngestion, o mesmo do "Importar prints");
+// Prints de tela passam por OCR no device antes (receiveShare → ingestImages, o mesmo do "Importar prints");
 // só o texto extraído vira o share.
-import { randomUUID } from 'expo-crypto';
 import { useRouter } from 'expo-router';
 import { useShareIntentContext } from 'expo-share-intent';
 import { useEffect, useRef } from 'react';
@@ -10,16 +9,14 @@ import { Alert } from 'react-native';
 
 import { ApiError, createShare } from '../api/client';
 import { useAppState } from '../state/AppState';
-import { buildShareRequest } from './buildShareRequest';
-import { selectImages } from './screenshotPages';
-import { OcrProgressModal, useImageIngestion } from './useImageIngestion';
+import { OcrProgressModal, useReceiveShare } from './useImageIngestion';
 
 export function ShareIntentHandler() {
   const router = useRouter();
   const { hasShareIntent, shareIntent, resetShareIntent, error } = useShareIntentContext();
   const { ready, consented, authStatus, pendingShare, setPendingShare } = useAppState();
   const sending = useRef(false);
-  const { ingest, progress } = useImageIngestion();
+  const { receive, progress } = useReceiveShare();
 
   // 1. Novo share chegou: converte (com OCR, se forem prints) e guarda como pendente.
   useEffect(() => {
@@ -27,24 +24,11 @@ export function ShareIntentHandler() {
     const incoming = shareIntent;
     resetShareIntent();
 
-    const images = selectImages(incoming.files);
-    if (images) {
-      void ingest(images);
-      return;
-    }
-
-    const result = buildShareRequest(incoming, randomUUID());
-    if (result.kind === 'unsupported') {
-      Alert.alert(
-        'Ainda não suportado',
-        result.reason === 'files'
-          ? 'PDF e outros arquivos ainda não são suportados nesta versão. Compartilhe prints (imagens) ou o link do post.'
-          : 'Não encontramos texto, link ou imagem neste compartilhamento.',
-      );
-      return;
-    }
-    setPendingShare(result.request);
-  }, [hasShareIntent, shareIntent, resetShareIntent, setPendingShare, ingest]);
+    // Mesmo ponto de entrada do simulador de dev (receiveShare); pendente só em memória.
+    void receive(incoming).then((request) => {
+      if (request) setPendingShare(request);
+    });
+  }, [hasShareIntent, shareIntent, resetShareIntent, setPendingShare, receive]);
 
   useEffect(() => {
     if (error) Alert.alert('Erro ao receber compartilhamento', error);

@@ -75,6 +75,11 @@ export function collectGenreOptions(titles: readonly Pick<Title, 'genres'>[], ex
   return [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
 }
 
+/** Primeira letra maiúscula (os rótulos de intenção da taxonomia vêm em minúsculas: "levantar o astral"). */
+export function capitalizeFirst(text: string): string {
+  return text ? text.charAt(0).toLocaleUpperCase('pt-BR') + text.slice(1) : text;
+}
+
 /** Alterna um gênero na seleção (máximo 6, limite do UpdateTitleRequest). */
 export function toggleGenre(selected: readonly string[], key: string, max = 6): string[] {
   if (selected.includes(key)) return selected.filter((k) => k !== key);
