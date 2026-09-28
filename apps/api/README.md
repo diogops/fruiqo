@@ -38,6 +38,14 @@ Todos exigem `Authorization: Bearer <accessToken>`, exceto os marcados como púb
 | GET | `/shares/:id` | `Share` (cada recomendação traz `decision`: `cataloged` ou `review_queue`) |
 | GET | `/shares/:id/steps` | `ShareStepsResponse`: etapas do pipeline em ordem + decisão por candidato (RF-19) |
 | DELETE | `/shares/:id` | 204 |
+| GET | `/library?status=&kind=&genre=&listId=&q=&sort=&cursor=&limit=` | `LibraryResponse` (só `cataloged`; `sort` = `priority`\|`recent`\|`title`) |
+| GET/PATCH | `/library/:id` | `Title`; PATCH `UpdateTitleRequest` (gêneros manuais → `enrichment: manual`); 409 `{error:'conflict', conflictWith}` se a nova `dedup_key` colidir |
+| GET/POST | `/lists` | `ListSummary[]` / `CreateListRequest` → 201 `ListDetail` |
+| GET/DELETE | `/lists/:id` | `ListDetail` / 204 |
+| PUT | `/lists/:id/items` | `ReorderListRequest` (ordem completa) → `ListDetail` |
+| GET | `/home` | `HomeResponse`: "Continuar", presets de subgênero, estatísticas, `aiMode` |
+| POST | `/discover` | `DiscoverRequest` (`surprise` por subgênero/gênero ou `mood` por texto) → `DiscoverResponse` |
+| POST | `/feedback` | `FeedbackRequest` (`accept`/`skip`/`another`) → `{ next }` |
 
 Erros seguem `ApiError` (`{ error, message }`), sem detalhes internos.
 
@@ -101,4 +109,12 @@ A migração `0002` faz o backfill da `dedup_key` em SQL, aproximando a normaliz
 - **`PipelineGateway` (RF-20)**: toda chamada externa passa por ele (`src/pipeline/gateway.ts`). `mock` responde com `fixtures/**/recordings` e `fixtures-private/**/recordings` e nunca usa a rede (gravação ausente = resolver indisponível); `record` grava só em `fixtures-private/`, sem credenciais; gravações reais vencem (TMDB 180 dias, YouTube 30 dias). Ações externas (playlist, deep link) ficam só simuladas fora do `live` (RF-23).
 - **Fixtures (RF-21)**: `fixtures/` só com conteúdo sintético (formato em `fixtures/README.md`, geradas por `pnpm fixtures:build`, checadas por `pnpm fixtures:check`). Prints e gravações reais vão em `fixtures-private/` (gitignored).
 - **Eval (RF-22)**: `pnpm eval [--set public|private|all] [--label x] [--compare arquivo.json] [--check] [--write-baseline]`. Recria o banco `fruiqo_eval`, passa cada fixture pelo mesmo `SharesService.create` + `ShareProcessor` em `mock` com a rede bloqueada e grava `reports/eval-*.{md,json}` (gitignored). Baseline versionada: `eval-baselines/v0-heuristic.json`. `--check` falha com recall de risco < 100%, queda de F1 ou checagem nova falhando.
+
+## Catálogo, listas e home (Fase 2b)
+
+- **Modelo**: a tabela `recommendations` virou o catálogo (status `to_watch|watching|watched|dropped`, `priority` 0–3, `rating` 1–5, `genres` da taxonomia, `enrichment`, `notes`). Não criamos `titles` separada para não mexer na dedup de 3 níveis (índice único `(user_id, dedup_key)` segue valendo). `share_id` ficou nulo-ável para títulos do seed/adição manual. Tabelas novas com RLS FORCE: `lists`, `list_items`, `taste_signals`, `recommendation_runs`, `recommendation_feedback`.
+- **Lista automática**: share de prints com ≥ 2 itens catalogados vira uma lista (nome = linha de cabeçalho do OCR, senão "Prints de <data>"), incluindo itens que o usuário já tinha.
+- **Ranking** (`src/library/ranking.ts`): local e determinístico. Candidatos = títulos para ver/em andamento; score = aderência à intenção (pesos da taxonomia) + perfil de gosto (sinais) + prioridade − pulados nos últimos 14 dias. Sem gênero cadastrado só completa a lista, com motivo honesto. O "por que isso" sai dos mesmos fatores.
+- **"Como estou"** (RNF-06/07): o texto só existe em memória (risco + `interpretMood`); o banco guarda a intenção estruturada em `recommendation_runs`, e nada quando há risco (só `risk_shown`). Risco devolve o acolhimento com CVV 188 e zero sugestões até `continueAfterRisk`. `AI_MODE=rules` (padrão) é local; `anthropic` ainda cai nas regras; `off` desliga o modo.
+- **Seed**: `pnpm seed:demo -- --email <email> [--password <senha>]` insere 32 títulos com gêneros escritos pelo time (`enrichment: demo`, nada do TMDB), 3 listas (a "Maratona" já em andamento) e notas. Idempotente e não apaga nada.
 

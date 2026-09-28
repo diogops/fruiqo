@@ -1,10 +1,11 @@
 import type { CandidateDecisionValue, PipelineMode, Resolution } from '@fruiqo/contracts';
-import { and, eq, inArray, ne } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, or } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { type Db, type Tx, withUser } from '../db/client.js';
-import { candidateDecisions, pipelineStepLogs, recommendations, seenPages, shares, type ShareRow } from '../db/schema.js';
+import { candidateDecisions, listItems, lists, pipelineStepLogs, recommendations, seenPages, shares, type ShareRow } from '../db/schema.js';
 import type { ShareJob } from '../queue/queue.js';
 import { dedupKey, mergePages, pageHash } from './dedup.js';
+import { listNameFromOcr } from '../library/list-name.js';
 import { LlmUnavailableError } from './extractors/anthropic.js';
 import { GatewayError } from './gateway.js';
 import { MAX_LIST_ITEMS } from './extractors/list.js';
@@ -68,6 +69,8 @@ interface FinishResult {
   extractor?: 'llm' | 'heuristic';
   candidates?: Candidate[];
   pagesIgnored?: number;
+  /** shares de prints: nome da lista gerada automaticamente com os itens catalogados (RF-26) */
+  listName?: string;
 }
 
 /**
@@ -222,7 +225,8 @@ export class ShareProcessor {
       log,
     );
     const candidates = await this.resolveAndDecide(job, items, rec, log);
-    await this.finish(job, rec, { status: 'done', source, extractor, candidates, pagesIgnored });
+    const listName = listNameFromOcr(merged, items.map((i) => i.title), new Date());
+    await this.finish(job, rec, { status: 'done', source, extractor, candidates, pagesIgnored, listName });
   }
 
   /**
@@ -320,7 +324,8 @@ export class ShareProcessor {
                         recommendations.dedupKey,
                         unique.map((u) => u.key),
                       ),
-                      ne(recommendations.shareId, job.shareId),
+                      // título do seed/manual tem share_id nulo e também conta como "já na lista"
+                      or(isNull(recommendations.shareId), ne(recommendations.shareId, job.shareId)),
                     ),
                   );
                 return new Set(rows.map((r) => r.key));
@@ -394,6 +399,10 @@ export class ShareProcessor {
         await tx.delete(seenPages).where(eq(seenPages.firstShareId, job.shareId));
       }
 
+      if (result.status === 'done' && result.listName) {
+        await this.createListFromPrints(tx, job, result, result.listName, now);
+      }
+
       if (rec) {
         for (const c of result.candidates ?? []) {
           rec.decide({ rawTitle: c.item.title, kind: c.item.kind, confidenceScore: c.item.confidence, decision: c.decision, reason: c.reason, dedupKey: c.key });
@@ -420,6 +429,28 @@ export class ShareProcessor {
         })
         .where(eq(shares.id, job.shareId));
     });
+  }
+
+  /**
+   * RF-26: share de prints com ≥ 2 itens catalogados vira uma lista, na ordem extraída. Inclui itens
+   * que o usuário já tinha (a lista representa o post). Retry do job substitui a lista do share.
+   */
+  private async createListFromPrints(tx: Tx, job: ShareJob, result: FinishResult, name: string, now: Date) {
+    await tx.delete(lists).where(eq(lists.sourceShareId, job.shareId));
+    const keys = (result.candidates ?? []).filter((c) => c.decision === 'cataloged').map((c) => c.key);
+    if (keys.length < 2) return;
+    const rows = await tx
+      .select({ id: recommendations.id, key: recommendations.dedupKey })
+      .from(recommendations)
+      .where(and(inArray(recommendations.dedupKey, keys), eq(recommendations.decision, 'cataloged')));
+    const idByKey = new Map(rows.map((r) => [r.key, r.id]));
+    const ids = [...new Set(keys.map((k) => idByKey.get(k)).filter((id): id is string => Boolean(id)))];
+    if (ids.length < 2) return;
+    const [list] = await tx
+      .insert(lists)
+      .values({ userId: job.userId, name, sourceShareId: job.shareId, createdAt: now, updatedAt: now })
+      .returning({ id: lists.id });
+    await tx.insert(listItems).values(ids.map((recommendationId, position) => ({ listId: list!.id, recommendationId, userId: job.userId, position })));
   }
 
   /** Grava só as etapas (usado quando o processamento lança e o job vai ser tentado de novo). */

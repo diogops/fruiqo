@@ -22,7 +22,7 @@ function Gate() {
     } else if (authStatus === 'signedOut') {
       if (current !== 'login' && current !== 'about') router.replace('/login');
     } else if (current === 'consent' || current === 'login' || current === undefined) {
-      router.replace('/inbox');
+      router.replace('/home');
     }
   }, [ready, consented, authStatus, current, router]);
 
@@ -44,9 +44,11 @@ function Root() {
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="consent" options={{ title: 'Antes de começar', headerBackVisible: false }} />
         <Stack.Screen name="login" options={{ title: 'Entrar', headerBackVisible: false }} />
-        <Stack.Screen name="inbox" options={{ title: 'Fruiqo', headerBackVisible: false }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="discover" options={{ title: 'Sugestões' }} />
+        <Stack.Screen name="title/[id]" options={{ title: 'Título' }} />
+        <Stack.Screen name="list/[id]" options={{ title: 'Lista' }} />
         <Stack.Screen name="share/[id]" options={{ title: 'Compartilhamento' }} />
-        <Stack.Screen name="settings" options={{ title: 'Configurações' }} />
         <Stack.Screen name="about" options={{ title: 'Sobre' }} />
       </Stack>
       <Gate />

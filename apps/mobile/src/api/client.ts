@@ -1,7 +1,18 @@
 // Cliente HTTP da API do Fruiqo. Valida toda resposta com os schemas de @fruiqo/contracts.
 // Access token fica só em memória; refresh token fica no Keychain/Keystore via expo-secure-store (SEC-REQ-08).
 import {
+  type CreateListRequest,
   type CreateShareRequest,
+  type DiscoverRequest,
+  type DiscoverResponse,
+  type FeedbackRequest,
+  type FeedbackResponse,
+  type HomeResponse,
+  type LibraryResponse,
+  type ListDetail,
+  type ListSummary,
+  type Title,
+  type UpdateTitleRequest,
   type LoginRequest,
   type RegisterRequest,
   type Session,
@@ -9,9 +20,17 @@ import {
   type ShareListResponse,
   type TokenPair,
   ApiErrorSchema,
+  DiscoverResponseSchema,
+  FeedbackResponseSchema,
+  HomeResponseSchema,
+  LibraryResponseSchema,
+  ListDetailSchema,
+  ListSummarySchema,
   SessionSchema,
   ShareListResponseSchema,
   ShareSchema,
+  TitleConflictErrorSchema,
+  TitleSchema,
   TokenPairSchema,
 } from '@fruiqo/contracts';
 import * as SecureStore from 'expo-secure-store';
@@ -27,6 +46,8 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    /** 409 de PATCH /library/:id: id do título com que o novo nome/tipo colide */
+    readonly conflictWith?: string,
   ) {
     super(message);
   }
@@ -73,7 +94,12 @@ async function rawFetch(path: string, init: RequestInit & { auth?: boolean } = {
 }
 
 async function toApiError(res: Response): Promise<ApiError> {
-  const body = ApiErrorSchema.safeParse(await res.json().catch(() => null));
+  const json: unknown = await res.json().catch(() => null);
+  const conflict = TitleConflictErrorSchema.safeParse(json);
+  if (res.status === 409 && conflict.success) {
+    return new ApiError(409, 'conflict', conflict.data.message, conflict.data.conflictWith);
+  }
+  const body = ApiErrorSchema.safeParse(json);
   return body.success
     ? new ApiError(res.status, body.data.error, body.data.message)
     : new ApiError(res.status, 'http_error', `Erro ${res.status} no servidor.`);
@@ -156,3 +182,42 @@ export const getShare = (id: string): Promise<Share> => request(`/shares/${encod
 
 export const deleteShare = (id: string) =>
   request(`/shares/${encodeURIComponent(id)}`, z.unknown(), { method: 'DELETE' });
+
+// ---------- Catálogo, listas e home (RF-26, RF-31..RF-37) ----------
+
+const json = (body: unknown): RequestInit => ({ body: JSON.stringify(body) });
+
+export const getHome = (): Promise<HomeResponse> => request('/home', HomeResponseSchema);
+
+/** O texto do "Como estou" só trafega nesta chamada; o app não o guarda (RNF-06). */
+export const discover = (body: DiscoverRequest): Promise<DiscoverResponse> =>
+  request('/discover', DiscoverResponseSchema, { method: 'POST', ...json(body) });
+
+export const sendFeedback = (body: FeedbackRequest): Promise<FeedbackResponse> =>
+  request('/feedback', FeedbackResponseSchema, { method: 'POST', ...json(body) });
+
+export function getLibrary(query: Record<string, string | undefined> = {}): Promise<LibraryResponse> {
+  const qs = Object.entries(query)
+    .filter((e): e is [string, string] => e[1] !== undefined && e[1] !== '')
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join('&');
+  return request(qs ? `/library?${qs}` : '/library', LibraryResponseSchema);
+}
+
+export const getTitle = (id: string): Promise<Title> => request(`/library/${encodeURIComponent(id)}`, TitleSchema);
+
+export const updateTitle = (id: string, body: UpdateTitleRequest): Promise<Title> =>
+  request(`/library/${encodeURIComponent(id)}`, TitleSchema, { method: 'PATCH', ...json(body) });
+
+export const listLists = (): Promise<ListSummary[]> => request('/lists', z.array(ListSummarySchema));
+
+export const createList = (body: CreateListRequest): Promise<ListSummary> =>
+  request('/lists', ListSummarySchema, { method: 'POST', ...json(body) });
+
+export const getList = (id: string): Promise<ListDetail> => request(`/lists/${encodeURIComponent(id)}`, ListDetailSchema);
+
+export const reorderList = (id: string, titleIds: string[]): Promise<ListDetail> =>
+  request(`/lists/${encodeURIComponent(id)}/items`, ListDetailSchema, { method: 'PUT', ...json({ titleIds }) });
+
+export const deleteList = (id: string) =>
+  request(`/lists/${encodeURIComponent(id)}`, z.unknown(), { method: 'DELETE' });

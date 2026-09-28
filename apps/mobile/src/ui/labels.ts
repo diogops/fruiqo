@@ -1,4 +1,4 @@
-import type { Share } from '@fruiqo/contracts';
+import type { Recommendation, Share, TitleStatus } from '@fruiqo/contracts';
 
 const PLATFORM_LABEL: Record<Share['source']['platform'], string> = {
   youtube: 'YouTube',
@@ -23,4 +23,44 @@ export function sourceTitle(source: Share['source']): string {
 
 export function plural(n: number, singular: string, pluralForm: string): string {
   return `${n} ${n === 1 ? singular : pluralForm}`;
+}
+
+// ---------- Catálogo ----------
+
+
+export const KIND_LABEL: Record<Recommendation['kind'], string> = {
+  movie: 'Filme',
+  series: 'Série',
+  music_track: 'Música',
+  music_album: 'Álbum',
+  artist: 'Artista',
+  other: 'Outro',
+};
+
+export const TITLE_STATUS_LABEL: Record<TitleStatus, string> = {
+  to_watch: 'Quero ver',
+  watching: 'Assistindo',
+  watched: 'Assisti',
+  dropped: 'Abandonei',
+};
+
+/** 0 baixa · 1 normal · 2 alta · 3 urgente (TitlePrioritySchema) */
+export const PRIORITY_LABEL = ['Baixa', 'Normal', 'Alta', 'Urgente'] as const;
+
+/** Motivos de feedback em uma palavra (RF-37); chaves de REASON_TAGS da taxonomia. */
+export const REASON_OPTIONS: { key: string; label: string }[] = [
+  { key: 'too_heavy', label: 'Pesado demais' },
+  { key: 'seen_it', label: 'Já vi' },
+  { key: 'not_in_mood', label: 'Não estou no clima' },
+  { key: 'too_long', label: 'Longo demais' },
+  { key: 'too_slow', label: 'Lento' },
+  { key: 'not_my_genre', label: 'Não é meu gênero' },
+  { key: 'not_available', label: 'Não tenho onde ver' },
+];
+
+/** "Filme · 2023 · Comédia, Romance" */
+export function titleMeta(t: { kind: Recommendation['kind']; year?: number; genres: { label: string }[] }): string {
+  return [KIND_LABEL[t.kind], t.year, t.genres.map((g) => g.label).join(', ') || undefined]
+    .filter(Boolean)
+    .join(' · ');
 }

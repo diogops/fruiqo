@@ -95,9 +95,8 @@ export const recommendations = pgTable(
   'recommendations',
   {
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-    shareId: uuid('share_id')
-      .notNull()
-      .references(() => shares.id, { onDelete: 'cascade' }),
+    /** null em título do seed de demonstração ou adicionado à mão (não veio de um share) */
+    shareId: uuid('share_id').references(() => shares.id, { onDelete: 'cascade' }),
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
@@ -117,10 +116,24 @@ export const recommendations = pgTable(
     /** RF-19/RF-28: só 'cataloged' é catálogo; 'review_queue' espera revisão. Descartados não viram linha aqui. */
     decision: text('decision', { enum: ['cataloged', 'review_queue'] }).notNull().default('cataloged'),
     decisionReason: text('decision_reason'),
+    // ---- catálogo (a recomendação catalogada é o "título" do usuário; ver README) ----
+    status: text('status', { enum: ['to_watch', 'watching', 'watched', 'dropped'] }).notNull().default('to_watch'),
+    /** 0 baixa · 1 normal · 2 alta · 3 urgente */
+    priority: integer('priority').notNull().default(1),
+    rating: integer('rating'),
+    notes: text('notes'),
+    /** chaves de gênero da taxonomia (@fruiqo/taxonomy) */
+    genres: text('genres').array().notNull().default(sql`'{}'::text[]`),
+    /** atributos derivados explícitos (heavy, sad_ending…) quando conhecidos */
+    attributes: text('attributes').array().notNull().default(sql`'{}'::text[]`),
+    runtimeMin: integer('runtime_min'),
+    enrichment: text('enrichment', { enum: ['none', 'tmdb', 'demo', 'manual'] }).notNull().default('none'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index('recommendations_share_idx').on(t.shareId),
+    index('recommendations_user_status_idx').on(t.userId, t.status),
     uniqueIndex('recommendations_user_dedup_key').on(t.userId, t.dedupKey),
   ],
 );
@@ -197,5 +210,105 @@ export const candidateDecisions = pgTable(
   (t) => [index('candidate_decisions_share_idx').on(t.shareId)],
 );
 
+/** Listas do usuário (RF-26/31). `source_share_id`: gerada automaticamente a partir de um share de prints. */
+export const lists = pgTable(
+  'lists',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    sourceShareId: uuid('source_share_id').references(() => shares.id, { onDelete: 'set null' }),
+    pinned: boolean('pinned').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('lists_user_idx').on(t.userId)],
+);
+
+export const listItems = pgTable(
+  'list_items',
+  {
+    listId: uuid('list_id')
+      .notNull()
+      .references(() => lists.id, { onDelete: 'cascade' }),
+    recommendationId: uuid('recommendation_id')
+      .notNull()
+      .references(() => recommendations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.listId, t.recommendationId] }), index('list_items_rec_idx').on(t.recommendationId)],
+);
+
+/** RF-34: sinais que formam o perfil de gosto (incremental; o perfil é calculado a partir deles). */
+export const tasteSignals = pgTable(
+  'taste_signals',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    recommendationId: uuid('recommendation_id').references(() => recommendations.id, { onDelete: 'cascade' }),
+    signal: text('signal', {
+      enum: ['watched', 'rated', 'dropped', 'added_to_list', 'accepted', 'skipped'],
+    }).notNull(),
+    /** rating (1–5) para `rated`; 1 para os demais */
+    value: real('value').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('taste_signals_user_idx').on(t.userId, t.createdAt)],
+);
+
+/**
+ * RF-39: cada execução de recomendação. Guarda a intenção ESTRUTURADA e o ranking; o texto livre do
+ * "Como estou" nunca é gravado (RNF-06).
+ */
+export const recommendationRuns = pgTable(
+  'recommendation_runs',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    mode: text('mode', { enum: ['surprise', 'mood'] }).notNull(),
+    aiMode: text('ai_mode', { enum: ['off', 'rules', 'anthropic'] }).notNull(),
+    /** MoodIntent (mood) ou { subgenre | genre } (surprise) */
+    intent: jsonb('intent').$type<Record<string, unknown>>(),
+    riskShown: boolean('risk_shown').notNull().default(false),
+    candidateCount: integer('candidate_count').notNull().default(0),
+    /** ranking completo (id, score, motivo) para "outra coisa" sem recalcular */
+    ranked: jsonb('ranked').$type<{ id: string; score: number; reason: string }[]>().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('recommendation_runs_user_idx').on(t.userId, t.createdAt)],
+);
+
+export const recommendationFeedback = pgTable(
+  'recommendation_feedback',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => recommendationRuns.id, { onDelete: 'cascade' }),
+    recommendationId: uuid('recommendation_id')
+      .notNull()
+      .references(() => recommendations.id, { onDelete: 'cascade' }),
+    action: text('action', { enum: ['accept', 'skip', 'another'] }).notNull(),
+    reasonTag: text('reason_tag'),
+    reasonText: text('reason_text'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('recommendation_feedback_user_idx').on(t.userId, t.createdAt)],
+);
+
 export type ShareRow = typeof shares.$inferSelect;
 export type RecommendationRow = typeof recommendations.$inferSelect;
+export type ListRow = typeof lists.$inferSelect;

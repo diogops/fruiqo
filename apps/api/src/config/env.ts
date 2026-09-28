@@ -41,6 +41,8 @@ const EnvSchema = z.object({
   LLM_DAILY_QUOTA: z.coerce.number().int().min(0).default(50),
   LLM_MAX_INPUT_CHARS: z.coerce.number().int().min(200).max(20_000).default(4000),
   ANTHROPIC_API_KEY: optionalSecret,
+  /** D-06: interpretador do "Como estou". `rules` é local (padrão); `anthropic` ainda cai em `rules` (2d); `off` desliga o modo */
+  AI_MODE: z.enum(['off', 'rules', 'anthropic']).default('rules'),
 
   TMDB_API_KEY: optionalSecret,
   SPOTIFY_CLIENT_ID: optionalSecret,

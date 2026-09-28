@@ -28,6 +28,7 @@ pnpm db:migrate                             # aplica migrações Drizzle com o o
 pnpm dev                                    # HTTP em 0.0.0.0:4000 (a 3000 é usada por outro projeto na máquina)
 pnpm dev:worker                             # worker BullMQ
 pnpm test                                   # vitest; integração usa o Postgres/Redis locais (cria o banco de teste)
+pnpm seed:demo -- --email dev@fruiqo.test   # títulos/listas de demonstração (RF-17), sem apagar nada
 npx vitest run test/unit/normalize.test.ts  # um arquivo
 npx vitest run -t "nome do teste"           # um teste
 
@@ -54,6 +55,7 @@ O app usa módulo nativo (`expo-share-intent`), então **não roda no Expo Go**:
 - **Multi-tenancy por RLS** (SEC-REQ-16): a app conecta como `fruiqo_app`, que não é dona das tabelas, e as policies usam `app.user_id`. Todo acesso a dados de usuário passa por `withUser()`. O login usa a função `auth_lookup_user` (SECURITY DEFINER). Nunca consulte tabelas de usuário fora de `withUser()`.
 - `apps/mobile` (Expo SDK 57 + Expo Router): `app/_layout.tsx` redireciona consentimento → login → inbox. O share recebido vira `CreateShareRequest` em `src/share/`, com `clientShareId` para idempotência. O cliente em `src/api/client.ts` guarda o access token em memória e o refresh token no secure-store, com rotação em 401.
 - **Prints de tela**: o OCR roda no aparelho (`expo-text-extractor`: ML Kit/Vision; TOS-REQ-21) e só o texto vai à API, em `pages`. A imagem nunca sai do celular. Não repetir itens é regra do produto, garantida no backend em três níveis: hash da página por usuário (`seen_pages`), mescla de linhas sobrepostas entre prints do mesmo share, e índice único `(user_id, dedup_key)` em `recommendations`. A normalização das chaves e a lista de ruído de UI ficam em `apps/api/src/pipeline/`.
+- **Catálogo e recomendação** (`apps/api/src/library/`): `recommendations` é o catálogo do usuário (status, prioridade, nota, gêneros da taxonomia). Home/"Continuar", "Surpreenda-me" e "Como estou" usam ranking local e determinístico (`ranking.ts`); o texto do "Como estou" nunca é persistido nem logado (RNF-06), e risco (RNF-07) responde com CVV e sem sugestões.
 - `patches/expo-share-intent@8.0.1.patch` (registrado em `pnpm-workspace.yaml`) corrige no plugin o crash com cursor vazio (F-01) e o uso do caminho absoluto em vez da `content://` (F-02, EACCES no OCR). Mantenha o patch ao atualizar o plugin.
 
 ## Regras que valem para qualquer mudança

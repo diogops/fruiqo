@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:unit": "vitest run test/unit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "eval": "tsc -p tsconfig.build.json && node dist/eval/run-eval.js"
+    "eval": "tsc -p tsconfig.build.json && node dist/eval/run-eval.js",
+    "seed:demo": "node --env-file=.env --import tsx scripts/seed-demo.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

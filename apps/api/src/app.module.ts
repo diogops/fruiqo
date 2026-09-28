@@ -21,6 +21,8 @@ import { pinoParams } from './common/logger.js';
 import { ENV, type Env } from './config/env.js';
 import { createDb, DB } from './db/client.js';
 import { createShareQueue, SHARE_QUEUE_TOKEN, type ShareJob } from './queue/queue.js';
+import { HomeController, LibraryController, ListsController } from './library/library.controller.js';
+import { LibraryService } from './library/library.service.js';
 import { SharesController } from './shares/shares.controller.js';
 import { SharesService } from './shares/shares.service.js';
 
@@ -77,10 +79,11 @@ export class AppModule {
         LoggerModule.forRoot(pinoParams(env)),
         ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
       ],
-      controllers: [HealthController, AuthController, SharesController],
+      controllers: [HealthController, AuthController, SharesController, LibraryController, ListsController, HomeController],
       providers: [
         AuthService,
         SharesService,
+        LibraryService,
         { provide: APP_GUARD, useClass: ThrottlerGuard },
         { provide: APP_GUARD, useClass: AuthGuard },
         { provide: APP_FILTER, useClass: HttpExceptionFilter },

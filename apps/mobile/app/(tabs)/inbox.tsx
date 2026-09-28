@@ -1,13 +1,13 @@
 import type { Share } from '@fruiqo/contracts';
-import { Stack, useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
 
-import { listShares } from '../src/api/client';
-import { ImportPrints } from '../src/share/ImportPrints';
-import { StatusBadge } from '../src/ui/components';
-import { sourceLabel, sourceTitle } from '../src/ui/labels';
-import { colors, ui } from '../src/ui/theme';
+import { listShares } from '../../src/api/client';
+import { ImportPrints } from '../../src/share/ImportPrints';
+import { StatusBadge } from '../../src/ui/components';
+import { sourceLabel, sourceTitle } from '../../src/ui/labels';
+import { ui } from '../../src/ui/theme';
 
 const POLL_MS = 4000;
 
@@ -56,15 +56,6 @@ export default function Inbox() {
 
   return (
     <View style={ui.screen}>
-      <Stack.Screen
-        options={{
-          headerRight: () => (
-            <Text style={{ color: colors.primary, fontSize: 16 }} onPress={() => router.push('/settings')}>
-              Ajustes
-            </Text>
-          ),
-        }}
-      />
       <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
         <ImportPrints />
       </View>

@@ -3,15 +3,17 @@ import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, ScrollView, Text, View } from 'react-native';
 
-import { API_URL, listSessions, revokeSession } from '../src/api/client';
-import { useAppState } from '../src/state/AppState';
-import { Button } from '../src/ui/components';
-import { ui } from '../src/ui/theme';
+import { API_URL, listSessions, revokeSession } from '../../src/api/client';
+import { useMoodOptIn } from '../../src/discover/moodOptIn';
+import { useAppState } from '../../src/state/AppState';
+import { Button } from '../../src/ui/components';
+import { ui } from '../../src/ui/theme';
 
 // Sessões listáveis e revogáveis (SEC-REQ-22).
 export default function Settings() {
   const { signOut } = useAppState();
   const router = useRouter();
+  const moodOptIn = useMoodOptIn();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,6 +66,15 @@ export default function Settings() {
           <Button title="Encerrar" variant="secondary" onPress={() => revoke(s)} />
         </View>
       ))}
+      <Text style={ui.h2}>Como estou</Text>
+      <Text style={ui.muted}>
+        {moodOptIn.accepted
+          ? 'Ativado. O texto que você escreve não é guardado, só a intenção interpretada.'
+          : 'Desativado. Ao usar pela primeira vez, pedimos sua autorização.'}
+      </Text>
+      {moodOptIn.accepted && (
+        <Button title="Desativar o Como estou" variant="secondary" onPress={() => void moodOptIn.revoke()} />
+      )}
       <Button title="Sobre e créditos" variant="secondary" onPress={() => router.push('/about')} />
       <Button title="Sair" variant="danger" onPress={() => void signOut()} />
       <Text style={ui.muted}>Servidor: {API_URL}</Text>

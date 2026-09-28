@@ -209,6 +209,251 @@ export const ShareStepsResponseSchema = z.object({
 });
 export type ShareStepsResponse = z.infer<typeof ShareStepsResponseSchema>;
 
+// ---------- Catálogo, listas e home (RF-24/26/31..37) ----------
+// Chaves de gênero/subgênero/intenção vêm de `@fruiqo/taxonomy` (validadas na API). Aqui ficam como
+// string para o contrato não depender do pacote de taxonomia (o app só exibe `label`).
+
+export const TitleStatusSchema = z.enum(['to_watch', 'watching', 'watched', 'dropped']);
+export type TitleStatus = z.infer<typeof TitleStatusSchema>;
+
+/** 0 baixa · 1 normal · 2 alta · 3 urgente */
+export const TitlePrioritySchema = z.number().int().min(0).max(3);
+
+export const EnrichmentSchema = z.enum(['none', 'tmdb', 'demo', 'manual']);
+export type Enrichment = z.infer<typeof EnrichmentSchema>;
+
+export const TaxonomyTagSchema = z.object({ key: z.string(), label: z.string() });
+export type TaxonomyTag = z.infer<typeof TaxonomyTagSchema>;
+
+export const TitleListRefSchema = z.object({ id: z.uuid(), name: z.string() });
+
+/** Item do catálogo do usuário (é a recomendação catalogada, com o estado de consumo). */
+export const TitleSchema = z.object({
+  id: z.uuid(),
+  kind: RecommendationKindSchema,
+  title: z.string(),
+  creator: z.string().optional(),
+  year: z.number().int().optional(),
+  status: TitleStatusSchema,
+  priority: TitlePrioritySchema,
+  rating: z.number().int().min(1).max(5).optional(),
+  notes: z.string().optional(),
+  genres: z.array(TaxonomyTagSchema),
+  /** derivados dos gêneros pela regra R da taxonomia */
+  subgenres: z.array(TaxonomyTagSchema),
+  runtimeMin: z.number().int().optional(),
+  enrichment: EnrichmentSchema,
+  decision: z.enum(['cataloged', 'review_queue']),
+  confidence: z.number().min(0).max(1),
+  extractor: z.enum(['llm', 'heuristic']),
+  resolution: ResolutionSchema.optional(),
+  /** share de origem; null em título do seed/adição manual */
+  shareId: z.uuid().nullable(),
+  lists: z.array(TitleListRefSchema),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type Title = z.infer<typeof TitleSchema>;
+
+export const LibrarySortSchema = z.enum(['priority', 'recent', 'title']);
+
+/** Query string de GET /library (valores chegam como string). */
+export const LibraryQuerySchema = z.object({
+  status: TitleStatusSchema.optional(),
+  kind: RecommendationKindSchema.optional(),
+  genre: z.string().max(32).optional(),
+  listId: z.uuid().optional(),
+  q: z.string().trim().min(1).max(100).optional(),
+  sort: LibrarySortSchema.default('priority'),
+  cursor: z.string().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+export type LibraryQuery = z.infer<typeof LibraryQuerySchema>;
+
+export const LibraryResponseSchema = z.object({
+  items: z.array(TitleSchema),
+  nextCursor: z.string().nullable(),
+});
+export type LibraryResponse = z.infer<typeof LibraryResponseSchema>;
+
+export const UpdateTitleRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200).optional(),
+    kind: RecommendationKindSchema.optional(),
+    year: z.number().int().min(1870).max(2100).nullable().optional(),
+    creator: z.string().trim().max(200).nullable().optional(),
+    status: TitleStatusSchema.optional(),
+    priority: TitlePrioritySchema.optional(),
+    rating: z.number().int().min(1).max(5).nullable().optional(),
+    notes: z.string().max(500).nullable().optional(),
+    /** gêneros manuais (chaves da taxonomia); marca `enrichment = manual` */
+    genres: z.array(z.string().max(32)).max(6).optional(),
+  })
+  .strict()
+  .refine((v) => Object.keys(v).length > 0, { message: 'nada para alterar' });
+export type UpdateTitleRequest = z.infer<typeof UpdateTitleRequestSchema>;
+
+/** 409 de PATCH /library/:id quando o novo título/tipo colide com outro item do usuário. */
+export const TitleConflictErrorSchema = z.object({
+  error: z.literal('conflict'),
+  message: z.string(),
+  conflictWith: z.uuid(),
+});
+export type TitleConflictError = z.infer<typeof TitleConflictErrorSchema>;
+
+export const ListSummarySchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  /** share de prints que gerou a lista automaticamente */
+  sourceShareId: z.uuid().nullable(),
+  pinned: z.boolean(),
+  itemCount: z.number().int().min(0),
+  /** assistidos + abandonados (contam como resolvidos no progresso) */
+  doneCount: z.number().int().min(0),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type ListSummary = z.infer<typeof ListSummarySchema>;
+
+export const ListDetailSchema = ListSummarySchema.extend({ items: z.array(TitleSchema) });
+export type ListDetail = z.infer<typeof ListDetailSchema>;
+
+export const CreateListRequestSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80),
+    titleIds: z.array(z.uuid()).max(500).optional(),
+  })
+  .strict();
+export type CreateListRequest = z.infer<typeof CreateListRequestSchema>;
+
+export const ReorderListRequestSchema = z.object({ titleIds: z.array(z.uuid()).max(500) }).strict();
+export type ReorderListRequest = z.infer<typeof ReorderListRequestSchema>;
+
+export const HomeContinueSchema = z.object({
+  list: ListSummarySchema,
+  next: TitleSchema,
+  progress: z.object({ done: z.number().int().min(0), total: z.number().int().min(1) }),
+});
+export type HomeContinue = z.infer<typeof HomeContinueSchema>;
+
+export const HomePresetSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  kind: z.enum(['subgenre', 'genre']),
+  /** quantos títulos "para ver" da biblioteca combinam com o preset */
+  available: z.number().int().min(0),
+});
+export type HomePreset = z.infer<typeof HomePresetSchema>;
+
+export const AiModeSchema = z.enum(['off', 'rules', 'anthropic']);
+export type AiMode = z.infer<typeof AiModeSchema>;
+
+export const HomeResponseSchema = z.object({
+  continue: HomeContinueSchema.nullable(),
+  presets: z.array(HomePresetSchema),
+  stats: z.object({
+    toWatch: z.number().int().min(0),
+    watching: z.number().int().min(0),
+    watched: z.number().int().min(0),
+    total: z.number().int().min(0),
+    withoutGenre: z.number().int().min(0),
+  }),
+  /** modo do interpretador do "Como estou" (`off` = modo desabilitado) */
+  aiMode: AiModeSchema,
+});
+export type HomeResponse = z.infer<typeof HomeResponseSchema>;
+
+export const DiscoverKindSchema = z.enum(['movie', 'series', 'music']);
+
+export const DiscoverRequestSchema = z.discriminatedUnion('mode', [
+  z
+    .object({
+      mode: z.literal('surprise'),
+      /** chave de subgênero OU de gênero da taxonomia */
+      subgenre: z.string().max(32).optional(),
+      genre: z.string().max(32).optional(),
+      kinds: z.array(DiscoverKindSchema).max(3).optional(),
+    })
+    .strict()
+    .refine((v) => Boolean(v.subgenre) !== Boolean(v.genre), { message: 'informe subgenre ou genre' }),
+  z
+    .object({
+      mode: z.literal('mood'),
+      /** texto do "Como estou" (RNF-06): nunca é persistido nem logado; só a intenção estruturada */
+      text: z.string().trim().min(1).max(500),
+      /** o usuário viu o acolhimento de risco (RNF-07) e escolheu continuar */
+      continueAfterRisk: z.boolean().optional(),
+      kinds: z.array(DiscoverKindSchema).max(3).optional(),
+    })
+    .strict(),
+]);
+export type DiscoverRequest = z.infer<typeof DiscoverRequestSchema>;
+
+/** Intenção estruturada (espelho de MoodIntent da taxonomia; sem o texto do usuário). */
+export const MoodIntentViewSchema = z.object({
+  need: z.string(),
+  needLabel: z.string(),
+  avoid: z.array(z.string()),
+  tone: z.array(z.string()),
+  energy: z.string(),
+  kinds: z.array(z.string()),
+  maxRuntimeMin: z.number().int().optional(),
+  message: z.string().optional(),
+});
+export type MoodIntentView = z.infer<typeof MoodIntentViewSchema>;
+
+export const SuggestionSchema = z.object({
+  title: TitleSchema,
+  score: z.number(),
+  /** "por que isso" (RF-36), gerado localmente a partir dos fatores do ranking */
+  reason: z.string(),
+  /** RF-35: por enquanto só a biblioteca do usuário; descoberta externa depende da Fase 0 */
+  source: z.literal('library'),
+});
+export type Suggestion = z.infer<typeof SuggestionSchema>;
+
+export const RiskSupportSchema = z.object({
+  title: z.string(),
+  message: z.string(),
+  cvvPhone: z.string(),
+  cvvUrl: z.url(),
+  emergencyPhone: z.string(),
+  continueLabel: z.string(),
+});
+export type RiskSupport = z.infer<typeof RiskSupportSchema>;
+
+export const DiscoverResponseSchema = z.object({
+  runId: z.uuid(),
+  mode: z.enum(['surprise', 'mood']),
+  aiMode: AiModeSchema,
+  intent: MoodIntentViewSchema.nullable(),
+  surprise: z.object({ key: z.string(), label: z.string(), kind: z.enum(['subgenre', 'genre']) }).nullable(),
+  /** RNF-07: quando presente, `suggestions` vem vazio até o usuário escolher continuar */
+  risk: RiskSupportSchema.nullable(),
+  suggestions: z.array(SuggestionSchema),
+  /** frase curta de abertura do resultado */
+  message: z.string().optional(),
+});
+export type DiscoverResponse = z.infer<typeof DiscoverResponseSchema>;
+
+export const FeedbackActionSchema = z.enum(['accept', 'skip', 'another']);
+export type FeedbackAction = z.infer<typeof FeedbackActionSchema>;
+
+export const FeedbackRequestSchema = z
+  .object({
+    runId: z.uuid(),
+    titleId: z.uuid(),
+    action: FeedbackActionSchema,
+    /** motivo em uma palavra (RF-37); chaves da taxonomia (`too_heavy`, `seen_it`…) */
+    reasonTag: z.string().max(32).optional(),
+    reasonText: z.string().trim().max(30).optional(),
+  })
+  .strict();
+export type FeedbackRequest = z.infer<typeof FeedbackRequestSchema>;
+
+export const FeedbackResponseSchema = z.object({ next: SuggestionSchema.nullable() });
+export type FeedbackResponse = z.infer<typeof FeedbackResponseSchema>;
+
 // ---------- Saída do LLM (validada no worker, fail-closed: SEC-REQ-05) ----------
 
 export const LlmExtractionSchema = z

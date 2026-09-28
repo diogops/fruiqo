@@ -26,6 +26,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
           : typeof (response as { message?: unknown }).message === 'string'
             ? (response as { message: string }).message
             : exception.message;
+      // 409 de PATCH /library/:id (TitleConflictError): único campo extra repassado
+      const conflictWith = typeof response === 'object' ? (response as { conflictWith?: unknown }).conflictWith : undefined;
+      if (status === HttpStatus.CONFLICT && typeof conflictWith === 'string') {
+        res.status(status).json({ error: 'conflict', message, conflictWith });
+        return;
+      }
       const body: ApiError = { error: HttpStatus[status] ?? 'ERROR', message };
       res.status(status).json(body);
       return;
