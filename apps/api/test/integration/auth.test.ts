@@ -2,6 +2,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MAX_FAILED_LOGINS } from '../../src/auth/auth.service.js';
 import { PASSWORD, register, startTestApp, uniqueEmail } from './app.js';
 
+// Senha fixa só para os testes de falha de login (não é credencial real).
+const WRONG_PASSWORD = 'senha-errada-123456'; // gitleaks:allow
+
 let ctx: Awaited<ReturnType<typeof startTestApp>>;
 
 beforeAll(async () => {
@@ -70,7 +73,7 @@ describe('auth', () => {
   it(`bloqueia a conta após ${MAX_FAILED_LOGINS} senhas erradas, mesmo com a senha certa depois`, async () => {
     const { email } = await register(ctx.http);
     for (let i = 0; i < MAX_FAILED_LOGINS; i++) {
-      await ctx.http().post('/auth/login').send({ email, password: 'senha-errada-123456', deviceName: 'x' }).expect(401);
+      await ctx.http().post('/auth/login').send({ email, password: WRONG_PASSWORD, deviceName: 'x' }).expect(401);
     }
     const res = await ctx.http().post('/auth/login').send({ email, password: PASSWORD, deviceName: 'x' }).expect(401);
     expect(res.body.message).toMatch(/bloqueada/);
@@ -78,10 +81,10 @@ describe('auth', () => {
 
   it('mesma mensagem para e-mail inexistente e senha errada', async () => {
     const { email } = await register(ctx.http);
-    const wrong = await ctx.http().post('/auth/login').send({ email, password: 'senha-errada-123456', deviceName: 'x' });
+    const wrong = await ctx.http().post('/auth/login').send({ email, password: WRONG_PASSWORD, deviceName: 'x' });
     const missing = await ctx.http()
       .post('/auth/login')
-      .send({ email: uniqueEmail('nobody'), password: 'senha-errada-123456', deviceName: 'x' });
+      .send({ email: uniqueEmail('nobody'), password: WRONG_PASSWORD, deviceName: 'x' });
     expect(wrong.status).toBe(401);
     expect(missing.status).toBe(401);
     expect(missing.body).toEqual(wrong.body);
