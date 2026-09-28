@@ -125,7 +125,9 @@ export async function startWorker(env: Env): Promise<WorkerRuntime> {
       const res = await db.execute<{ tmdb_cleared: number; youtube_cleared: number }>(
         sql`select * from purge_expired_third_party_data()`,
       );
-      logger.info(res.rows[0] ?? {}, 'retenção aplicada');
+      // SEC-CTRL-50 (D-08): runs do "Como estou" saem em 90 dias (ou 1 dia sem "lembrar meu humor")
+      const mood = await db.execute<{ purge_expired_mood_runs: number }>(sql`select purge_expired_mood_runs()`);
+      logger.info({ ...(res.rows[0] ?? {}), moodRunsPurged: mood.rows[0]?.purge_expired_mood_runs ?? 0 }, 'retenção aplicada');
     },
     { connection },
   );

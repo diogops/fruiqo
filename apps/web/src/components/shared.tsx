@@ -179,7 +179,7 @@ function Summary({ value }: { value: Record<string, unknown> }) {
 export function StepsTable({ steps }: { steps: PipelineStep[] }) {
   if (steps.length === 0) return <p className="muted">Nenhuma etapa registrada.</p>;
   return (
-    <table className="table">
+    <table className="table steps-table">
       <thead>
         <tr>
           <th>#</th>
@@ -193,9 +193,11 @@ export function StepsTable({ steps }: { steps: PipelineStep[] }) {
       <tbody>
         {steps.map((s) => (
           <tr key={s.seq} className={s.error ? 'row-error' : undefined}>
-            <td>{s.seq}</td>
             <td>
-              {STEP_LABEL[s.step]}
+              <span className={s.error ? 'step-dot step-dot-error' : 'step-dot'}>{s.seq}</span>
+            </td>
+            <td>
+              <strong>{STEP_LABEL[s.step]}</strong>
               <div className="muted small">{s.mode}</div>
               {s.error && <div className="error small">{s.error}</div>}
             </td>

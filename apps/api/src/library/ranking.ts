@@ -17,7 +17,8 @@ export interface RankItem {
   id: string;
   kind: 'movie' | 'series' | 'music_track' | 'music_album' | 'artist' | 'other';
   status: 'to_watch' | 'watching' | 'watched' | 'dropped';
-  priority: number;
+  /** posição na fila de prioridade do usuário (1 = mais prioritário) */
+  rank: number;
   genres: GenreKey[];
   attributes: string[];
   runtimeMin: number | null;
@@ -120,8 +121,22 @@ function kindMatches(kind: RankItem['kind'], kinds: DiscoverKind[] | undefined):
 interface Scored extends Ranked {
   eligible: boolean;
   unknownGenre: boolean;
-  priority: number;
+  rank: number;
   createdAt: Date;
+}
+
+/**
+ * Bônus pela posição entre os candidatos, na ordem da fila: o 1º ganha +0,16 e cada posição seguinte
+ * perde um degrau até −0,08 na RANK_WINDOW-ésima (mesma faixa da antiga prioridade 0–3). O degrau é
+ * fixo (não depende de quantos candidatos há), então a prioridade pesa sem abafar a intenção nem a
+ * disponibilidade (RF-38).
+ */
+export const RANK_BOOST_TOP = 0.16;
+export const RANK_BOOST_BOTTOM = -0.08;
+export const RANK_WINDOW = 10;
+function rankBoost(index: number): number {
+  const step = (RANK_BOOST_TOP - RANK_BOOST_BOTTOM) / (RANK_WINDOW - 1);
+  return Math.max(RANK_BOOST_TOP - step * index, RANK_BOOST_BOTTOM);
 }
 
 function tasteScore(genres: GenreKey[], taste: RankContext['taste']): { value: number; top?: GenreKey } {
@@ -136,7 +151,7 @@ function tasteScore(genres: GenreKey[], taste: RankContext['taste']): { value: n
   return { value: sum / genres.length, ...(top ? { top } : {}) };
 }
 
-function scoreItem(item: RankItem, req: RankRequest, ctx: RankContext): Scored {
+function scoreItem(item: RankItem, req: RankRequest, ctx: RankContext, queueBoost: number): Scored {
   const genres = new Set(item.genres);
   const subgenres = new Set<string>(subgenresFromGenres(item.genres));
   const attrs = derivedAttributes(item);
@@ -190,7 +205,7 @@ function scoreItem(item: RankItem, req: RankRequest, ctx: RankContext): Scored {
   const taste = tasteScore(item.genres, ctx.taste);
   if (taste.top && taste.value > 0.2) factors.push({ weight: taste.value * 0.3, text: `você curte ${GENRE_LABEL.get(taste.top)!.toLowerCase()}` });
   if (item.status === 'watching') factors.push({ weight: 0.05, text: 'você já começou' });
-  if (item.priority >= 2) factors.push({ weight: 0.04, text: 'está com prioridade alta na sua lista' });
+  if (item.rank <= 3) factors.push({ weight: 0.04, text: `é o #${item.rank} da sua fila de prioridade` });
   const onServices = availableOn(item.providerKeys, ctx.subscriptions);
   const availability = availabilityPhrase(onServices, ctx.providerLabel);
   if (availability) factors.push({ weight: 0.12, text: availability });
@@ -199,7 +214,7 @@ function scoreItem(item: RankItem, req: RankRequest, ctx: RankContext): Scored {
   const score =
     fit +
     taste.value * 0.3 +
-    (item.priority - 1) * 0.08 +
+    queueBoost +
     (item.status === 'watching' ? 0.05 : 0) +
     (onServices.length > 0 ? AVAILABILITY_BOOST : 0) -
     (skipped ? 0.4 : 0);
@@ -212,7 +227,7 @@ function scoreItem(item: RankItem, req: RankRequest, ctx: RankContext): Scored {
     const unique = [...new Set(parts)].slice(0, 3);
     reason = unique.length > 0 ? capitalize(unique.join(' · ')) : 'Está na sua lista para ver';
   }
-  return { id: item.id, score: round(score), reason, eligible, unknownGenre, priority: item.priority, createdAt: item.createdAt };
+  return { id: item.id, score: round(score), reason, eligible, unknownGenre, rank: item.rank, createdAt: item.createdAt };
 }
 
 /** Mínimo de sugestões antes de completar com títulos sem gênero cadastrado. */
@@ -221,21 +236,22 @@ export const MIN_SUGGESTIONS = 3;
 /**
  * Candidatos = títulos para ver/em andamento do tipo pedido. Elegíveis (combinam com a intenção)
  * vêm primeiro; títulos sem gênero só completam a lista se houver menos de MIN_SUGGESTIONS.
- * Empates: prioridade, depois o mais antigo na lista, depois o id (determinístico).
+ * Empates: posição na fila de prioridade (menor primeiro), depois o id (determinístico).
  */
 export function rankTitles(items: RankItem[], req: RankRequest, ctx: RankContext): Ranked[] {
   const kinds = ctx.kinds ?? (req.mode === 'mood' && req.intent.kinds.length > 0 ? (req.intent.kinds as DiscoverKind[]) : undefined);
-  const scored = items
+  const candidates = items
     .filter((i) => (i.status === 'to_watch' || i.status === 'watching') && kindMatches(i.kind, kinds))
-    .map((i) => scoreItem(i, req, ctx));
-  const order = (a: Scored, b: Scored) =>
-    b.score - a.score || b.priority - a.priority || a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id);
+    .sort((a, b) => a.rank - b.rank || a.id.localeCompare(b.id));
+  const scored = candidates.map((i, index) => scoreItem(i, req, ctx, rankBoost(index)));
+  const byQueue = (a: Scored, b: Scored) => a.rank - b.rank || a.id.localeCompare(b.id);
+  const order = (a: Scored, b: Scored) => b.score - a.score || byQueue(a, b);
   const eligible = scored.filter((s) => s.eligible).sort(order);
   const fallback =
     eligible.length < MIN_SUGGESTIONS
       ? scored
           .filter((s) => s.unknownGenre)
-          .sort((a, b) => b.priority - a.priority || a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id))
+          .sort(byQueue)
       : [];
   return [...eligible, ...fallback].map(({ id, score, reason }) => ({ id, score, reason }));
 }

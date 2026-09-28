@@ -118,6 +118,14 @@ A migração `0002` faz o backfill da `dedup_key` em SQL, aproximando a normaliz
 - **"Como estou"** (RNF-06/07): o texto só existe em memória (risco + `interpretMood`); o banco guarda a intenção estruturada em `recommendation_runs`, e nada quando há risco (só `risk_shown`). Risco devolve o acolhimento com CVV 188 e zero sugestões até `continueAfterRisk`. `AI_MODE=rules` (padrão) é local; `anthropic` ainda cai nas regras; `off` desliga o modo.
 - **Seed**: `pnpm seed:demo -- --email <email> [--password <senha>]` insere 32 títulos com gêneros escritos pelo time (`enrichment: demo`, nada do TMDB), 3 listas (a "Maratona" já em andamento) e notas. Idempotente e não apaga nada.
 
+## Fila de prioridade (rank)
+
+- Cada título catalogado tem `rank` único e contínuo (1..N por usuário; 1 = mais prioritário). Itens da fila de revisão têm `rank = null` (CHECK `decision = 'cataloged' ⇔ rank IS NOT NULL`).
+- Estratégia: inteiro com renumeração transacional. Triggers (`0008_title_rank.sql`) põem títulos novos/aprovados **no fim da fila** e fecham buracos em remoções/saída do catálogo; `src/library/rank-queue.ts` faz as reordenações. Tudo sob `pg_advisory_xact_lock` por usuário; `UNIQUE (user_id, rank)` é `DEFERRABLE INITIALLY DEFERRED` para os deslocamentos.
+- `POST /library/:id/move` com `{to: top|bottom|up|down}` ou `{position}` → `{id, rank, total}` (409 para item em revisão). Bulk: `move_top`/`move_bottom` (desfazer restaura a fila inteira; 409 se ela mudou).
+- `GET /library` ordena por `rank` por padrão. No `/discover`, a posição entre os candidatos dá de +0,16 (1º) a −0,08 (10º em diante), em degraus fixos; empates pela fila.
+- A antiga prioridade 0–3 foi removida (backfill: prioridade decrescente, depois mais recente primeiro).
+
 ## Sistema web (Fase 2c)
 
 | Área | Rotas |
@@ -141,3 +149,12 @@ Decisões: o desfazer guarda um snapshot em `bulk_undo` (uso único, 10 min); de
 - **Ligar o TMDB**: coloque `TMDB_API_KEY` no `apps/api/.env` (chave v3 de 32 caracteres ou token v4/Bearer; o resolver detecta), `PIPELINE_MODE=live`, reinicie API e worker e rode o backfill. A chave fica só no servidor.
 - **Disponibilidade (RF-38)**: títulos disponíveis por assinatura nos serviços declarados em `/profile/subscriptions` ganham boost no `/discover` e preferência no "Continuar", com o motivo explícito ("disponível na Netflix, que você assina"). Sem assinatura cadastrada, sem boost.
 - **`AI_MODE`** (D-06): `rules` (padrão, local), `anthropic` (usa `AI_MODEL`, padrão `claude-haiku-4-5`, só com `ANTHROPIC_API_KEY`; sem chave continua nas regras) ou `off`. O LLM recebe só o texto digitado pelo usuário (`LlmSafeInput`), sem tools; a saída é validada pelo `MoodIntentSchema` e qualquer erro, recusa ou quota esgotada (`AI_DAILY_QUOTA`) cai para as regras. O detector de risco roda antes e, com risco, o LLM nunca é chamado. Cada execução grava intérprete, tokens e custo estimado (`AI_PRICE_*_PER_MTOK`) em `recommendation_runs`, nunca o texto.
+
+## Guarda TMDB × IA e privacidade do "Como estou" (D-07, D-08)
+
+- **D-07 (C-15)**: enquanto o TMDB não confirmar por escrito que um app com IA pode usar a API, a validação de env recusa subir com TMDB ativo (`TMDB_API_KEY` + `PIPELINE_MODE` ≠ `mock`) e qualquer IA ligada (`LLM_ENABLED=true` ou `AI_MODE=anthropic`). `TMDB_AI_CLEARANCE=confirmed` libera, e só deve ser definido após a resposta (`docs/phase0/tmdb-consulta-C15.md`). Em `mock` (testes/eval) a guarda não se aplica.
+- **ARB-REQ-06**: teste de arquitetura (`test/unit/d07-guard.test.ts`) garante que os módulos de LLM não importam nada de catálogo/TMDB/Spotify e que o prompt do "Como estou" é só `<user_text>`.
+- **`user_settings`** (RLS FORCE; sem linha = tudo `false`), via `GET/PATCH /profile/settings`:
+  - `remember_mood` (SEC-CTRL-50): sem ele, o run do "Como estou" guarda só o ranking (para "outra coisa") e sai em 1 dia; com ele, a intenção estruturada fica até 90 dias (`purge_expired_mood_runs()`, no job de retenção). Desligar apaga as intenções guardadas. O histórico (`/profile/mood-history`) mostra só o que foi lembrado.
+  - `ai_consent` + `ai_consent_at` (SEC-CTRL-51): o LLM do "Como estou" e o extrator por LLM do worker só rodam com a flag de ambiente **e** o consentimento do usuário; senão, regras/heurística.
+

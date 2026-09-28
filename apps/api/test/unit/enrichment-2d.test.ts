@@ -125,11 +125,11 @@ describe('colunas derivadas do TMDB', () => {
 });
 
 describe('disponibilidade no ranking (RF-38)', () => {
-  const base = (id: string, providerKeys: string[] = []): RankItem => ({
+  const base = (id: string, providerKeys: string[] = [], rank = 1): RankItem => ({
     id,
     kind: 'movie',
     status: 'to_watch',
-    priority: 1,
+    rank,
     genres: ['comedy', 'romance'],
     attributes: [],
     runtimeMin: null,
@@ -139,7 +139,8 @@ describe('disponibilidade no ranking (RF-38)', () => {
   const label = new Map([['netflix', 'Netflix'], ['max', 'Max']]);
 
   it('título num serviço assinado sobe e explica por quê', () => {
-    const ranked = rankTitles([base('a'), base('b', ['netflix'])], { mode: 'surprise', subgenre: 'romcom' }, {
+    // 'b' está atrás na fila, mas a disponibilidade pesa mais que um degrau de prioridade
+    const ranked = rankTitles([base('a', [], 1), base('b', ['netflix'], 2)], { mode: 'surprise', subgenre: 'romcom' }, {
       taste: {},
       recentlySkipped: new Set(),
       subscriptions: new Set(['netflix']),
@@ -150,13 +151,13 @@ describe('disponibilidade no ranking (RF-38)', () => {
     expect(ranked[1]!.reason).not.toContain('assina');
   });
 
-  it('sem assinatura cadastrada, sem boost', () => {
-    const ranked = rankTitles([base('a'), base('b', ['netflix'])], { mode: 'surprise', subgenre: 'romcom' }, {
+  it('sem assinatura cadastrada, sem boost: vale a ordem da fila', () => {
+    const ranked = rankTitles([base('b', ['netflix'], 2), base('a', [], 1)], { mode: 'surprise', subgenre: 'romcom' }, {
       taste: {},
       recentlySkipped: new Set(),
     });
     expect(ranked.map((r) => r.id)).toEqual(['a', 'b']);
-    expect(ranked[0]!.score).toBe(ranked[1]!.score);
+    expect(ranked[1]!.reason).not.toContain('assina');
   });
 
   it('frase com dois serviços', () => {

@@ -11,6 +11,7 @@ export function Profile() {
   const taste = useQuery({ queryKey: ['taste'], queryFn: api.taste });
   const subs = useQuery({ queryKey: ['subscriptions'], queryFn: api.subscriptions });
   const mood = useQuery({ queryKey: ['mood-history'], queryFn: api.moodHistory });
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const qc = useQueryClient();
   const toast = useToast();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -48,6 +49,28 @@ export function Profile() {
     } catch (err) {
       setError(err);
     }
+  }
+
+  async function saveSettings(patch: Parameters<typeof api.updateSettings>[0]) {
+    try {
+      qc.setQueryData(['settings'], await api.updateSettings(patch));
+      // desligar "lembrar meu humor" apaga as intenções guardadas
+      if (patch.rememberMood === false) await qc.invalidateQueries({ queryKey: ['mood-history'] });
+      toast.show('Preferência salva.');
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  function toggleAi(next: boolean) {
+    if (
+      next &&
+      !window.confirm(
+        'Permitir IA externa? O texto que você escrever no "Como estou" será enviado à Anthropic (provedora do Claude), com servidores fora do Brasil, só para interpretar o pedido. Ele não é guardado nem usado para treinar modelos.',
+      )
+    )
+      return;
+    void saveSettings({ aiConsent: next });
   }
 
   const byCategory = (cat: 'video' | 'music') => (subs.data?.available ?? []).filter((p) => p.category === cat);
@@ -163,8 +186,40 @@ export function Profile() {
         </div>
       )}
 
+      <h2>Privacidade</h2>
+      {settings.data && (
+        <div className="privacy">
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings.data.rememberMood}
+              onChange={(e) => void saveSettings({ rememberMood: e.target.checked })}
+            />{' '}
+            Lembrar meu humor
+            <span className="muted small">
+              {' '}
+              · guarda só a intenção interpretada (nunca o texto) por {settings.data.moodRetentionDays} dias; desligar apaga o
+              que estiver guardado
+            </span>
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={settings.data.aiConsent} onChange={(e) => toggleAi(e.target.checked)} /> Permitir
+            IA externa no "Como estou"
+            <span className="muted small">
+              {' '}
+              ·{' '}
+              {settings.data.aiAvailable
+                ? 'o texto vai à Anthropic, fora do Brasil, só para interpretar o pedido'
+                : settings.data.aiUnavailableReason === 'tmdb_clearance_pending'
+                  ? 'IA indisponível no momento: desligada até a confirmação do TMDB (decisão D-07); sua escolha fica salva'
+                  : 'IA indisponível no momento; sua escolha fica salva para quando ela for ligada'}
+            </span>
+          </label>
+        </div>
+      )}
+
       <h2>Histórico do "Como estou"</h2>
-      <p className="muted small">O texto que você digitou nunca foi guardado; só a intenção interpretada.</p>
+      <p className="muted small">O texto que você digitou nunca foi guardado; só a intenção interpretada, e só com "Lembrar meu humor" ligado.</p>
       {mood.data && mood.data.items.length === 0 && <p className="muted">Sem histórico.</p>}
       {mood.data && mood.data.items.length > 0 && (
         <>

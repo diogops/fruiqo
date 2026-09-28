@@ -1,14 +1,14 @@
-import type { Session } from '@fruiqo/contracts';
+import type { Session, UserSettings } from '@fruiqo/contracts';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, ScrollView, Text, View } from 'react-native';
+import { Alert, ScrollView, Switch, Text, View } from 'react-native';
 
-import { API_URL, listSessions, revokeSession } from '../../src/api/client';
+import { API_URL, getSettings, listSessions, revokeSession, updateSettings } from '../../src/api/client';
 import { useMoodOptIn } from '../../src/discover/moodOptIn';
 import { useAppState } from '../../src/state/AppState';
 import { devToolsEnabled } from '../../src/state/devTools';
 import { Button } from '../../src/ui/components';
-import { ui } from '../../src/ui/theme';
+import { colors, ui } from '../../src/ui/theme';
 
 // Sessões listáveis e revogáveis (SEC-REQ-22).
 export default function Settings() {
@@ -17,6 +17,7 @@ export default function Settings() {
   const moodOptIn = useMoodOptIn();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [privacy, setPrivacy] = useState<UserSettings | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -29,7 +30,29 @@ export default function Settings() {
 
   useEffect(() => {
     void load();
+    getSettings().then(setPrivacy, () => setPrivacy(null));
   }, [load]);
+
+  // D-08: lembrar humor (SEC-CTRL-50) e IA externa (SEC-CTRL-51); o servidor é a fonte da verdade
+  async function toggle(patch: { rememberMood?: boolean; aiConsent?: boolean }) {
+    try {
+      setPrivacy(await updateSettings(patch));
+    } catch (e) {
+      Alert.alert('Erro', e instanceof Error ? e.message : 'Não foi possível salvar.');
+    }
+  }
+
+  function toggleAi(next: boolean) {
+    if (!next) return void toggle({ aiConsent: false });
+    Alert.alert(
+      'Permitir IA externa?',
+      'O texto que você escrever no "Como estou" será enviado à Anthropic (provedora do Claude), com servidores fora do Brasil, só para interpretar o que você procura. Ele não é guardado nem usado para treinar modelos.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Permitir', onPress: () => void toggle({ aiConsent: true }) },
+      ],
+    );
+  }
 
   function revoke(s: Session) {
     Alert.alert('Encerrar sessão?', s.deviceName, [
@@ -75,6 +98,46 @@ export default function Settings() {
       </Text>
       {moodOptIn.accepted && (
         <Button title="Desativar o Como estou" variant="secondary" onPress={() => void moodOptIn.revoke()} />
+      )}
+      <Text style={ui.h2}>Privacidade</Text>
+      {privacy ? (
+        <>
+          <View style={[ui.card, { flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
+            <View style={{ flex: 1, gap: 4 }}>
+              <Text style={ui.body}>Lembrar meu humor</Text>
+              <Text style={ui.muted}>
+                Guarda só a intenção interpretada (nunca o texto) por {privacy.moodRetentionDays} dias. Desligar apaga o que
+                estiver guardado.
+              </Text>
+            </View>
+            <Switch
+              value={privacy.rememberMood}
+              onValueChange={(v) => void toggle({ rememberMood: v })}
+              trackColor={{ true: colors.primary }}
+              accessibilityLabel="Lembrar meu humor"
+            />
+          </View>
+          <View style={[ui.card, { flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
+            <View style={{ flex: 1, gap: 4 }}>
+              <Text style={ui.body}>Permitir IA externa no "Como estou"</Text>
+              <Text style={ui.muted}>
+                {privacy.aiAvailable
+                  ? 'O texto vai à Anthropic, fora do Brasil, só para interpretar o pedido.'
+                  : privacy.aiUnavailableReason === 'tmdb_clearance_pending'
+                    ? 'IA indisponível no momento: desligada até a confirmação do TMDB (decisão D-07). Sua escolha fica salva.'
+                    : 'IA indisponível no momento. Sua escolha fica salva para quando ela for ligada.'}
+              </Text>
+            </View>
+            <Switch
+              value={privacy.aiConsent}
+              onValueChange={toggleAi}
+              trackColor={{ true: colors.primary }}
+              accessibilityLabel="Permitir IA externa"
+            />
+          </View>
+        </>
+      ) : (
+        <Text style={ui.muted}>Não foi possível carregar as preferências.</Text>
       )}
       <Button title="Sobre e créditos" variant="secondary" onPress={() => router.push('/about')} />
       {devToolsEnabled ? (

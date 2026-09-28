@@ -16,6 +16,7 @@ interface DemoTitle {
   genres: GenreKey[];
   runtimeMin?: number;
   attributes?: string[];
+  /** só ordena a inserção: os maiores entram primeiro na fila de prioridade */
   priority?: number;
 }
 
@@ -97,15 +98,19 @@ export async function seedDemo(db: Db, userId: string): Promise<DemoSeedResult> 
       genres: t.genres,
       attributes: t.attributes ?? [],
       runtimeMin: t.runtimeMin ?? null,
-      priority: t.priority ?? 1,
       enrichment: 'demo' as const,
       // ordem estável de criação (desempate do ranking)
       createdAt: new Date(now.getTime() - (DEMO_TITLES.length - i) * 60_000),
       updatedAt: now,
     }));
+    // a fila de prioridade é preenchida na ordem de inserção (trigger): os de prioridade do seed primeiro
+    const byPriority = rows
+      .map((row, i) => ({ row, p: DEMO_TITLES[i]!.priority ?? 1, i }))
+      .sort((a, b) => b.p - a.p || a.i - b.i)
+      .map((x) => x.row);
     const inserted = await tx
       .insert(recommendations)
-      .values(rows)
+      .values(byPriority)
       .onConflictDoNothing({ target: [recommendations.userId, recommendations.dedupKey] })
       .returning({ id: recommendations.id });
 

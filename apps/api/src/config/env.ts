@@ -55,6 +55,12 @@ const EnvSchema = z.object({
   AI_PRICE_OUT_PER_MTOK: z.coerce.number().min(0).default(5),
 
   TMDB_API_KEY: optionalSecret,
+  /**
+   * D-07 / C-15: com o TMDB ativo, qualquer IA fica proibida até o TMDB confirmar por escrito que
+   * um app com recursos de IA pode usar a API (ver docs/phase0/tmdb-consulta-C15.md). Só defina
+   * `confirmed` depois dessa resposta.
+   */
+  TMDB_AI_CLEARANCE: z.enum(['pending', 'confirmed']).default('pending'),
   SPOTIFY_CLIENT_ID: optionalSecret,
   SPOTIFY_CLIENT_SECRET: optionalSecret,
   META_OEMBED_ACCESS_TOKEN: optionalSecret,
@@ -88,12 +94,34 @@ const EnvSchema = z.object({
   if (env.NODE_ENV === 'production' && env.SANDBOX_ENABLED) {
     ctx.addIssue({ code: 'custom', path: ['SANDBOX_ENABLED'], message: 'sandbox desligado em produção' });
   }
+  // D-07 (fail-closed): TMDB ativo + qualquer caminho de LLM ligado só com liberação explícita.
+  if (tmdbActive(env) && anyAiEnabled(env) && env.TMDB_AI_CLEARANCE !== 'confirmed') {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['TMDB_AI_CLEARANCE'],
+      message:
+        'D-07/C-15: TMDB ativo com IA ligada (LLM_ENABLED ou AI_MODE=anthropic). Desligue a IA ou, só após a resposta escrita do TMDB, defina TMDB_AI_CLEARANCE=confirmed (docs/phase0/tmdb-consulta-C15.md)',
+    });
+  }
   if (env.DISCARD_THRESHOLD > env.REVIEW_THRESHOLD) {
     ctx.addIssue({ code: 'custom', path: ['DISCARD_THRESHOLD'], message: 'deve ser ≤ REVIEW_THRESHOLD' });
   }
 });
 
 export type Env = z.infer<typeof EnvSchema>;
+
+type AiFlags = Pick<Env, 'LLM_ENABLED' | 'AI_MODE'>;
+type TmdbFlags = Pick<Env, 'TMDB_API_KEY' | 'PIPELINE_MODE'>;
+
+/** TMDB em uso de verdade (fora do mock, que só lê gravações sintéticas). */
+export function tmdbActive(env: TmdbFlags): boolean {
+  return Boolean(env.TMDB_API_KEY) && env.PIPELINE_MODE !== 'mock';
+}
+
+/** Algum caminho de LLM ligado por configuração (extração ou "Como estou"). */
+export function anyAiEnabled(env: AiFlags): boolean {
+  return env.LLM_ENABLED || env.AI_MODE === 'anthropic';
+}
 
 let cached: Env | undefined;
 
@@ -102,8 +130,11 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   if (cached && source === process.env) return cached;
   const parsed = EnvSchema.safeParse(source);
   if (!parsed.success) {
-    const fields = parsed.error.issues.map((i) => i.path.join('.')).join(', ');
-    throw new Error(`Configuração inválida: ${fields}`);
+    // só nomes de campo e mensagens próprias (nunca valores, que podem ser segredos)
+    const issues = parsed.error.issues.map((i) =>
+      i.code === 'custom' ? `${i.path.join('.')} (${i.message})` : i.path.join('.'),
+    );
+    throw new Error(`Configuração inválida: ${issues.join(', ')}`);
   }
   if (source === process.env) cached = parsed.data;
   return parsed.data;

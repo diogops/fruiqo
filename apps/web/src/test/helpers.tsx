@@ -63,7 +63,7 @@ export function makeTitle(over: Partial<Title> = {}): Title {
     kind: 'movie',
     title: `Filme ${seq}`,
     status: 'to_watch',
-    priority: 1,
+    rank: seq,
     genres: [],
     subgenres: [],
     enrichment: 'none',

@@ -4,6 +4,7 @@ import pg from 'pg';
 import { pino } from 'pino';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createDb, withUser } from '../../src/db/client.js';
+import { setUserSettings } from './settings-helpers.js';
 import { shares } from '../../src/db/schema.js';
 import { LlmUnavailableError } from '../../src/pipeline/extractors/anthropic.js';
 import { HeuristicExtractor } from '../../src/pipeline/extractors/heuristic.js';
@@ -30,7 +31,10 @@ async function newShare(text: string) {
     .set('authorization', `Bearer ${user.accessToken}`)
     .send({ clientShareId: randomUUID(), text })
     .expect(201);
-  return { user, shareId: res.body.id as string, userId: user.refreshToken.split('.')[0]! };
+  const userId = user.refreshToken.split('.')[0]!;
+  // SEC-CTRL-51: estes testes exercitam o extrator por LLM, que exige consentimento do usuário
+  await setUserSettings(db, userId, { aiConsent: true });
+  return { user, shareId: res.body.id as string, userId };
 }
 
 const fakeResolver: Resolver = {

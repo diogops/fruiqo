@@ -118,8 +118,11 @@ export const recommendations = pgTable(
     decisionReason: text('decision_reason'),
     // ---- catálogo (a recomendação catalogada é o "título" do usuário; ver README) ----
     status: text('status', { enum: ['to_watch', 'watching', 'watched', 'dropped'] }).notNull().default('to_watch'),
-    /** 0 baixa · 1 normal · 2 alta · 3 urgente */
-    priority: integer('priority').notNull().default(1),
+    /**
+     * posição na fila de prioridade do usuário (1 = mais prioritário), única e contínua entre os
+     * catalogados; null na fila de revisão. Mantida por triggers + unicidade DEFERRABLE (0008_title_rank.sql).
+     */
+    rank: integer('rank'),
     rating: integer('rating'),
     notes: text('notes'),
     /** chaves de gênero da taxonomia (@fruiqo/taxonomy) */
@@ -135,8 +138,7 @@ export const recommendations = pgTable(
     index('recommendations_share_idx').on(t.shareId),
     index('recommendations_user_status_idx').on(t.userId, t.status),
     uniqueIndex('recommendations_user_dedup_key').on(t.userId, t.dedupKey),
-    // RF-24: filtros do catálogo web (decisão + prioridade + ordem estável)
-    index('recommendations_user_decision_priority_idx').on(t.userId, t.decision, t.priority, t.createdAt),
+    // (user_id, rank): índice da constraint UNIQUE DEFERRABLE criada em SQL (0008_title_rank.sql)
   ],
 );
 
@@ -353,6 +355,17 @@ export const tasteOverrides = pgTable(
 );
 
 /** RF-38 (declaração): serviços que o usuário diz assinar. Nenhuma integração com as plataformas. */
+/** D-08: preferências de privacidade (SEC-CTRL-50 lembrar humor; SEC-CTRL-51 consentimento de IA). Sem linha = padrões (tudo false). */
+export const userSettings = pgTable('user_settings', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  rememberMood: boolean('remember_mood').notNull().default(false),
+  aiConsent: boolean('ai_consent').notNull().default(false),
+  aiConsentAt: timestamp('ai_consent_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const userSubscriptions = pgTable(
   'user_subscriptions',
   {

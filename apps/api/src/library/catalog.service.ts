@@ -17,9 +17,12 @@ import type {
   Title,
   UpdateListRequest,
   UpdateTasteRequest,
+  UpdateUserSettingsRequest,
+  UserSettings,
 } from '@fruiqo/contracts';
 import { GENRES, GENRE_KEYS, type GenreKey, SUBGENRES } from '@fruiqo/taxonomy';
 import { and, asc, desc, eq, gt, inArray, lt, or, sql } from 'drizzle-orm';
+import { ENV, type Env } from '../config/env.js';
 import { DB, type Db, type Tx, withUser } from '../db/client.js';
 import {
   bulkUndo,
@@ -34,13 +37,16 @@ import {
   shares,
   tasteOverrides,
   tasteSignals,
+  userSettings,
   userSubscriptions,
   type RecommendationRow,
 } from '../db/schema.js';
 import { dedupKey } from '../pipeline/dedup.js';
 import { LibraryService } from './library.service.js';
 import { NEED_LABEL, tasteFromSignals } from './ranking.js';
+import { moveTitle, moveToEdge, type RankSnapshot, restoreQueue, snapshotQueue } from './rank-queue.js';
 import { STREAMING_PROVIDERS } from './providers.js';
+import { readSettings, toSettingsView } from './user-settings.js';
 
 // Fase 2c (sistema web): catálogo em massa, correção/merge, fila de revisão, activity log e perfil.
 // Tudo passa por withUser (RLS); nenhum texto de terceiros ou de humor é logado.
@@ -59,7 +65,8 @@ type Snapshot =
   | { type: 'list_add'; listId: string; added: string[] }
   | { type: 'list_remove'; rows: { listId: string; recommendationId: string; position: number; addedAt: string }[] }
   | { type: 'list_move'; removed: { listId: string; recommendationId: string; position: number; addedAt: string }[]; toListId: string; added: string[] }
-  | { type: 'fields'; rows: { id: string; genres?: string[]; enrichment?: RecommendationRow['enrichment']; priority?: number; status?: RecommendationRow['status'] }[]; signalIds: string[] }
+  | { type: 'fields'; rows: { id: string; genres?: string[]; enrichment?: RecommendationRow['enrichment']; status?: RecommendationRow['status'] }[]; signalIds: string[] }
+  | { type: 'queue'; ranks: RankSnapshot }
   | { type: 'delete'; rows: Record<string, unknown>[]; items: { listId: string; recommendationId: string; position: number; addedAt: string }[] };
 
 @Injectable()
@@ -67,7 +74,34 @@ export class CatalogService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly library: LibraryService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
+
+  // ---------- D-08: preferências de privacidade (SEC-CTRL-50/51) ----------
+
+  async getSettings(userId: string): Promise<UserSettings> {
+    return withUser(this.db, userId, async (tx) => toSettingsView(await readSettings(tx), this.env));
+  }
+
+  async updateSettings(userId: string, patch: UpdateUserSettingsRequest): Promise<UserSettings> {
+    return withUser(this.db, userId, async (tx) => {
+      const current = await readSettings(tx);
+      const rememberMood = patch.rememberMood ?? current.rememberMood;
+      const aiConsent = patch.aiConsent ?? current.aiConsent;
+      // a data do aceite muda só quando o consentimento passa de false para true
+      const aiConsentAt = aiConsent ? (current.aiConsent ? current.aiConsentAt : new Date()) : null;
+      const now = new Date();
+      await tx
+        .insert(userSettings)
+        .values({ userId, rememberMood, aiConsent, aiConsentAt, updatedAt: now })
+        .onConflictDoUpdate({ target: userSettings.userId, set: { rememberMood, aiConsent, aiConsentAt, updatedAt: now } });
+      // desligar "lembrar meu humor" apaga as intenções já guardadas (o usuário não quer mais retê-las)
+      if (patch.rememberMood === false && current.rememberMood) {
+        await tx.update(recommendationRuns).set({ intent: null }).where(eq(recommendationRuns.mode, 'mood'));
+      }
+      return toSettingsView({ rememberMood, aiConsent, aiConsentAt }, this.env);
+    });
+  }
 
   // ---------- RF-24: adicionar manualmente ----------
 
@@ -91,7 +125,7 @@ export class CatalogService {
           decision: 'cataloged',
           decisionReason: 'manual',
           status: input.status ?? 'to_watch',
-          priority: input.priority ?? 1,
+          // posição: fim da fila (trigger recommendations_assign_rank)
           genres,
           enrichment: genres.length > 0 ? 'manual' : 'none',
         })
@@ -149,9 +183,11 @@ export class CatalogService {
           snapshot = { type: 'fields', rows: rows.map((r) => ({ id: r.id, genres: r.genres, enrichment: r.enrichment })), signalIds: [] };
           break;
         }
-        case 'set_priority': {
-          await tx.update(recommendations).set({ priority: op.priority, updatedAt: now }).where(inArray(recommendations.id, ids));
-          snapshot = { type: 'fields', rows: rows.map((r) => ({ id: r.id, priority: r.priority })), signalIds: [] };
+        case 'move_top':
+        case 'move_bottom': {
+          const before = await snapshotQueue(tx, userId);
+          await moveToEdge(tx, userId, ids, op.type === 'move_top' ? 'top' : 'bottom');
+          snapshot = { type: 'queue', ranks: before };
           break;
         }
         case 'set_status': {
@@ -224,7 +260,6 @@ export class CatalogService {
                 .set({
                   ...(r.genres ? { genres: r.genres } : {}),
                   ...(r.enrichment ? { enrichment: r.enrichment } : {}),
-                  ...(r.priority !== undefined ? { priority: r.priority } : {}),
                   ...(r.status ? { status: r.status } : {}),
                   updatedAt: now,
                 })
@@ -232,9 +267,20 @@ export class CatalogService {
             }
             if (snap.signalIds.length > 0) await tx.delete(tasteSignals).where(inArray(tasteSignals.id, snap.signalIds));
             return { restored: snap.rows.length };
+          case 'queue':
+            if (!(await restoreQueue(tx, userId, snap.ranks))) {
+              throw new ConflictException('Não é mais possível desfazer: a fila mudou depois da edição');
+            }
+            return { restored: snap.ranks.length };
           case 'delete': {
-            const values = snap.rows.map((r) => reviveRow(r));
+            // voltam para o fim da fila (trigger) e depois para a posição que tinham, do topo para baixo
+            const values = snap.rows.map((r) => ({ ...reviveRow(r), rank: null }));
             if (values.length > 0) await tx.insert(recommendations).values(values);
+            const positions = snap.rows
+              .map((r) => ({ id: String(r.id), rank: typeof r.rank === 'number' ? r.rank : null }))
+              .filter((r): r is { id: string; rank: number } => r.rank !== null)
+              .sort((a, b) => a.rank - b.rank);
+            for (const p of positions) await moveTitle(tx, userId, p.id, { position: p.rank });
             await this.reinsertItems(tx, userId, snap.items);
             return { restored: values.length };
           }
@@ -368,7 +414,6 @@ export class CatalogService {
         .set({
           genres,
           enrichment: target.enrichment === 'none' ? source.enrichment : target.enrichment,
-          priority: Math.max(source.priority, target.priority),
           status,
           rating: target.rating ?? source.rating,
           notes: target.notes ?? source.notes,
@@ -383,7 +428,12 @@ export class CatalogService {
         .returning();
       await this.logAction(tx, userId, intoId, 'merge', { mergedFrom: pickMatch(source) }, pickMatch(merged!));
       await tx.delete(recommendations).where(eq(recommendations.id, id));
-      return (await this.library.withLists(tx, [merged!]))[0]!;
+      // o título mesclado fica com a melhor posição dos dois (a remoção já fechou o buraco)
+      if (source.rank != null && target.rank != null && source.rank < target.rank) {
+        await moveTitle(tx, userId, intoId, { position: source.rank });
+      }
+      const final = await this.findTitle(tx, intoId);
+      return (await this.library.withLists(tx, [final]))[0]!;
     });
   }
 
@@ -501,7 +551,8 @@ export class CatalogService {
       const rows = await tx
         .select()
         .from(recommendationRuns)
-        .where(eq(recommendationRuns.mode, 'mood'))
+        // só o que foi lembrado (SEC-CTRL-50): runs sem intenção não viram histórico
+        .where(and(eq(recommendationRuns.mode, 'mood'), sql`${recommendationRuns.intent} is not null`))
         .orderBy(desc(recommendationRuns.createdAt))
         .limit(100);
       return {

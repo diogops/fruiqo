@@ -2,14 +2,14 @@
 import type { DiscoverResponse, Suggestion } from '@fruiqo/contracts';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Linking, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, Linking, Modal, Pressable, ScrollView, Text, View, type ViewStyle } from 'react-native';
 
 import { discover, sendFeedback, updateTitle } from '../src/api/client';
 import { applyFeedback, buildFeedback, buildMoodRequest, capitalizeFirst } from '../src/discover/logic';
 import { forgetResult, getResult, putResult, takeRiskText } from '../src/discover/store';
 import { Button, Chip, Poster, WatchProviders, openExternal } from '../src/ui/components';
 import { REASON_OPTIONS, titleMeta } from '../src/ui/labels';
-import { colors, ui } from '../src/ui/theme';
+import { colors, gradients, ui } from '../src/ui/theme';
 
 function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : 'Algo deu errado. Tente de novo.';
@@ -107,6 +107,10 @@ export default function DiscoverResult() {
       <Stack.Screen options={{ title: current.mode === 'mood' ? 'Para o seu momento' : 'Surpresa' }} />
       <Text style={ui.h1}>{heading}</Text>
       {sentence ? <Text style={ui.body}>{sentence}</Text> : null}
+      {/* TOS-REQ-42: disclosure quando a interpretação usou IA externa */}
+      {current.interpreter === 'anthropic' ? (
+        <Text style={ui.muted}>Interpretado com IA (Anthropic, fora do Brasil), com a sua permissão em Ajustes.</Text>
+      ) : null}
 
       {suggestions.length === 0 ? (
         <View style={[ui.card, { gap: 8 }]}>
@@ -116,17 +120,17 @@ export default function DiscoverResult() {
         </View>
       ) : (
         suggestions.map((s) => (
-          <View key={s.title.id} style={[ui.card, { gap: 10 }]}>
+          <View key={s.title.id} style={[ui.heroCard, { gap: 12, experimental_backgroundImage: gradients.card } as ViewStyle]}>
             <Pressable
               onPress={() => router.push({ pathname: '/title/[id]', params: { id: s.title.id } })}
               style={{ flexDirection: 'row', gap: 12 }}
             >
-              <Poster url={s.title.posterUrl ?? s.title.resolution?.imageUrl} title={s.title.title} />
+              <Poster url={s.title.posterUrl ?? s.title.resolution?.imageUrl} title={s.title.title} size="lg" />
               <View style={{ flex: 1, gap: 4 }}>
                 <Text style={ui.h2}>{s.title.title}</Text>
                 <Text style={ui.muted}>{titleMeta(s.title)}</Text>
-                <View style={{ flexDirection: 'row' }}>
-                  <Text style={{ fontSize: 12, fontWeight: '600', color: colors.primary }}>da sua lista</Text>
+                <View style={ui.pill}>
+                  <Text style={ui.pillText}>da sua lista</Text>
                 </View>
                 <WatchProviders title={s.title} compact />
               </View>

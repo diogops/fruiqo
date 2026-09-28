@@ -32,11 +32,11 @@ describe('catálogo (RF-24/25)', () => {
     await user.click(screen.getByLabelText('Selecionar todos'));
     const bar = screen.getByRole('region', { name: 'Ações em massa' });
     expect(within(bar).getByText('2 selecionado(s)')).toBeTruthy();
-    await user.selectOptions(within(bar).getByLabelText('Definir prioridade'), '3');
+    await user.click(within(bar).getByRole('button', { name: /Topo da fila/ }));
 
     await waitFor(() => expect(calls.some((c) => c.path === '/library/bulk')).toBe(true));
     const bulk = calls.find((c) => c.path === '/library/bulk');
-    expect(bulk?.body).toEqual({ titleIds: items.map((t) => t.id), operation: { type: 'set_priority', priority: 3 } });
+    expect(bulk?.body).toEqual({ titleIds: items.map((t) => t.id), operation: { type: 'move_top' } });
 
     await user.click(await screen.findByRole('button', { name: 'Desfazer' }));
     await waitFor(() =>
@@ -45,5 +45,23 @@ describe('catálogo (RF-24/25)', () => {
       }),
     );
     await screen.findByText('Desfeito (2 título(s)).');
+  });
+
+  it('▲ sobe um título na fila: chama a API e reordena na hora', async () => {
+    __setAccessToken('tok');
+    const items = [makeTitle({ title: 'Primeiro', rank: 1 }), makeTitle({ title: 'Segundo', rank: 2 })];
+    const { calls } = mockApi({
+      'GET /taxonomy/genres': { version: 1, genres: [], subgenres: [] },
+      'GET /lists': [],
+      'GET /library': { items, nextCursor: null },
+      [`POST /library/${items[1]!.id}/move`]: { id: items[1]!.id, rank: 1, total: 2 },
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<Catalog />, { route: '/catalogo' });
+    await screen.findByText('Segundo');
+    expect(screen.getByLabelText('Subir Primeiro')).toHaveProperty('disabled', true);
+    await user.click(screen.getByLabelText('Subir Segundo'));
+    await waitFor(() => expect(calls.find((c) => c.path === `/library/${items[1]!.id}/move`)?.body).toEqual({ to: 'up' }));
+    await screen.findByText('"Segundo" agora é o #1 de 2.');
   });
 });

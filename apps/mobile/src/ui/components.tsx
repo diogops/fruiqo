@@ -1,7 +1,27 @@
 import { JUSTWATCH_ATTRIBUTION, type ShareStatus, TMDB_ATTRIBUTION, type Title, type WatchProvider } from '@fruiqo/contracts';
-import { ActivityIndicator, Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
-import { colors } from './theme';
+import { colors, gradients } from './theme';
+
+/**
+ * Fundo em degradê sem módulo nativo novo: `experimental_backgroundImage` do React Native
+ * (New Architecture) com CSS linear-gradient; `backgroundColor` é o fallback.
+ */
+export function Gradient({
+  colors: gradient,
+  fallback,
+  style,
+  children,
+}: {
+  colors: string;
+  fallback: string;
+  style?: StyleProp<ViewStyle>;
+  children?: React.ReactNode;
+}) {
+  return (
+    <View style={[{ backgroundColor: fallback }, { experimental_backgroundImage: gradient } as ViewStyle, style]}>{children}</View>
+  );
+}
 
 export function Button({
   title,
@@ -16,8 +36,8 @@ export function Button({
   disabled?: boolean;
   loading?: boolean;
 }) {
-  const bg = variant === 'primary' ? colors.primary : variant === 'danger' ? colors.danger : colors.surface;
-  const fg = variant === 'secondary' ? colors.text : colors.primaryText;
+  const bg = variant === 'primary' ? colors.primary : variant === 'danger' ? 'rgba(248,113,113,0.16)' : colors.surface2;
+  const fg = variant === 'secondary' ? colors.text : variant === 'danger' ? colors.danger : colors.primaryText;
   return (
     <Pressable
       accessibilityRole="button"
@@ -25,7 +45,11 @@ export function Button({
       disabled={disabled || loading}
       style={({ pressed }) => [
         styles.button,
-        { backgroundColor: bg, opacity: disabled ? 0.5 : pressed ? 0.8 : 1 },
+        { backgroundColor: bg, opacity: disabled ? 0.5 : pressed ? 0.85 : 1 },
+        variant === 'primary' && ({ experimental_backgroundImage: gradients.brand } as ViewStyle),
+        variant === 'primary' && styles.buttonGlow,
+        variant === 'secondary' && { borderWidth: 1, borderColor: colors.borderStrong },
+        variant === 'danger' && { borderWidth: 1, borderColor: 'rgba(248,113,113,0.4)' },
       ]}
     >
       {loading ? <ActivityIndicator color={fg} /> : <Text style={[styles.buttonText, { color: fg }]}>{title}</Text>}
@@ -92,7 +116,7 @@ export function Chip({
       disabled={disabled || !onPress}
       style={({ pressed }) => [
         styles.chip,
-        selected && { backgroundColor: colors.primary, borderColor: colors.primary },
+        selected && ({ backgroundColor: colors.primary, borderColor: 'transparent', experimental_backgroundImage: gradients.brand } as ViewStyle),
         { opacity: disabled ? 0.45 : pressed ? 0.75 : 1 },
       ]}
     >
@@ -108,19 +132,19 @@ export function ProgressBar({ ratio }: { ratio: number }) {
   const pct = `${Math.round(Math.min(Math.max(ratio, 0), 1) * 100)}%` as const;
   return (
     <View style={styles.progressTrack} accessibilityRole="progressbar">
-      <View style={[styles.progressFill, { width: pct }]} />
+      <View style={[styles.progressFill, { width: pct }, { experimental_backgroundImage: gradients.brand } as ViewStyle]} />
     </View>
   );
 }
 
 /** Pôster (só https, SEC-REQ-12) ou placeholder com a inicial do título. */
-export function Poster({ url, title, size = 'md' }: { url?: string; title: string; size?: 'sm' | 'md' }) {
-  const dims = size === 'sm' ? { width: 44, height: 66 } : { width: 64, height: 96 };
+export function Poster({ url, title, size = 'md' }: { url?: string; title: string; size?: 'sm' | 'md' | 'lg' }) {
+  const dims = size === 'sm' ? { width: 44, height: 66 } : size === 'lg' ? { width: 110, height: 165 } : { width: 72, height: 108 };
   if (url?.startsWith('https://')) {
     return <Image source={{ uri: url }} style={[dims, styles.poster]} accessibilityIgnoresInvertColors />;
   }
   return (
-    <View style={[dims, styles.poster, styles.posterEmpty]}>
+    <View style={[dims, styles.poster, styles.posterEmpty, { experimental_backgroundImage: gradients.posterFallback } as ViewStyle]}>
       <Text style={styles.posterLetter}>{title.trim().charAt(0).toUpperCase() || '?'}</Text>
     </View>
   );
@@ -174,28 +198,31 @@ export function TmdbAttribution() {
 }
 
 const styles = StyleSheet.create({
-  providerLogo: { width: 28, height: 28, borderRadius: 6 },
-  providerName: { fontSize: 13, color: colors.text, borderWidth: 1, borderColor: colors.border, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  providerLogo: { width: 30, height: 30, borderRadius: 8 },
+  providerName: { fontSize: 13, color: colors.text, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface2, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   providerGroup: { fontSize: 12, color: colors.muted, minWidth: 70 },
   attribution: { fontSize: 11, color: colors.muted },
   chip: {
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.bg,
+    backgroundColor: colors.surface2,
     borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    minHeight: 44,
+    justifyContent: 'center',
   },
-  chipText: { fontSize: 14, fontWeight: '500', color: colors.text },
+  chipText: { fontSize: 14, fontWeight: '600', color: colors.text2 },
   chipHint: { fontSize: 12, color: colors.muted },
-  progressTrack: { height: 6, borderRadius: 3, backgroundColor: colors.border, overflow: 'hidden' },
-  progressFill: { height: 6, borderRadius: 3, backgroundColor: colors.primary },
-  poster: { borderRadius: 8 },
-  posterEmpty: { backgroundColor: '#e8e4fe', alignItems: 'center', justifyContent: 'center' },
-  posterLetter: { fontSize: 22, fontWeight: '700', color: colors.primary },
-  button: { borderRadius: 10, paddingVertical: 12, paddingHorizontal: 16, alignItems: 'center' },
-  buttonText: { fontSize: 16, fontWeight: '600' },
-  badge: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2, alignSelf: 'flex-start' },
-  badgeText: { fontSize: 12, fontWeight: '600' },
-  link: { color: colors.primary, fontSize: 15, fontWeight: '500' },
+  progressTrack: { height: 7, borderRadius: 4, backgroundColor: colors.surface3, overflow: 'hidden' },
+  progressFill: { height: 7, borderRadius: 4, backgroundColor: colors.primary },
+  poster: { borderRadius: 10 },
+  posterEmpty: { backgroundColor: colors.primary3, alignItems: 'center', justifyContent: 'center' },
+  posterLetter: { fontSize: 24, fontWeight: '800', color: '#ffffff' },
+  button: { borderRadius: 12, paddingVertical: 13, paddingHorizontal: 18, alignItems: 'center', minHeight: 48, justifyContent: 'center' },
+  buttonGlow: { shadowColor: '#2563eb', shadowOpacity: 0.45, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 6 },
+  buttonText: { fontSize: 16, fontWeight: '700' },
+  badge: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3, alignSelf: 'flex-start' },
+  badgeText: { fontSize: 12, fontWeight: '700' },
+  link: { color: colors.primary2, fontSize: 15, fontWeight: '600' },
 });

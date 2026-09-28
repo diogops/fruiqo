@@ -12,6 +12,8 @@ import type {
   ListSummary,
   MoodIntentView,
   Suggestion,
+  MoveTitleRequest,
+  MoveTitleResponse,
   Title,
   UpdateTitleRequest,
 } from '@fruiqo/contracts';
@@ -58,6 +60,8 @@ import {
 } from './ranking.js';
 import { PROVIDER_LABEL } from './providers.js';
 import { type InterpretResult, llmSafeInput, MOOD_INTERPRETER, type MoodInterpreter, RulesInterpreter } from './mood-interpreter.js';
+import { readSettings } from './user-settings.js';
+import { moveTitle } from './rank-queue.js';
 import { toTitle } from './title-mapper.js';
 
 /** RF-38: serviços de assinatura onde o título está (flatrate do TMDB, já mapeado para chave própria). */
@@ -96,7 +100,6 @@ export class LibraryService {
         // RF-28: `review=pending` lista a fila de revisão em vez do catálogo
         eq(recommendations.decision, q.review === 'pending' ? 'review_queue' : 'cataloged'),
         q.status ? eq(recommendations.status, q.status) : undefined,
-        q.priority !== undefined ? eq(recommendations.priority, q.priority) : undefined,
         q.shareId ? eq(recommendations.shareId, q.shareId) : undefined,
         q.kind ? eq(recommendations.kind, q.kind) : undefined,
         q.genre ? sql`${q.genre} = ANY(${recommendations.genres})` : undefined,
@@ -113,7 +116,7 @@ export class LibraryService {
           ? [desc(recommendations.createdAt), desc(recommendations.id)]
           : q.sort === 'title'
             ? [asc(recommendations.title), asc(recommendations.id)]
-            : [desc(recommendations.priority), asc(recommendations.createdAt), asc(recommendations.id)];
+            : [sql`${recommendations.rank} asc nulls last`, asc(recommendations.createdAt), asc(recommendations.id)];
       const rows = await tx
         .select()
         .from(recommendations)
@@ -133,6 +136,16 @@ export class LibraryService {
     return withUser(this.db, userId, async (tx) => {
       const row = await this.findTitle(tx, id);
       return (await this.withLists(tx, [row]))[0]!;
+    });
+  }
+
+  /** Reordena a fila de prioridade (rank-queue.ts). */
+  async move(userId: string, id: string, req: MoveTitleRequest): Promise<MoveTitleResponse> {
+    return withUser(this.db, userId, async (tx) => {
+      const out = await moveTitle(tx, userId, id, req);
+      if (out === 'not_found') throw new NotFoundException('Título não encontrado');
+      if (out === 'not_in_queue') throw new ConflictException('Título na fila de revisão não tem posição; aprove-o primeiro');
+      return { id, ...out };
     });
   }
 
@@ -165,7 +178,6 @@ export class LibraryService {
           dedupKey: key,
           ...(patch.year !== undefined ? { year: patch.year } : {}),
           ...(patch.status ? { status: patch.status } : {}),
-          ...(patch.priority !== undefined ? { priority: patch.priority } : {}),
           ...(patch.rating !== undefined ? { rating: patch.rating } : {}),
           ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
           ...(patch.genres ? { genres: [...new Set(patch.genres)], enrichment: 'manual' as const } : {}),
@@ -318,6 +330,8 @@ export class LibraryService {
     let surprise: DiscoverResponse['surprise'] = null;
     let riskShown = false;
     let interpreted: InterpretResult | null = null;
+    // D-08: preferências do usuário (lembrar humor = SEC-CTRL-50; IA externa = SEC-CTRL-51)
+    const settings = req.mode === 'mood' ? await withUser(this.db, userId, (tx) => readSettings(tx)) : null;
 
     if (req.mode === 'surprise') {
       if (req.subgenre && !SUBGENRE_SET.has(req.subgenre)) throw new BadRequestException('Entrada inválida: subgenre');
@@ -339,7 +353,8 @@ export class LibraryService {
       if (riskShown) {
         intent = interpretMood(req.text);
       } else {
-        const interpreter = riskDetected ? new RulesInterpreter() : this.interpreter;
+        // IA externa só com AI_MODE=anthropic (o próprio interpretador injetado) E consentimento individual
+        const interpreter = riskDetected || !settings?.aiConsent ? new RulesInterpreter() : this.interpreter;
         interpreted = await interpreter.interpret(llmSafeInput(req.text), userId);
         intent = interpreted.intent;
       }
@@ -348,8 +363,16 @@ export class LibraryService {
 
     return withUser(this.db, userId, async (tx) => {
       const ranked = riskShown ? [] : await this.rank(tx, rankReq, req.kinds);
+      // SEC-CTRL-50: a intenção do "Como estou" só é guardada com "lembrar meu humor"; sem ele, o run
+      // fica só com o ranking (para "outra coisa") e é purgado em 1 dia.
       const storedIntent: Record<string, unknown> | null =
-        intent ? { ...intent } : surprise ? { [surprise.kind]: surprise.key } : null;
+        req.mode === 'mood'
+          ? intent && settings?.rememberMood
+            ? { ...intent }
+            : null
+          : surprise
+            ? { [surprise.kind]: surprise.key }
+            : null;
       const [run] = await tx
         .insert(recommendationRuns)
         .values({
@@ -446,7 +469,7 @@ export class LibraryService {
       id: t.id,
       kind: t.kind,
       status: t.status,
-      priority: t.priority,
+      rank: t.rank ?? Number.MAX_SAFE_INTEGER,
       genres: t.genres.filter((g): g is GenreKey => GENRE_SET.has(g)),
       attributes: t.attributes,
       runtimeMin: t.runtimeMin,

@@ -1,13 +1,18 @@
-import { type BulkOperation, JUSTWATCH_ATTRIBUTION, type RecommendationKind, TMDB_ATTRIBUTION, type Title, type TitleStatus, type WatchProvider } from '@fruiqo/contracts';
+import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { type BulkOperation, JUSTWATCH_ATTRIBUTION, type MoveTitleRequest, type RecommendationKind, TMDB_ATTRIBUTION, type Title, type TitleStatus, type WatchProvider } from '@fruiqo/contracts';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { api, type LibraryFilters } from '../api/client';
 import { CorrectTitleForm, ErrorNote, Modal, useTaxonomy } from '../components/shared';
 import { useToast } from '../components/Toast';
-import { KIND_LABEL, KINDS, PRIORITY_LABEL, STATUS_LABEL, STATUSES } from '../labels';
+import { EmptyState, Icon, Menu, SkeletonRows, Thumb } from '../components/ui';
+import { KIND_LABEL, KINDS, STATUS_LABEL, STATUSES } from '../labels';
+import { shiftRanks, targetPosition } from '../rankQueue';
 
-const FILTER_KEYS = ['q', 'kind', 'status', 'genre', 'priority', 'listId', 'shareId', 'review', 'sort'] as const;
+const FILTER_KEYS = ['q', 'kind', 'status', 'genre', 'listId', 'shareId', 'review', 'sort'] as const;
 
 function filtersFromParams(params: URLSearchParams): LibraryFilters {
   const f: Record<string, string> = {};
@@ -15,10 +20,7 @@ function filtersFromParams(params: URLSearchParams): LibraryFilters {
     const v = params.get(k);
     if (v) f[k] = v;
   }
-  return {
-    ...f,
-    priority: f.priority !== undefined ? Number(f.priority) : undefined,
-  } as LibraryFilters;
+  return f as LibraryFilters;
 }
 
 export function Catalog() {
@@ -38,7 +40,54 @@ export function Catalog() {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
-  const items = useMemo(() => library.data?.pages.flatMap((p) => p.items) ?? [], [library.data]);
+  const loaded = useMemo(() => library.data?.pages.flatMap((p) => p.items) ?? [], [library.data]);
+  // fila de prioridade: posições otimistas até a API confirmar (rollback em erro)
+  const [optimistic, setOptimistic] = useState<Map<string, number> | null>(null);
+  const byRank = (filters.sort ?? 'rank') === 'rank';
+  const items = useMemo(() => {
+    if (!optimistic) return loaded;
+    const withRank = loaded.map((t) => (optimistic.has(t.id) ? { ...t, rank: optimistic.get(t.id)! } : t));
+    return byRank ? [...withRank].sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity)) : withRank;
+  }, [loaded, optimistic, byRank]);
+  const dragEnabled = byRank && filters.review !== 'pending';
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  /** Destino previsível localmente? Só quando cai dentro dos títulos já carregados. */
+  function localTarget(t: Title & { rank: number }, req: MoveTitleRequest): number | null {
+    const maxLoaded = Math.max(...loaded.map((x) => x.rank ?? 0));
+    if (!library.hasNextPage) return targetPosition(t.rank, maxLoaded, req);
+    if ('position' in req) return req.position <= maxLoaded ? req.position : null;
+    if (req.to === 'top') return 1;
+    if (req.to === 'up') return Math.max(t.rank - 1, 1);
+    if (req.to === 'down') return t.rank + 1 <= maxLoaded ? t.rank + 1 : null;
+    return null;
+  }
+
+  async function move(t: Title, req: MoveTitleRequest) {
+    if (t.rank == null) return;
+    const to = localTarget({ ...t, rank: t.rank }, req);
+    if (to != null && to !== t.rank) setOptimistic(shiftRanks(loaded, t.id, t.rank, to));
+    try {
+      const res = await api.moveTitle(t.id, req);
+      await qc.invalidateQueries({ queryKey: ['library'] });
+      toast.show(`"${t.title}" agora é o #${res.rank} de ${res.total}.`);
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : 'Não foi possível mover.', { tone: 'error' });
+    } finally {
+      setOptimistic(null);
+    }
+  }
+
+  function onDragEnd(e: DragEndEvent) {
+    if (!e.over || e.active.id === e.over.id) return;
+    const dragged = items.find((t) => t.id === e.active.id);
+    const over = items.find((t) => t.id === e.over!.id);
+    if (!dragged || over?.rank == null) return;
+    void move(dragged, { position: over.rank });
+  }
 
   function setFilter(key: (typeof FILTER_KEYS)[number], value: string) {
     const next = new URLSearchParams(params);
@@ -100,14 +149,18 @@ export function Catalog() {
   return (
     <section>
       <div className="page-head">
-        <h1>Catálogo</h1>
+        <div>
+          <h1>Catálogo</h1>
+          <p className="page-sub">Sua fila de filmes, séries e músicas — #1 é o próximo da vez.</p>
+        </div>
         <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
-          Adicionar título
+          <Icon name="plus" /> Adicionar título
         </button>
       </div>
 
       <div className="filters" role="search">
         <input
+          type="search"
           aria-label="Buscar por título"
           placeholder="Buscar título…"
           defaultValue={filters.q ?? ''}
@@ -137,18 +190,6 @@ export function Catalog() {
             </option>
           ))}
         </select>
-        <select
-          aria-label="Prioridade"
-          value={filters.priority === undefined ? '' : String(filters.priority)}
-          onChange={(e) => setFilter('priority', e.target.value)}
-        >
-          <option value="">Toda prioridade</option>
-          {PRIORITY_LABEL.map((p, i) => (
-            <option key={p} value={i}>
-              {p}
-            </option>
-          ))}
-        </select>
         <select aria-label="Lista" value={filters.listId ?? ''} onChange={(e) => setFilter('listId', e.target.value)}>
           <option value="">Todas as listas</option>
           {(lists.data ?? []).map((l) => (
@@ -157,8 +198,8 @@ export function Catalog() {
             </option>
           ))}
         </select>
-        <select aria-label="Ordenar" value={filters.sort ?? 'priority'} onChange={(e) => setFilter('sort', e.target.value)}>
-          <option value="priority">Prioridade</option>
+        <select aria-label="Ordenar" value={filters.sort ?? 'rank'} onChange={(e) => setFilter('sort', e.target.value)}>
+          <option value="rank">Prioridade (fila)</option>
           <option value="recent">Mais recentes</option>
           <option value="title">Título</option>
         </select>
@@ -188,101 +229,61 @@ export function Catalog() {
       )}
 
       <ErrorNote error={library.error} />
-      <table className="table">
-        <thead>
-          <tr>
-            <th>
-              <input
-                type="checkbox"
-                aria-label="Selecionar todos"
-                checked={allChecked}
-                onChange={() => setSelected(allChecked ? new Set() : new Set(items.map((t) => t.id)))}
-              />
-            </th>
-            <th>Título</th>
-            <th>Tipo</th>
-            <th>Gêneros</th>
-            <th>Status</th>
-            <th>Prioridade</th>
-            <th>Nota</th>
-            <th>Listas</th>
-            <th>Fonte</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((t) => (
-            <tr key={t.id} className={selected.has(t.id) ? 'row-selected' : undefined}>
-              <td>
-                <input type="checkbox" aria-label={`Selecionar ${t.title}`} checked={selected.has(t.id)} onChange={() => toggle(t.id)} />
-              </td>
-              <td>
-                <button type="button" className="btn btn-link title-link" onClick={() => setOpenId(t.id)}>
-                  {t.title}
-                </button>
-                <div className="muted small">
-                  {[t.year, t.creator].filter(Boolean).join(' · ')}
-                  {t.decision === 'review_queue' && <span className="badge badge-review_queue">revisão</span>}
-                </div>
-              </td>
-              <td>{KIND_LABEL[t.kind]}</td>
-              <td className="small">{t.genres.map((g) => g.label).join(', ') || <span className="muted">—</span>}</td>
-              <td>
-                <select
-                  aria-label={`Status de ${t.title}`}
-                  value={t.status}
-                  onChange={(e) => void patch(t, { status: e.target.value as TitleStatus })}
-                >
-                  {STATUSES.map((s) => (
-                    <option key={s} value={s}>
-                      {STATUS_LABEL[s]}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td>
-                <select
-                  aria-label={`Prioridade de ${t.title}`}
-                  value={t.priority}
-                  onChange={(e) => void patch(t, { priority: Number(e.target.value) })}
-                >
-                  {PRIORITY_LABEL.map((p, i) => (
-                    <option key={p} value={i}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td>
-                <select
-                  aria-label={`Nota de ${t.title}`}
-                  value={t.rating ?? ''}
-                  onChange={(e) => void patch(t, { rating: e.target.value ? Number(e.target.value) : null })}
-                >
-                  <option value="">—</option>
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <option key={n} value={n}>
-                      {'★'.repeat(n)}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td className="small">{t.lists.map((l) => l.name).join(', ') || <span className="muted">—</span>}</td>
-              <td className="small">
-                {t.shareId ? (
-                  <Link to={`/atividade/${t.shareId}`}>compartilhamento</Link>
-                ) : (
-                  <span className="muted">{t.enrichment === 'demo' ? 'demo' : 'manual'}</span>
-                )}
-              </td>
+      {dragEnabled && items.length > 1 && (
+        <p className="muted small">Arraste pela alça ou use ▲/▼ para mudar a prioridade. #1 é o mais prioritário.</p>
+      )}
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>
+                <input
+                  type="checkbox"
+                  aria-label="Selecionar todos"
+                  checked={allChecked}
+                  onChange={() => setSelected(allChecked ? new Set() : new Set(items.map((t) => t.id)))}
+                />
+              </th>
+              <th aria-label="Posição na fila">#</th>
+              <th>Título</th>
+              <th>Tipo</th>
+              <th>Gêneros</th>
+              <th>Status</th>
+              <th>Nota</th>
+              <th>Listas</th>
+              <th>Fonte</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-      {!library.isLoading && items.length === 0 && <p className="muted empty">Nenhum título com esses filtros.</p>}
+          </thead>
+          <SortableContext items={items.map((t) => t.id)} strategy={verticalListSortingStrategy} disabled={!dragEnabled}>
+            <tbody>
+              {items.map((t) => (
+                <CatalogRow
+                  key={t.id}
+                  t={t}
+                  draggable={dragEnabled && t.rank != null}
+                  selected={selected.has(t.id)}
+                  onToggle={() => toggle(t.id)}
+                  onOpen={() => setOpenId(t.id)}
+                  onPatch={(body) => void patch(t, body)}
+                  onMove={(req) => void move(t, req)}
+                />
+              ))}
+            </tbody>
+          </SortableContext>
+        </table>
+        {library.isLoading && <SkeletonRows />}
+        {!library.isLoading && items.length === 0 && (
+          <EmptyState title="Nenhum título com esses filtros.">Ajuste os filtros ou importe prints pelo app.</EmptyState>
+        )}
+        </div>
+      </DndContext>
       {library.hasNextPage && (
-        <button type="button" className="btn" onClick={() => void library.fetchNextPage()} disabled={library.isFetchingNextPage}>
-          Carregar mais
-        </button>
+        <div className="load-more">
+          <button type="button" className="btn" onClick={() => void library.fetchNextPage()} disabled={library.isFetchingNextPage}>
+            Carregar mais
+          </button>
+        </div>
       )}
 
       {openId && <TitleDetail id={openId} onClose={() => setOpenId(null)} />}
@@ -356,18 +357,12 @@ function BulkBar({
         </button>
       </span>
       <span className="group">
-        <select
-          aria-label="Definir prioridade"
-          value=""
-          onChange={(e) => e.target.value && onRun({ type: 'set_priority', priority: Number(e.target.value) }, 'Prioridade alterada')}
-        >
-          <option value="">Prioridade…</option>
-          {PRIORITY_LABEL.map((p, i) => (
-            <option key={p} value={i}>
-              {p}
-            </option>
-          ))}
-        </select>
+        <button type="button" className="btn" onClick={() => onRun({ type: 'move_top' }, 'Levados ao topo da fila')}>
+          ⤒ Topo da fila
+        </button>
+        <button type="button" className="btn" onClick={() => onRun({ type: 'move_bottom' }, 'Levados ao fim da fila')}>
+          ⤓ Fim da fila
+        </button>
         <select
           aria-label="Definir status"
           value=""
@@ -474,9 +469,24 @@ function TitleDetail({ id, onClose }: { id: string; onClose: () => void }) {
       <ErrorNote error={title.error ?? error} />
       {t && (
         <>
+          <div className="title-hero">
+            {t.posterUrl && <div className="title-hero-bg" style={{ backgroundImage: `url(${t.posterUrl})` }} aria-hidden="true" />}
           <div className="title-head">
-            {t.posterUrl && <img className="poster" src={t.posterUrl} alt="" width={92} height={138} />}
+            {t.posterUrl && <img className="poster" src={t.posterUrl} alt="" width={120} height={180} />}
             <div>
+              <p className="muted small">
+                {[KIND_LABEL[t.kind], t.year, t.creator].filter(Boolean).join(' · ')}
+                {t.rank != null && <span className="badge badge-status-watching">#{t.rank} na fila</span>}
+              </p>
+              {t.genres.length > 0 && (
+                <p className="genre-chips">
+                  {t.genres.map((g) => (
+                    <span key={g.key} className="genre-chip">
+                      {g.label}
+                    </span>
+                  ))}
+                </p>
+              )}
               {t.overview && <p className="overview">{t.overview}</p>}
               {(t.kind === 'movie' || t.kind === 'series') && (
                 <p className="small">
@@ -487,6 +497,7 @@ function TitleDetail({ id, onClose }: { id: string; onClose: () => void }) {
                 </p>
               )}
             </div>
+          </div>
           </div>
           {(t.watchProvidersBR?.length || t.watchUrl) && (
             <>
@@ -598,5 +609,176 @@ function AddTitle({ onClose }: { onClose: () => void }) {
         </div>
       </form>
     </Modal>
+  );
+}
+
+function CatalogRow({
+  t,
+  draggable,
+  selected,
+  onToggle,
+  onOpen,
+  onPatch,
+  onMove,
+}: {
+  t: Title;
+  draggable: boolean;
+  selected: boolean;
+  onToggle: () => void;
+  onOpen: () => void;
+  onPatch: (body: Parameters<typeof api.updateTitle>[1]) => void;
+  onMove: (req: MoveTitleRequest) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: t.id, disabled: !draggable });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : undefined };
+  return (
+    <tr
+      ref={setNodeRef}
+      style={style}
+      className={[selected ? 'row-selected' : '', t.rank === 1 ? 'rank-top' : ''].join(' ').trim() || undefined}
+    >
+      <td>
+        <input type="checkbox" aria-label={`Selecionar ${t.title}`} checked={selected} onChange={onToggle} />
+      </td>
+      <td className="rank-cell">
+        {t.rank == null ? (
+          <span className="muted">—</span>
+        ) : (
+          <span className="rank-controls">
+            {draggable && (
+              <button type="button" className="drag-handle" aria-label={`Arrastar ${t.title}`} {...attributes} {...listeners}>
+                <Icon name="grip" size={16} />
+              </button>
+            )}
+            <strong className="rank-number">#{t.rank}</strong>
+            <button type="button" className="btn btn-icon" aria-label={`Subir ${t.title}`} disabled={t.rank === 1} onClick={() => onMove({ to: 'up' })}>
+              <Icon name="up" size={15} />
+            </button>
+            <button type="button" className="btn btn-icon" aria-label={`Descer ${t.title}`} onClick={() => onMove({ to: 'down' })}>
+              <Icon name="down" size={15} />
+            </button>
+            <RankMenu title={t.title} onMove={onMove} />
+          </span>
+        )}
+      </td>
+      <td>
+        <div className="title-cell">
+          <Thumb src={t.posterUrl} title={t.title} />
+          <div>
+            <button type="button" className="btn btn-link title-link" onClick={onOpen}>
+              {t.title}
+            </button>
+            <div className="muted small">
+              {[t.year, t.creator].filter(Boolean).join(' · ')}
+              {t.decision === 'review_queue' && <span className="badge badge-review_queue">revisão</span>}
+            </div>
+          </div>
+        </div>
+      </td>
+      <td className="small">{KIND_LABEL[t.kind]}</td>
+      <td>
+        {t.genres.length ? (
+          <span className="genre-chips">
+            {t.genres.slice(0, 3).map((g) => (
+              <span key={g.key} className="genre-chip">
+                {g.label}
+              </span>
+            ))}
+          </span>
+        ) : (
+          <span className="muted">—</span>
+        )}
+      </td>
+      <td>
+        <select className="status-select" data-status={t.status} aria-label={`Status de ${t.title}`} value={t.status} onChange={(e) => onPatch({ status: e.target.value as TitleStatus })}>
+          {STATUSES.map((st) => (
+            <option key={st} value={st}>
+              {STATUS_LABEL[st]}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td>
+        <select
+          className="rating-select"
+          aria-label={`Nota de ${t.title}`}
+          value={t.rating ?? ''}
+          onChange={(e) => onPatch({ rating: e.target.value ? Number(e.target.value) : null })}
+        >
+          <option value="">—</option>
+          {[1, 2, 3, 4, 5].map((n) => (
+            <option key={n} value={n}>
+              {'★'.repeat(n)}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td className="small">{t.lists.map((l) => l.name).join(', ') || <span className="muted">—</span>}</td>
+      <td className="small">
+        {t.shareId ? (
+          <Link to={`/atividade/${t.shareId}`}>compartilhamento</Link>
+        ) : (
+          <span className="muted">{t.enrichment === 'demo' ? 'demo' : 'manual'}</span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+/** Menu da fila: topo, fim e "ir para posição…" (dropdown acessível: Esc/clique fora fecham). */
+function RankMenu({ title, onMove }: { title: string; onMove: (req: MoveTitleRequest) => void }) {
+  const [position, setPosition] = useState('');
+  return (
+    <Menu label={`Mais opções de prioridade de ${title}`} triggerClassName="btn btn-icon" trigger={<Icon name="more" size={16} />}>
+      {(close) => (
+        <>
+          <div className="menu-head">Prioridade</div>
+          <button
+            type="button"
+            className="menu-item"
+            onClick={() => {
+              close();
+              onMove({ to: 'top' });
+            }}
+          >
+            <Icon name="top" /> Mover para o topo
+          </button>
+          <button
+            type="button"
+            className="menu-item"
+            onClick={() => {
+              close();
+              onMove({ to: 'bottom' });
+            }}
+          >
+            <Icon name="bottom" /> Mover para o fim
+          </button>
+          <div className="menu-sep" />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const n = Number(position);
+              if (Number.isInteger(n) && n >= 1) {
+                close();
+                onMove({ position: n });
+              }
+            }}
+          >
+            <input
+              type="number"
+              min={1}
+              inputMode="numeric"
+              aria-label={`Posição para ${title}`}
+              placeholder="Ir para posição…"
+              value={position}
+              onChange={(e) => setPosition(e.target.value)}
+            />
+            <button type="submit" className="btn">
+              Ir
+            </button>
+          </form>
+        </>
+      )}
+    </Menu>
   );
 }

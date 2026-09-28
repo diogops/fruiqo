@@ -41,7 +41,15 @@ function Root() {
   }
   return (
     <>
-      <Stack screenOptions={{ headerTintColor: colors.primary }}>
+      <Stack
+        screenOptions={{
+          headerTintColor: colors.primary2,
+          headerStyle: { backgroundColor: colors.bg },
+          headerTitleStyle: { color: colors.text, fontWeight: '700' },
+          headerShadowVisible: false,
+          contentStyle: { backgroundColor: colors.bg },
+        }}
+      >
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="consent" options={{ title: 'Antes de começar', headerBackVisible: false }} />
         <Stack.Screen name="login" options={{ title: 'Entrar', headerBackVisible: false }} />
@@ -55,7 +63,7 @@ function Root() {
       </Stack>
       <Gate />
       <ShareIntentHandler />
-      <StatusBar style="auto" />
+      <StatusBar style="light" />
     </>
   );
 }

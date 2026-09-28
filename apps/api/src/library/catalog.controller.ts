@@ -32,6 +32,9 @@ import {
   UpdateSubscriptionsRequestSchema,
   type UpdateTasteRequest,
   UpdateTasteRequestSchema,
+  type UpdateUserSettingsRequest,
+  UpdateUserSettingsRequestSchema,
+  type UserSettings,
 } from '@fruiqo/contracts';
 import { z } from 'zod';
 import { CurrentAuth } from '../auth/auth.guard.js';
@@ -172,6 +175,19 @@ export class ProfileController {
     @Body(new ZodPipe(UpdateSubscriptionsRequestSchema)) body: UpdateSubscriptionsRequest,
   ): Promise<SubscriptionsResponse> {
     return this.catalog.setSubscriptions(auth.userId, body.providers);
+  }
+
+  @Get('profile/settings')
+  settings(@CurrentAuth() auth: AccessClaims): Promise<UserSettings> {
+    return this.catalog.getSettings(auth.userId);
+  }
+
+  @Patch('profile/settings')
+  updateSettings(
+    @CurrentAuth() auth: AccessClaims,
+    @Body(new ZodPipe(UpdateUserSettingsRequestSchema)) body: UpdateUserSettingsRequest,
+  ): Promise<UserSettings> {
+    return this.catalog.updateSettings(auth.userId, body);
   }
 
   @Get('profile/mood-history')

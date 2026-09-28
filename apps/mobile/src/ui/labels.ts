@@ -44,8 +44,11 @@ export const TITLE_STATUS_LABEL: Record<TitleStatus, string> = {
   dropped: 'Abandonei',
 };
 
-/** 0 baixa · 1 normal · 2 alta · 3 urgente (TitlePrioritySchema) */
-export const PRIORITY_LABEL = ['Baixa', 'Normal', 'Alta', 'Urgente'] as const;
+/** Posição na fila de prioridade: "#3 de 42" (1 = mais prioritário). */
+export function rankLabel(rank: number | null, total?: number): string {
+  if (rank == null) return 'Fora da fila (em revisão)';
+  return total ? `#${rank} de ${total}` : `#${rank}`;
+}
 
 /** Motivos de feedback em uma palavra (RF-37); chaves de REASON_TAGS da taxonomia. */
 export const REASON_OPTIONS: { key: string; label: string }[] = [

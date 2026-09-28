@@ -157,7 +157,6 @@ describe('catálogo web (RF-24/25)', () => {
           confidence: 1,
           extractor: 'heuristic' as const,
           dedupKey: dedupKey({ kind: 'movie', title }),
-          priority: i % 4,
           genres: i % 2 === 0 ? ['comedy'] : ['drama'],
         };
       });
@@ -166,12 +165,14 @@ describe('catálogo web (RF-24/25)', () => {
     const started = performance.now();
     const res = await ctx
       .http()
-      .get('/library?genre=comedy&priority=2&q=carga&sort=title&limit=200')
+      .get('/library?genre=comedy&q=carga&sort=rank&limit=200')
       .set('authorization', `Bearer ${user.accessToken}`)
       .expect(200);
     expect(performance.now() - started).toBeLessThan(1000);
     expect(res.body.items.length).toBe(200);
-    expect(res.body.items.every((t: { priority: number }) => t.priority === 2)).toBe(true);
+    const ranks = (res.body.items as { rank: number; genres: { key: string }[] }[]).map((t) => t.rank);
+    expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
+    expect(new Set(ranks).size).toBe(ranks.length);
   });
 
   it('adicionar manualmente; mesmo título de novo → 409', async () => {
@@ -183,26 +184,30 @@ describe('catálogo web (RF-24/25)', () => {
     expect(clash.body.conflictWith).toBe(res.body.id);
   });
 
-  it('prioridade em massa + desfazer (uso único)', async () => {
-    const { user, seed } = await seededUser();
-    const ids = [...seed.idByTitle.values()].slice(0, 3);
-    const before = await Promise.all(
-      ids.map(async (id) => (await ctx.http().get(`/library/${id}`).set('authorization', `Bearer ${user.accessToken}`)).body.priority),
-    );
+  it('mover em massa para o topo + desfazer (uso único)', async () => {
+    const { user } = await seededUser();
+    const queue = async () =>
+      ((await ctx.http().get('/library?sort=rank&limit=200').set('authorization', `Bearer ${user.accessToken}`)).body.items as {
+        id: string;
+        rank: number;
+      }[]).map((t) => t.id);
+    const before = await queue();
+    const ids = [before[5]!, before[2]!, before[9]!];
     const res = await ctx
       .http()
       .post('/library/bulk')
       .set('authorization', `Bearer ${user.accessToken}`)
-      .send({ titleIds: ids, operation: { type: 'set_priority', priority: 3 } })
+      .send({ titleIds: ids, operation: { type: 'move_top' } })
       .expect(200);
     expect(res.body.affected).toBe(3);
+    const moved = await queue();
+    // os selecionados no topo, na ordem relativa que tinham; o resto mantém a ordem
+    expect(moved.slice(0, 3)).toEqual([before[2], before[5], before[9]]);
+    expect(moved.slice(3)).toEqual(before.filter((id) => !ids.includes(id)));
     const undo = () =>
       ctx.http().post('/library/bulk/undo').set('authorization', `Bearer ${user.accessToken}`).send({ undoToken: res.body.undoToken });
     await undo().expect(200);
-    const after = await Promise.all(
-      ids.map(async (id) => (await ctx.http().get(`/library/${id}`).set('authorization', `Bearer ${user.accessToken}`)).body.priority),
-    );
-    expect(after).toEqual(before);
+    expect(await queue()).toEqual(before);
     await undo().expect(404);
   });
 
@@ -400,6 +405,8 @@ describe('perfil de gosto, assinaturas e humor (RF-29/38, RNF-06/10)', () => {
   it('histórico de humor tem só a intenção (sem texto) e pode ser apagado', async () => {
     const { user } = await seededUser();
     const text = 'estou triste, sofrendo por amor';
+    // SEC-CTRL-50: só vira histórico com "lembrar meu humor"
+    await ctx.http().patch('/profile/settings').set('authorization', `Bearer ${user.accessToken}`).send({ rememberMood: true }).expect(200);
     await ctx.http().post('/discover').set('authorization', `Bearer ${user.accessToken}`).send({ mode: 'mood', text }).expect(200);
     const hist = await ctx.http().get('/profile/mood-history').set('authorization', `Bearer ${user.accessToken}`).expect(200);
     expect(hist.body.items).toHaveLength(1);

@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import { pino } from 'pino';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createDb, withUser } from '../../src/db/client.js';
+import { setUserSettings } from './settings-helpers.js';
 import { HeuristicExtractor } from '../../src/pipeline/extractors/heuristic.js';
 import { FIXTURES_DIR, PipelineGateway } from '../../src/pipeline/gateway.js';
 import { ShareProcessor } from '../../src/pipeline/process-share.js';
@@ -31,7 +32,10 @@ async function share(app: App, body: Record<string, unknown>, headers: Record<st
   const req = app.http().post('/shares').set('authorization', `Bearer ${user.accessToken}`);
   for (const [k, v] of Object.entries(headers)) req.set(k, v);
   const res = await req.send({ clientShareId: randomUUID(), ...body }).expect(201);
-  return { user, shareId: res.body.id as string, userId: user.refreshToken.split('.')[0]! };
+  const userId = user.refreshToken.split('.')[0]!;
+  // SEC-CTRL-51: estes testes exercitam o extrator por LLM, que exige consentimento do usuário
+  await setUserSettings(db, userId, { aiConsent: true });
+  return { user, shareId: res.body.id as string, userId };
 }
 
 async function steps(app: App, token: string, id: string) {

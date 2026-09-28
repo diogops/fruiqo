@@ -14,7 +14,7 @@ export function toTitle(r: RecommendationRow, lists: { id: string; name: string 
     ...(r.creator ? { creator: r.creator } : {}),
     ...(r.year != null ? { year: r.year } : {}),
     status: r.status,
-    priority: r.priority,
+    rank: r.rank,
     ...(r.rating != null ? { rating: r.rating } : {}),
     ...(r.notes ? { notes: r.notes } : {}),
     genres: genres.map((key) => ({ key, label: GENRE_LABEL.get(key)! })),

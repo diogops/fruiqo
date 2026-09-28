@@ -23,7 +23,7 @@ function title(n: number, genres: { key: string; label: string }[] = []): Title 
     kind: 'movie',
     title: `Filme ${n}`,
     status: 'to_watch',
-    priority: 1,
+    rank: 1,
     genres,
     subgenres: [],
     enrichment: 'demo',

@@ -7,6 +7,7 @@ import type { ShareJob } from '../queue/queue.js';
 import { dedupKey, mergePages, pageHash } from './dedup.js';
 import { listNameFromOcr } from '../library/list-name.js';
 import { LlmUnavailableError } from './extractors/anthropic.js';
+import { userAllowsAi } from '../library/user-settings.js';
 import { GatewayError } from './gateway.js';
 import { MAX_LIST_ITEMS } from './extractors/list.js';
 import { columnsFromResolution } from '../library/tmdb-enrichment.js';
@@ -270,7 +271,10 @@ export class ShareProcessor {
       async () => {
         let items: ExtractedItem[] | null = null;
         let extractor: 'llm' | 'heuristic' = 'heuristic';
-        if (this.deps.llm) {
+        // SEC-CTRL-51 (D-08): além das flags de ambiente, o LLM só roda com consentimento do usuário
+        const llmConsented = this.deps.llm ? await userAllowsAi(this.deps.db, input.userId) : false;
+        if (this.deps.llm && !llmConsented) llmNote = 'sem consentimento de IA do usuário';
+        if (this.deps.llm && llmConsented) {
           try {
             items = await this.deps.llm.extract({ ...input, onUsage: (u) => (usage = u) });
             extractor = 'llm';

@@ -2,12 +2,12 @@
 import type { ListSummary } from '@fruiqo/contracts';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, FlatList, Pressable, RefreshControl, Text, TextInput, View } from 'react-native';
+import { Alert, FlatList, Pressable, RefreshControl, Text, TextInput, View, type ViewStyle } from 'react-native';
 
 import { createList, listLists } from '../../src/api/client';
 import { progressOf } from '../../src/discover/logic';
 import { Button, ProgressBar } from '../../src/ui/components';
-import { colors, ui } from '../../src/ui/theme';
+import { colors, gradients, ui } from '../../src/ui/theme';
 
 export default function Lists() {
   const router = useRouter();
@@ -96,8 +96,14 @@ export default function Lists() {
         return (
           <Pressable
             onPress={() => router.push({ pathname: '/list/[id]', params: { id: item.id } })}
-            style={({ pressed }) => [ui.card, pressed && { opacity: 0.7 }]}
+            style={({ pressed }) => [ui.heroCard, { padding: 0, gap: 0 }, pressed && { opacity: 0.8 }]}
           >
+            <View style={[{ height: 74, paddingHorizontal: 16, justifyContent: 'flex-end', paddingBottom: 8, backgroundColor: colors.primary3 }, { experimental_backgroundImage: gradients.hero } as ViewStyle]}>
+              <Text style={{ fontSize: 28, fontWeight: '800', color: 'rgba(255,255,255,0.92)', letterSpacing: -1 }}>
+                {item.name.trim().split(/\s+/).slice(0, 2).map((w) => w.charAt(0)).join('').toUpperCase()}
+              </Text>
+            </View>
+            <View style={{ padding: 16, gap: 8 }}>
             <Text style={ui.h2} numberOfLines={2}>
               {item.pinned ? '📌 ' : ''}
               {item.name}
@@ -109,6 +115,7 @@ export default function Lists() {
               <Text style={ui.muted}>{item.itemCount > 0 ? p.label : 'vazia'}</Text>
             </View>
             {item.sourceShareId && <Text style={ui.muted}>Criada a partir de prints</Text>}
+            </View>
           </Pressable>
         );
       }}

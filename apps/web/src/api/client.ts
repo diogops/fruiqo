@@ -9,6 +9,7 @@ import {
   BulkUndoResponseSchema,
   ListDetailSchema,
   ListSummarySchema,
+  MoveTitleResponseSchema,
   LibraryResponseSchema,
   MoodHistoryResponseSchema,
   ReviewListResponseSchema,
@@ -26,10 +27,13 @@ import {
   type BulkRequest,
   type CorrectTitleRequest,
   type CreateTitleRequest,
+  type MoveTitleRequest,
   type LibraryQuery,
   type UpdateListRequest,
   type UpdateTasteRequest,
   type UpdateTitleRequest,
+  type UpdateUserSettingsRequest,
+  UserSettingsSchema,
 } from '@fruiqo/contracts';
 import { z } from 'zod';
 
@@ -164,6 +168,8 @@ export const api = {
   updateTitle: (id: string, body: UpdateTitleRequest) => request(TitleSchema, `/library/${id}`, 'PATCH', body),
   correctTitle: (id: string, body: CorrectTitleRequest) => request(TitleSchema, `/library/${id}/correct`, 'POST', body),
   mergeTitle: (id: string, intoId: string) => request(TitleSchema, `/library/${id}/merge`, 'POST', { intoId }),
+  /** reordena a fila de prioridade (1 = topo) */
+  moveTitle: (id: string, body: MoveTitleRequest) => request(MoveTitleResponseSchema, `/library/${id}/move`, 'POST', body),
   enrichTitle: (id: string) => request(EnrichResponseSchema, `/library/${id}/enrich`, 'POST', {}),
   bulk: (body: BulkRequest) => request(BulkResponseSchema, '/library/bulk', 'POST', body),
   undoBulk: (undoToken: string) => request(BulkUndoResponseSchema, '/library/bulk/undo', 'POST', { undoToken }),
@@ -194,6 +200,9 @@ export const api = {
   subscriptions: () => request(SubscriptionsResponseSchema, '/profile/subscriptions'),
   saveSubscriptions: (providers: string[]) =>
     request(SubscriptionsResponseSchema, '/profile/subscriptions', 'PUT', { providers }),
+  // D-08: lembrar humor (SEC-CTRL-50) e consentimento de IA externa (SEC-CTRL-51)
+  settings: () => request(UserSettingsSchema, '/profile/settings'),
+  updateSettings: (body: UpdateUserSettingsRequest) => request(UserSettingsSchema, '/profile/settings', 'PATCH', body),
   moodHistory: () => request(MoodHistoryResponseSchema, '/profile/mood-history'),
   deleteMoodHistory: () => request(NoContent, '/profile/mood-history', 'DELETE'),
 

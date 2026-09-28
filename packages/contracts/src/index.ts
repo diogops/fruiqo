@@ -243,8 +243,11 @@ export type ShareStepsResponse = z.infer<typeof ShareStepsResponseSchema>;
 export const TitleStatusSchema = z.enum(['to_watch', 'watching', 'watched', 'dropped']);
 export type TitleStatus = z.infer<typeof TitleStatusSchema>;
 
-/** 0 baixa · 1 normal · 2 alta · 3 urgente */
-export const TitlePrioritySchema = z.number().int().min(0).max(3);
+/**
+ * Posição do título na fila de prioridade do usuário: 1 = mais prioritário. Única e contínua
+ * (1..N) entre os títulos catalogados; itens da fila de revisão não têm posição (null).
+ */
+export const TitleRankSchema = z.number().int().min(1);
 
 export const EnrichmentSchema = z.enum(['none', 'tmdb', 'demo', 'manual']);
 export type Enrichment = z.infer<typeof EnrichmentSchema>;
@@ -262,7 +265,7 @@ export const TitleSchema = z.object({
   creator: z.string().optional(),
   year: z.number().int().optional(),
   status: TitleStatusSchema,
-  priority: TitlePrioritySchema,
+  rank: TitleRankSchema.nullable(),
   rating: z.number().int().min(1).max(5).optional(),
   notes: z.string().optional(),
   genres: z.array(TaxonomyTagSchema),
@@ -294,7 +297,7 @@ export const EnrichResponseSchema = z.object({
 });
 export type EnrichResponse = z.infer<typeof EnrichResponseSchema>;
 
-export const LibrarySortSchema = z.enum(['priority', 'recent', 'title']);
+export const LibrarySortSchema = z.enum(['rank', 'recent', 'title']);
 
 /** Query string de GET /library (valores chegam como string). */
 export const LibraryQuerySchema = z.object({
@@ -302,14 +305,12 @@ export const LibraryQuerySchema = z.object({
   kind: RecommendationKindSchema.optional(),
   genre: z.string().max(32).optional(),
   listId: z.uuid().optional(),
-  /** RF-24: 0 baixa · 1 normal · 2 alta · 3 urgente */
-  priority: z.coerce.number().int().min(0).max(3).optional(),
   /** RF-24 (fonte): títulos que vieram deste share */
   shareId: z.uuid().optional(),
   /** `pending`: itens da fila de revisão (RF-28) em vez do catálogo */
   review: z.enum(['pending']).optional(),
   q: z.string().trim().min(1).max(100).optional(),
-  sort: LibrarySortSchema.default('priority'),
+  sort: LibrarySortSchema.default('rank'),
   cursor: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
@@ -328,7 +329,6 @@ export const UpdateTitleRequestSchema = z
     year: z.number().int().min(1870).max(2100).nullable().optional(),
     creator: z.string().trim().max(200).nullable().optional(),
     status: TitleStatusSchema.optional(),
-    priority: TitlePrioritySchema.optional(),
     rating: z.number().int().min(1).max(5).nullable().optional(),
     notes: z.string().max(500).nullable().optional(),
     /** gêneros manuais (chaves da taxonomia); marca `enrichment = manual` */
@@ -572,7 +572,6 @@ export const CreateTitleRequestSchema = z
     creator: z.string().trim().max(200).optional(),
     genres: z.array(z.string().max(32)).max(6).optional(),
     status: TitleStatusSchema.optional(),
-    priority: TitlePrioritySchema.optional(),
     listId: z.uuid().optional(),
   })
   .strict();
@@ -585,11 +584,29 @@ export const BulkOperationSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('move_to_list'), fromListId: z.uuid(), toListId: z.uuid() }).strict(),
   z.object({ type: z.literal('add_genres'), genres: z.array(z.string().max(32)).min(1).max(6) }).strict(),
   z.object({ type: z.literal('remove_genres'), genres: z.array(z.string().max(32)).min(1).max(6) }).strict(),
-  z.object({ type: z.literal('set_priority'), priority: TitlePrioritySchema }).strict(),
+  /** leva os selecionados para o topo/fundo da fila, preservando a ordem relativa entre eles */
+  z.object({ type: z.literal('move_top') }).strict(),
+  z.object({ type: z.literal('move_bottom') }).strict(),
   z.object({ type: z.literal('set_status'), status: TitleStatusSchema }).strict(),
   z.object({ type: z.literal('delete') }).strict(),
 ]);
 export type BulkOperation = z.infer<typeof BulkOperationSchema>;
+
+/** POST /library/:id/move: reordena a fila de prioridade (transacional, sem buracos). */
+export const MoveTitleRequestSchema = z.union([
+  z.object({ to: z.enum(['top', 'bottom', 'up', 'down']) }).strict(),
+  /** 1 = topo; posições além do fim vão para o fim */
+  z.object({ position: z.number().int().min(1) }).strict(),
+]);
+export type MoveTitleRequest = z.infer<typeof MoveTitleRequestSchema>;
+
+export const MoveTitleResponseSchema = z.object({
+  id: z.uuid(),
+  rank: TitleRankSchema,
+  /** total de títulos na fila (para "#N de M") */
+  total: z.number().int().min(1),
+});
+export type MoveTitleResponse = z.infer<typeof MoveTitleResponseSchema>;
 
 export const BulkRequestSchema = z
   .object({ titleIds: z.array(z.uuid()).min(1).max(1000), operation: BulkOperationSchema })
@@ -731,6 +748,29 @@ export const MoodHistoryItemSchema = z.object({
 export type MoodHistoryItem = z.infer<typeof MoodHistoryItemSchema>;
 export const MoodHistoryResponseSchema = z.object({ items: z.array(MoodHistoryItemSchema) });
 export type MoodHistoryResponse = z.infer<typeof MoodHistoryResponseSchema>;
+
+// D-08: preferências de privacidade do usuário (SEC-CTRL-50/51)
+export const UserSettingsSchema = z.object({
+  /** guarda a intenção estruturada do "Como estou" por até 90 dias (padrão: não guarda) */
+  rememberMood: z.boolean(),
+  /** consentimento individual para enviar o texto do "Como estou" à IA externa (Anthropic) */
+  aiConsent: z.boolean(),
+  aiConsentAt: z.iso.datetime().nullable(),
+  /**
+   * a IA externa está disponível no servidor agora? (false com AI_MODE ≠ anthropic, sem chave
+   * ou bloqueada pela D-07 até a resposta do TMDB)
+   */
+  aiAvailable: z.boolean(),
+  /** motivo curto quando aiAvailable = false, para a UI explicar */
+  aiUnavailableReason: z.enum(['disabled', 'tmdb_clearance_pending']).nullable(),
+  moodRetentionDays: z.number().int().positive(),
+});
+export type UserSettings = z.infer<typeof UserSettingsSchema>;
+export const UpdateUserSettingsRequestSchema = z
+  .object({ rememberMood: z.boolean().optional(), aiConsent: z.boolean().optional() })
+  .strict()
+  .refine((v) => v.rememberMood !== undefined || v.aiConsent !== undefined, { message: 'nada para atualizar' });
+export type UpdateUserSettingsRequest = z.infer<typeof UpdateUserSettingsRequestSchema>;
 
 // RF-19/RF-22: sandbox (só com SANDBOX_ENABLED e fora de produção)
 export const SandboxFixtureSchema = z.object({

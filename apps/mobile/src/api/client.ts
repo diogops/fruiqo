@@ -11,6 +11,8 @@ import {
   type LibraryResponse,
   type ListDetail,
   type ListSummary,
+  type MoveTitleRequest,
+  type MoveTitleResponse,
   type Title,
   type UpdateTitleRequest,
   type LoginRequest,
@@ -32,8 +34,12 @@ import {
   TaxonomyResponseSchema,
   type TaxonomyResponse,
   TitleConflictErrorSchema,
+  MoveTitleResponseSchema,
   TitleSchema,
   TokenPairSchema,
+  type UpdateUserSettingsRequest,
+  type UserSettings,
+  UserSettingsSchema,
 } from '@fruiqo/contracts';
 import { z } from 'zod';
 
@@ -204,6 +210,12 @@ export const getTaxonomy = (): Promise<TaxonomyResponse> => request('/taxonomy/g
 export const discover = (body: DiscoverRequest): Promise<DiscoverResponse> =>
   request('/discover', DiscoverResponseSchema, { method: 'POST', ...json(body) });
 
+/** D-08: lembrar humor (SEC-CTRL-50) e consentimento de IA externa (SEC-CTRL-51). */
+export const getSettings = (): Promise<UserSettings> => request('/profile/settings', UserSettingsSchema);
+
+export const updateSettings = (body: UpdateUserSettingsRequest): Promise<UserSettings> =>
+  request('/profile/settings', UserSettingsSchema, { method: 'PATCH', ...json(body) });
+
 export const sendFeedback = (body: FeedbackRequest): Promise<FeedbackResponse> =>
   request('/feedback', FeedbackResponseSchema, { method: 'POST', ...json(body) });
 
@@ -219,6 +231,10 @@ export const getTitle = (id: string): Promise<Title> => request(`/library/${enco
 
 export const updateTitle = (id: string, body: UpdateTitleRequest): Promise<Title> =>
   request(`/library/${encodeURIComponent(id)}`, TitleSchema, { method: 'PATCH', ...json(body) });
+
+/** Reordena a fila de prioridade (1 = topo). */
+export const moveTitle = (id: string, body: MoveTitleRequest): Promise<MoveTitleResponse> =>
+  request(`/library/${encodeURIComponent(id)}/move`, MoveTitleResponseSchema, { method: 'POST', ...json(body) });
 
 export const listLists = (): Promise<ListSummary[]> => request('/lists', z.array(ListSummarySchema));
 

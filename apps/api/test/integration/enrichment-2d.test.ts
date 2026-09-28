@@ -10,6 +10,7 @@ import { recommendationRuns, recommendations } from '../../src/db/schema.js';
 import { createTitleLookup, EnrichmentService } from '../../src/library/enrichment.service.js';
 import { LibraryService } from '../../src/library/library.service.js';
 import type { LlmSafeInput, MoodInterpreter } from '../../src/library/mood-interpreter.js';
+import { setUserSettings } from './settings-helpers.js';
 import { APP_URL, testEnv } from '../helpers.js';
 import { register, startTestApp } from './app.js';
 
@@ -157,6 +158,7 @@ describe('"Como estou" e o intérprete (RNF-07/09)', () => {
     const me = await newUser();
     const { calls, interpreter } = spyInterpreter();
     const service = new LibraryService(db, testEnv({ AI_MODE: 'anthropic' }), interpreter);
+    await setUserSettings(db, me.userId, { aiConsent: true });
     const text = 'estou triste, sofrendo por amor';
     const res = await service.discover(me.userId, { mode: 'mood', text });
     expect(calls).toEqual([{ userText: text }]);

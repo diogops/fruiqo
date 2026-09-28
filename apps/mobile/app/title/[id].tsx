@@ -1,14 +1,14 @@
 // Detalhe do título do catálogo: status, prioridade, nota, gêneros e listas (RF-26, RF-34).
-import type { TaxonomyTag, Title, TitleStatus, UpdateTitleRequest } from '@fruiqo/contracts';
+import type { MoveTitleRequest, TaxonomyTag, Title, TitleStatus, UpdateTitleRequest } from '@fruiqo/contracts';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, ImageBackground, Pressable, ScrollView, Text, View, type ViewStyle } from 'react-native';
 
-import { ApiError, getLibrary, getTaxonomy, getTitle, updateTitle } from '../../src/api/client';
+import { ApiError, getLibrary, getTaxonomy, getTitle, moveTitle, updateTitle } from '../../src/api/client';
 import { collectGenreOptions, toggleGenre } from '../../src/discover/logic';
 import { Button, Chip, Link, Poster, TmdbAttribution, WatchProviders } from '../../src/ui/components';
-import { PRIORITY_LABEL, TITLE_STATUS_LABEL, titleMeta } from '../../src/ui/labels';
-import { colors, ui } from '../../src/ui/theme';
+import { rankLabel, TITLE_STATUS_LABEL, titleMeta } from '../../src/ui/labels';
+import { colors, gradients, ui } from '../../src/ui/theme';
 
 const STATUSES: TitleStatus[] = ['to_watch', 'watching', 'watched', 'dropped'];
 
@@ -56,6 +56,22 @@ export default function TitleDetail() {
     }
   }
 
+  // fila de prioridade: o total vem da resposta do primeiro movimento ("#3 de 42")
+  const [queueTotal, setQueueTotal] = useState<number | undefined>(undefined);
+  async function move(req: MoveTitleRequest) {
+    if (!title) return;
+    setSaving('rank');
+    try {
+      const res = await moveTitle(title.id, req);
+      setQueueTotal(res.total);
+      setTitle({ ...title, rank: res.rank });
+    } catch (e) {
+      Alert.alert('Não foi possível mudar a prioridade', errorMessage(e));
+    } finally {
+      setSaving(null);
+    }
+  }
+
   async function openGenreEditor() {
     if (!title) return;
     setDraftGenres(title.genres.map((g) => g.key));
@@ -96,13 +112,29 @@ export default function TitleDetail() {
   return (
     <ScrollView style={ui.screen} contentContainerStyle={[ui.pad, { paddingBottom: 32 }]}>
       <Stack.Screen options={{ title: title.title }} />
-      <View style={{ flexDirection: 'row', gap: 12 }}>
-        <Poster url={title.posterUrl ?? r?.imageUrl} title={title.title} />
-        <View style={{ flex: 1, gap: 4 }}>
+      <View style={[ui.heroCard, { padding: 0, experimental_backgroundImage: gradients.hero } as ViewStyle]}>
+        {(title.posterUrl ?? r?.imageUrl)?.startsWith('https://') ? (
+          <ImageBackground
+            source={{ uri: (title.posterUrl ?? r?.imageUrl)! }}
+            blurRadius={24}
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.45 }}
+            accessibilityIgnoresInvertColors
+          />
+        ) : null}
+        <View style={[{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }, { experimental_backgroundImage: gradients.scrim } as ViewStyle]} />
+        <View style={{ flexDirection: 'row', gap: 14, padding: 16 }}>
+        <Poster url={title.posterUrl ?? r?.imageUrl} title={title.title} size="lg" />
+        <View style={{ flex: 1, gap: 6, justifyContent: 'flex-end' }}>
+          {title.rank != null ? (
+            <View style={ui.pill}>
+              <Text style={ui.pillText}>#{title.rank} na fila</Text>
+            </View>
+          ) : null}
           <Text style={ui.h1}>{title.title}</Text>
           {title.creator ? <Text style={ui.body}>{title.creator}</Text> : null}
           <Text style={ui.muted}>{titleMeta(title)}</Text>
           {title.subgenres.length > 0 && <Text style={ui.muted}>{title.subgenres.map((s) => s.label).join(' · ')}</Text>}
+        </View>
         </View>
       </View>
       {title.overview ? <Text style={ui.body}>{title.overview}</Text> : null}
@@ -129,16 +161,16 @@ export default function TitleDetail() {
       </View>
 
       <Text style={ui.h2}>Prioridade</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        {PRIORITY_LABEL.map((label, p) => (
-          <Chip
-            key={label}
-            label={label}
-            selected={title.priority === p}
-            disabled={saving !== null}
-            onPress={() => title.priority !== p && void patch('priority', { priority: p })}
-          />
-        ))}
+      <Text style={ui.muted}>#1 é o mais prioritário da sua fila.</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        <Text style={{ fontSize: 22, fontWeight: '700', color: colors.text, minWidth: 64 }}>{rankLabel(title.rank, queueTotal)}</Text>
+        {title.rank != null && (
+          <>
+            <Chip label="▲ Subir" disabled={saving !== null || title.rank === 1} onPress={() => void move({ to: 'up' })} />
+            <Chip label="▼ Descer" disabled={saving !== null} onPress={() => void move({ to: 'down' })} />
+            <Chip label="⤒ Topo" disabled={saving !== null || title.rank === 1} onPress={() => void move({ to: 'top' })} />
+          </>
+        )}
       </View>
 
       <Text style={ui.h2}>Sua nota</Text>
@@ -152,7 +184,7 @@ export default function TitleDetail() {
             onPress={() => void patch('rating', { rating: title.rating === n ? null : n })}
             hitSlop={6}
           >
-            <Text style={{ fontSize: 30, color: title.rating && n <= title.rating ? '#f5a623' : colors.border }}>★</Text>
+            <Text style={{ fontSize: 30, color: title.rating && n <= title.rating ? colors.star : colors.border }}>★</Text>
           </Pressable>
         ))}
         {title.rating ? <Text style={ui.muted}>toque de novo para limpar</Text> : null}

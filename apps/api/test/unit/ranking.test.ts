@@ -10,7 +10,7 @@ function item(id: string, genres: GenreKey[], extra: Partial<RankItem> = {}): Ra
     id,
     kind: 'movie',
     status: 'to_watch',
-    priority: 1,
+    rank: seq,
     genres,
     attributes: [],
     runtimeMin: null,
@@ -64,12 +64,12 @@ describe('rankTitles: Surpreenda-me', () => {
     expect(many.map((r) => r.id)).not.toContain('x');
   });
 
-  it('é determinístico: mesma entrada, mesma ordem; empate desempata por prioridade', () => {
+  it('é determinístico: mesma entrada, mesma ordem; empate desempata pela posição na fila', () => {
     const a = rankTitles(LIBRARY, { mode: 'surprise', genre: 'comedy' }, ctx);
     const b = rankTitles([...LIBRARY].reverse(), { mode: 'surprise', genre: 'comedy' }, ctx);
     expect(a).toEqual(b);
     const tie = rankTitles(
-      [item('low', ['comedy'], { priority: 0 }), item('high', ['comedy'], { priority: 3 })],
+      [item('low', ['comedy'], { rank: 7 }), item('high', ['comedy'], { rank: 1 })],
       { mode: 'surprise', genre: 'comedy' },
       ctx,
     );
@@ -211,5 +211,26 @@ describe('listNameFromOcr', () => {
 
   it('sem cabeçalho → "Prints de <data>"', () => {
     expect(listNameFromOcr('1. Oppenheimer\n2. Duna', ['Oppenheimer', 'Duna'], now)).toBe('Prints de 28/09/2026');
+  });
+});
+
+describe('fila de prioridade no ranking', () => {
+  it('um degrau de fila não vence a intenção: combina mais > está mais acima', () => {
+    const ranked = rankTitles(
+      [item('topo-so-comedia', ['comedy'], { rank: 1 }), item('romcom-abaixo', ['comedy', 'romance'], { rank: 2 })],
+      { mode: 'surprise', subgenre: 'romcom' },
+      ctx,
+    );
+    expect(ranked[0]!.id).toBe('romcom-abaixo');
+  });
+
+  it('com a mesma aderência, o #1 da fila vem primeiro e a razão cita a posição', () => {
+    const ranked = rankTitles(
+      [item('quinto', ['comedy'], { rank: 5 }), item('primeiro', ['comedy'], { rank: 1 })],
+      { mode: 'surprise', genre: 'comedy' },
+      ctx,
+    );
+    expect(ranked.map((r) => r.id)).toEqual(['primeiro', 'quinto']);
+    expect(ranked[0]!.reason).toContain('#1 da sua fila');
   });
 });

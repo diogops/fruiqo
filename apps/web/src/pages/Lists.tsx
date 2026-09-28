@@ -8,7 +8,13 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { api } from '../api/client';
 import { ErrorNote } from '../components/shared';
 import { useToast } from '../components/Toast';
+import { EmptyState, Icon, Thumb } from '../components/ui';
 import { KIND_LABEL, STATUS_LABEL } from '../labels';
+
+function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  return (words.length > 1 ? words[0]![0]! + words[1]![0]! : name.slice(0, 2)).toUpperCase();
+}
 
 export function Lists() {
   const lists = useQuery({ queryKey: ['lists'], queryFn: api.lists });
@@ -32,11 +38,14 @@ export function Lists() {
   return (
     <section>
       <div className="page-head">
-        <h1>Listas</h1>
+        <div>
+          <h1>Listas</h1>
+          <p className="page-sub">Maratonas, temas e listas criadas a partir dos seus prints.</p>
+        </div>
         <form className="inline-form" onSubmit={create}>
           <input aria-label="Nome da nova lista" placeholder="Nova lista…" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} required />
           <button type="submit" className="btn btn-primary">
-            Criar
+            <Icon name="plus" /> Criar
           </button>
         </form>
       </div>
@@ -44,20 +53,26 @@ export function Lists() {
       <div className="grid">
         {(lists.data ?? []).map((l) => (
           <Link key={l.id} to={`/listas/${l.id}`} className="card list-card">
-            <div className="list-card-head">
-              <strong>{l.name}</strong>
+            <div className="list-cover" aria-hidden="true">
+              <span className="initials">{initials(l.name)}</span>
               {l.pinned && <span className="badge">fixada</span>}
             </div>
-            <div className="progress" aria-label={`Progresso ${l.doneCount} de ${l.itemCount}`}>
-              <span style={{ width: `${l.itemCount ? (l.doneCount / l.itemCount) * 100 : 0}%` }} />
-            </div>
-            <div className="muted small">
-              {l.doneCount}/{l.itemCount} resolvidos{l.sourceShareId ? ' · criada a partir de prints' : ''}
+            <div className="list-body">
+              <div className="list-card-head">
+                <strong>{l.name}</strong>
+                <span className="muted small num">{l.itemCount} títulos</span>
+              </div>
+              <div className="progress" aria-label={`Progresso ${l.doneCount} de ${l.itemCount}`}>
+                <span style={{ width: `${l.itemCount ? (l.doneCount / l.itemCount) * 100 : 0}%` }} />
+              </div>
+              <div className="muted small">
+                {l.doneCount}/{l.itemCount} resolvidos{l.sourceShareId ? ' · criada a partir de prints' : ''}
+              </div>
             </div>
           </Link>
         ))}
       </div>
-      {lists.data?.length === 0 && <p className="muted empty">Nenhuma lista ainda.</p>}
+      {lists.data?.length === 0 && <EmptyState title="Nenhuma lista ainda.">Crie uma acima ou importe prints de um post com lista.</EmptyState>}
     </section>
   );
 }
@@ -71,9 +86,10 @@ function SortableRow({ t, index }: { t: Title; index: number }) {
       className={isDragging ? 'sortable dragging' : 'sortable'}
     >
       <button type="button" className="handle" aria-label={`Arrastar ${t.title}`} {...attributes} {...listeners}>
-        ⋮⋮
+        <Icon name="grip" size={16} />
       </button>
       <span className="pos">{index + 1}</span>
+      <Thumb src={t.posterUrl} title={t.title} width={32} height={48} />
       <span className="grow">
         <strong>{t.title}</strong>
         <span className="muted small"> {[KIND_LABEL[t.kind], t.year].filter(Boolean).join(' · ')}</span>

@@ -17,7 +17,6 @@ export const STATUS_LABEL: Record<TitleStatus, string> = {
   dropped: 'Abandonei',
 };
 
-export const PRIORITY_LABEL = ['Baixa', 'Normal', 'Alta', 'Urgente'] as const;
 
 export const STEP_LABEL: Record<PipelineStepName, string> = {
   normalize: 'Normalização',

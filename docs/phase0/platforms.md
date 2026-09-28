@@ -39,6 +39,8 @@ Fonte única de verdade para os agentes da Fase 0. Nenhum agente deve avaliar pl
 | P-APPLE-DEV | Apple Developer Program | Distribuição | SC-PERSONAL e SC-STORE: requisitos para TestFlight, App Groups e Share Extension |
 | P-WEBSHARE | Web Share Target API (PWA) | Alternativa descartada | RF-01: confirmar o suporte atual em iOS/Safari e Android/Chrome |
 | P-IOS-SHORTCUTS | Atalhos do iOS (Shortcuts) | Alternativa de contingência | RF-01: atalho no share sheet que faz POST da URL para a API (somente SC-PERSONAL) |
+| P-GOOGLE-ID | Google Identity (Sign in with Google / OAuth 2.0 OIDC) | Autenticação | RF-41 (novo): login social no app Android e no web, com vínculo à conta por e-mail verificado |
+| P-APPLE-ID | Sign in with Apple | Autenticação | RF-41 (novo): login social no iOS e no web; obrigatório no iOS se houver outro login social (App Store 4.8) |
 
 ## Pastas de saída
 

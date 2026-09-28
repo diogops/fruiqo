@@ -50,6 +50,20 @@
       "when": 1790619670875,
       "tag": "0006_tmdb_enrichment_ai",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790625480809,
+      "tag": "0007_user_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790626491322,
+      "tag": "0008_title_rank",
+      "breakpoints": true
     }
   ]
 }

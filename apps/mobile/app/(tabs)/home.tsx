@@ -1,8 +1,8 @@
 // Home com os 3 modos (RF-31 Continuar, RF-32 Surpreenda-me, RF-33 Como estou).
-import type { HomePreset, HomeResponse } from '@fruiqo/contracts';
+import { type HomePreset, type HomeResponse, JUSTWATCH_ATTRIBUTION } from '@fruiqo/contracts';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
+import { Alert, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View, type ViewStyle } from 'react-native';
 
 import { discover, getHome, updateTitle } from '../../src/api/client';
 import { MOOD_MAX_CHARS, buildMoodRequest, buildSurpriseRequest, progressOf } from '../../src/discover/logic';
@@ -11,7 +11,7 @@ import { putResult } from '../../src/discover/store';
 import { ImportPrints } from '../../src/share/ImportPrints';
 import { Button, Chip, Poster, ProgressBar } from '../../src/ui/components';
 import { titleMeta } from '../../src/ui/labels';
-import { colors, ui } from '../../src/ui/theme';
+import { colors, gradients, ui } from '../../src/ui/theme';
 
 function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : 'Algo deu errado. Tente de novo.';
@@ -114,8 +114,8 @@ export default function Home() {
       {error && <Text style={ui.error}>{error}</Text>}
 
       {/* Continuar (RF-31) */}
-      <View style={ui.card}>
-        <Text style={ui.muted}>CONTINUAR</Text>
+      <View style={[ui.heroCard, { experimental_backgroundImage: gradients.hero } as ViewStyle]}>
+        <Text style={ui.eyebrow}>CONTINUAR</Text>
         {cont && progress ? (
           <>
             <Pressable
@@ -134,12 +134,18 @@ export default function Home() {
               onPress={() => router.push({ pathname: '/title/[id]', params: { id: cont.next.id } })}
               style={{ flexDirection: 'row', gap: 12, marginTop: 6 }}
             >
-              <Poster url={cont.next.posterUrl ?? cont.next.resolution?.imageUrl} title={cont.next.title} />
+              <Poster url={cont.next.posterUrl ?? cont.next.resolution?.imageUrl} title={cont.next.title} size="lg" />
               <View style={{ flex: 1, gap: 4, justifyContent: 'center' }}>
                 <Text style={ui.muted}>Próximo</Text>
                 <Text style={ui.h2}>{cont.next.title}</Text>
                 <Text style={ui.muted}>{titleMeta(cont.next)}</Text>
-                {cont.availability ? <Text style={{ fontSize: 13, color: colors.primary }}>{cont.availability}</Text> : null}
+                {cont.availability ? (
+                  <>
+                    <Text style={{ fontSize: 13, color: colors.primary }}>{cont.availability}</Text>
+                    {/* TOS-REQ-38: crédito à JustWatch em cada exibição de disponibilidade */}
+                    <Text style={{ fontSize: 11, color: colors.muted }}>{JUSTWATCH_ATTRIBUTION}</Text>
+                  </>
+                ) : null}
               </View>
             </Pressable>
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
@@ -190,8 +196,8 @@ export default function Home() {
 
       {/* Como estou (RF-33) */}
       {moodEnabled && (
-        <View style={[ui.card, { gap: 10 }]}>
-          <Text style={ui.muted}>COMO ESTOU</Text>
+        <View style={[ui.heroCard, { gap: 12, experimental_backgroundImage: gradients.card } as ViewStyle]}>
+          <Text style={ui.eyebrow}>COMO ESTOU</Text>
           <Text style={ui.body}>Conte em poucas palavras como você está ou o que procura.</Text>
           <TextInput
             style={[ui.input, { minHeight: 72, textAlignVertical: 'top', backgroundColor: colors.bg }]}
@@ -223,8 +229,9 @@ export default function Home() {
               da sua lista.
             </Text>
             <Text style={ui.body}>
-              O texto não é guardado: fica registrada apenas a intenção interpretada (por exemplo, "algo leve e de
-              superação"). Nesta versão a interpretação é feita por regras no próprio servidor do Fruiqo, sem IA externa.
+              O texto não é guardado. A intenção interpretada (por exemplo, "algo leve e de superação") só fica
+              registrada, por até 90 dias, se você ligar "Lembrar meu humor" em Ajustes. A interpretação é feita por
+              regras no servidor do Fruiqo; IA externa só é usada se você permitir em Ajustes e ela estiver disponível.
             </Text>
             <Text style={ui.muted}>
               Se o texto indicar sofrimento intenso, mostramos primeiro contatos de apoio (CVV 188). Você pode desativar

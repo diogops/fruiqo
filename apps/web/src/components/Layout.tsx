@@ -1,35 +1,101 @@
-import { NavLink, Outlet } from 'react-router';
+import { useState, type FormEvent } from 'react';
+import { NavLink, Outlet, useNavigate } from 'react-router';
 import { useAuth } from '../auth/AuthContext';
+import { BrandMark, Icon, Menu, ThemeToggle, type IconName } from './ui';
 
-const NAV = [
-  { to: '/catalogo', label: 'Catálogo' },
-  { to: '/listas', label: 'Listas' },
-  { to: '/revisao', label: 'Revisão' },
-  { to: '/atividade', label: 'Atividade' },
-  { to: '/perfil', label: 'Perfil' },
-  { to: '/sandbox', label: 'Sandbox' },
+const NAV: { to: string; label: string; icon: IconName }[] = [
+  { to: '/catalogo', label: 'Catálogo', icon: 'film' },
+  { to: '/listas', label: 'Listas', icon: 'list' },
+  { to: '/revisao', label: 'Revisão', icon: 'review' },
+  { to: '/atividade', label: 'Atividade', icon: 'activity' },
+  { to: '/perfil', label: 'Perfil', icon: 'user' },
+  { to: '/sandbox', label: 'Sandbox', icon: 'flask' },
 ];
 
 export function Layout() {
   const { email, signOut } = useAuth();
+  const navigate = useNavigate();
+  const [q, setQ] = useState('');
+
+  const search = (e: FormEvent) => {
+    e.preventDefault();
+    const term = q.trim();
+    navigate(term ? `/catalogo?q=${encodeURIComponent(term)}` : '/catalogo');
+  };
+
+  const initial = (email ?? '?').trim().charAt(0).toUpperCase();
+
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div className="brand">Fruiqo</div>
+        <NavLink to="/catalogo" className="brand" aria-label="Fruiqo, ir para o catálogo">
+          <BrandMark />
+          <span>
+            <span className="brand-name">Fruiqo</span>
+            <span className="brand-sub">organizar</span>
+          </span>
+        </NavLink>
         <nav aria-label="Seções">
+          <span className="nav-label">Navegação</span>
           {NAV.map((n) => (
             <NavLink key={n.to} to={n.to} className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
+              <Icon name={n.icon} />
               {n.label}
             </NavLink>
           ))}
         </nav>
+        <div className="sidebar-foot">
+          Dados de filmes e séries: TMDB. Disponibilidade: JustWatch.
+        </div>
       </aside>
       <div className="main">
         <header className="topbar">
-          <span className="muted">{email ?? 'Conectado'}</span>
-          <button type="button" className="btn" onClick={() => void signOut()}>
-            Sair
-          </button>
+          <form className="topbar-search" role="search" onSubmit={search}>
+            <Icon name="search" />
+            <input
+              type="search"
+              aria-label="Buscar no catálogo"
+              placeholder="Buscar filmes, séries e músicas…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </form>
+          <div className="topbar-actions">
+            <ThemeToggle />
+            <Menu
+              label="Menu do usuário"
+              triggerClassName="user-chip"
+              trigger={
+                <>
+                  <span className="avatar" aria-hidden="true">
+                    {initial}
+                  </span>
+                  <span className="email">{email ?? 'Conectado'}</span>
+                  <Icon name="down" size={14} />
+                </>
+              }
+            >
+              {(close) => (
+                <>
+                  <div className="menu-head">Conta</div>
+                  <button
+                    type="button"
+                    className="menu-item"
+                    onClick={() => {
+                      close();
+                      navigate('/perfil');
+                    }}
+                  >
+                    <Icon name="user" /> Perfil e privacidade
+                  </button>
+                  <div className="menu-sep" />
+                  <button type="button" className="menu-item" onClick={() => void signOut()}>
+                    <Icon name="logout" /> Sair
+                  </button>
+                </>
+              )}
+            </Menu>
+          </div>
         </header>
         <main className="content">
           <Outlet />

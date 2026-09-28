@@ -15,6 +15,9 @@ import {
   type LibraryResponse,
   type ListDetail,
   type ListSummary,
+  type MoveTitleRequest,
+  MoveTitleRequestSchema,
+  type MoveTitleResponse,
   type ReorderListRequest,
   ReorderListRequestSchema,
   type Title,
@@ -52,6 +55,20 @@ export class LibraryController {
     @Body(new ZodPipe(UpdateTitleRequestSchema)) body: UpdateTitleRequest,
   ): Promise<Title> {
     return this.library.update(auth.userId, id, body);
+  }
+
+  /**
+   * Reordena a fila de prioridade: `{to: top|bottom|up|down}` ou `{position}` (1 = topo).
+   * 409 quando o título está na fila de revisão (sem posição).
+   */
+  @Post(':id/move')
+  @HttpCode(200)
+  move(
+    @CurrentAuth() auth: AccessClaims,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(new ZodPipe(MoveTitleRequestSchema)) body: MoveTitleRequest,
+  ): Promise<MoveTitleResponse> {
+    return this.library.move(auth.userId, id, body);
   }
 
   /** 2d: enriquece o título no TMDB agora (gêneros, sinopse, pôster, onde assistir no BR). */

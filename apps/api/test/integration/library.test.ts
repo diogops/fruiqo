@@ -192,8 +192,8 @@ describe('PATCH /library/:id', () => {
 
   it('gêneros manuais marcam enrichment manual; gênero fora da taxonomia → 400', async () => {
     const { user, ids } = await demoUser();
-    const res = await ctx.http().patch(`/library/${ids.get('Dark')}`).set(...auth(user)).send({ genres: ['scifi', 'drama'], priority: 3 }).expect(200);
-    expect(res.body).toMatchObject({ enrichment: 'manual', priority: 3 });
+    const res = await ctx.http().patch(`/library/${ids.get('Dark')}`).set(...auth(user)).send({ genres: ['scifi', 'drama'] }).expect(200);
+    expect(res.body).toMatchObject({ enrichment: 'manual' });
     expect(res.body.genres.map((g: { key: string }) => g.key)).toEqual(['scifi', 'drama']);
     await ctx.http().patch(`/library/${ids.get('Dark')}`).set(...auth(user)).send({ genres: ['ficcao'] }).expect(400);
   });
