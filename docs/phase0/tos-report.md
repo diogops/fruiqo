@@ -313,4 +313,8 @@ Escopo desta rodada: RF-41 (novo em `docs/phase0/platforms.md`) — login social
 
 ---
 
+## Hospedagem (2026-09-28)
+
+Rodada complementar registrada em arquivo próprio: [`tos-report-hosting.md`](tos-report-hosting.md) (P-HOSTING-RAILWAY, opções de web estático, TOS-REQ-53..59, PEND-26..29).
+
 Este relatório não constitui parecer jurídico.

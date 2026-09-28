@@ -26,12 +26,12 @@ jobs:
       postgres:
         image: postgres:17-alpine
         env:
-          POSTGRES_USER: fruiqo_owner
-          POSTGRES_PASSWORD: dev_owner_password
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: dev_postgres_password
           POSTGRES_DB: fruiqo
         ports: ["55432:5432"]
         options: >-
-          --health-cmd "pg_isready -U fruiqo_owner -d fruiqo"
+          --health-cmd "pg_isready -U postgres -d fruiqo"
           --health-interval 5s --health-retries 10
       redis:
         image: redis:7-alpine
@@ -47,7 +47,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Role da aplicação (mesmo papel de infra/postgres/init.sql)
-        run: PGPASSWORD=dev_owner_password psql -h 127.0.0.1 -p 55432 -U fruiqo_owner -d fruiqo -f infra/postgres/init.sql
+        run: PGPASSWORD=dev_postgres_password psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 55432 -U postgres -d fruiqo -f infra/postgres/init.sql
       - run: pnpm build:packages
       # RF-21: repositório público, então fixtures/ só pode ter conteúdo sintético
       - run: pnpm fixtures:check

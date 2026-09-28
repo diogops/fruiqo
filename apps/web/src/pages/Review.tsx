@@ -91,7 +91,7 @@ export function Review() {
     <section>
       <div className="page-head">
         <h1>Revisão</h1>
-        <button type="button" className="btn" onClick={() => setHelp((h) => !h)} aria-expanded={help}>
+        <button type="button" className="btn shortcuts-toggle" onClick={() => setHelp((h) => !h)} aria-expanded={help}>
           Atalhos (?)
         </button>
       </div>

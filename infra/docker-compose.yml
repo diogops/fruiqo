@@ -4,8 +4,9 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: fruiqo_owner
-      POSTGRES_PASSWORD: dev_owner_password
+      # bootstrap superuser: só cria as roles (infra/postgres/init.sql); a app usa fruiqo_owner/fruiqo_app
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: dev_postgres_password
       POSTGRES_DB: fruiqo
     ports:
       - "127.0.0.1:55432:5432"
@@ -13,7 +14,7 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fruiqo_owner -d fruiqo"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d fruiqo"]
       interval: 5s
       retries: 10
   redis:

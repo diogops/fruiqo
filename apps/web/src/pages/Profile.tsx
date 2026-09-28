@@ -91,7 +91,7 @@ export function Profile() {
           <p className="muted small">
             {taste.data.totals.signals} sinais · {taste.data.totals.watched} assistidos · {taste.data.totals.rated} avaliados
           </p>
-          <table className="table">
+          <table className="table stack-table">
             <thead>
               <tr>
                 <th>Gênero</th>
@@ -103,8 +103,8 @@ export function Profile() {
             <tbody>
               {taste.data.genres.map((g) => (
                 <tr key={g.key}>
-                  <td>{g.label}</td>
-                  <td>
+                  <td className="stack-title">{g.label}</td>
+                  <td data-label="Afinidade">
                     <div className="affinity" title={g.score.toFixed(2)}>
                       <span
                         className={g.score >= 0 ? 'pos' : 'neg'}
@@ -112,11 +112,11 @@ export function Profile() {
                       />
                     </div>
                   </td>
-                  <td className="small">
+                  <td className="small" data-label="Origem">
                     {SOURCE_LABEL[g.source]}
                     {g.source === 'signals' && g.signals > 0 && <span className="muted"> ({g.signals})</span>}
                   </td>
-                  <td className="actions">
+                  <td className="actions stack-actions">
                     {g.source !== 'pinned' && (
                       <button type="button" className="btn btn-link" onClick={() => void updateTaste({ pin: [g.key] })}>
                         Fixar

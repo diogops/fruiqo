@@ -21,7 +21,7 @@ export function Activity() {
         <h1>Atividade</h1>
       </div>
       <ErrorNote error={activity.error} />
-      <table className="table">
+      <table className="table stack-table">
         <thead>
           <tr>
             <th>Quando</th>
@@ -38,28 +38,28 @@ export function Activity() {
         <tbody>
           {items.map((a) => (
             <tr key={a.shareId}>
-              <td>
+              <td className="stack-title">
                 <Link to={`/atividade/${a.shareId}`}>{formatDateTime(a.createdAt)}</Link>
                 {a.isFixture && <span className="badge">fixture</span>}
               </td>
-              <td>
+              <td data-label="Origem">
                 {a.origin === 'screenshot' ? `Prints (${a.pageCount ?? '?'})` : PLATFORM_LABEL[a.platform]}
                 {a.sourceTitle && <div className="muted small truncate">{a.sourceTitle}</div>}
               </td>
-              <td>
+              <td data-label="Status">
                 <span className={`badge badge-share-${a.status}`}>{SHARE_STATUS_LABEL[a.status]}</span>
                 {a.error && <div className="error small">{a.error}</div>}
               </td>
-              <td>{a.counts.cataloged}</td>
-              <td>{a.counts.review}</td>
-              <td>{a.counts.discarded}</td>
-              <td className="small">
+              <td data-label="Catalogados">{a.counts.cataloged}</td>
+              <td data-label="Revisão">{a.counts.review}</td>
+              <td data-label="Descartados">{a.counts.discarded}</td>
+              <td className="small" data-label="Deduplicação">
                 {a.dedup.pagesIgnored > 0 && <div>{a.dedup.pagesIgnored} print(s) repetido(s)</div>}
                 {a.dedup.itemsAlreadyInList > 0 && <div>{a.dedup.itemsAlreadyInList} já na lista</div>}
                 {a.dedup.pagesIgnored + a.dedup.itemsAlreadyInList === 0 && <span className="muted">—</span>}
               </td>
-              <td>{a.durationMs} ms</td>
-              <td>{formatUsd(a.costEstimateUsd)}</td>
+              <td data-label="Duração">{a.durationMs} ms</td>
+              <td data-label="Custo">{formatUsd(a.costEstimateUsd)}</td>
             </tr>
           ))}
         </tbody>

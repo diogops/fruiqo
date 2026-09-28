@@ -1,14 +1,14 @@
-import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { type BulkOperation, JUSTWATCH_ATTRIBUTION, type MoveTitleRequest, type RecommendationKind, TMDB_ATTRIBUTION, type Title, type TitleStatus, type WatchProvider } from '@fruiqo/contracts';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type ReactElement } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { api, type LibraryFilters } from '../api/client';
 import { CorrectTitleForm, ErrorNote, Modal, useTaxonomy } from '../components/shared';
 import { useToast } from '../components/Toast';
-import { EmptyState, Icon, Menu, SkeletonRows, Thumb } from '../components/ui';
+import { EmptyState, Icon, Menu, MQ, SkeletonRows, Thumb, useElementWidth, useMediaQuery } from '../components/ui';
 import { KIND_LABEL, KINDS, STATUS_LABEL, STATUSES } from '../labels';
 import { shiftRanks, targetPosition } from '../rankQueue';
 
@@ -36,6 +36,18 @@ export function Catalog() {
   }, [filters.q]);
   const qc = useQueryClient();
   const toast = useToast();
+  // ≤768: cards + painel de filtros + ação em massa no rodapé; acima disso, tabela com colunas por largura
+  const isMobile = useMediaQuery(MQ.mobile);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [wrapWidth, wrapRef] = useElementWidth();
+  // no toque os controles da fila têm alvos maiores: a coluna # cresce junto
+  const coarse = useMediaQuery('(pointer: coarse)');
+  const rankWidth = coarse ? 212 : 168;
+  const cols: CatalogColumns = { genres: wrapWidth >= 760, kind: wrapWidth >= 900, origin: wrapWidth >= 1080 };
+  const tableMinWidth = 44 + rankWidth + 220 + 132 + 92 + (cols.kind ? 70 : 0) + (cols.genres ? 182 : 0) + (cols.origin ? 128 : 0);
+  const activeFilters =
+    (['kind', 'status', 'genre', 'listId', 'review', 'shareId'] as const).filter((k) => Boolean(filters[k])).length +
+    (filters.sort && filters.sort !== 'rank' ? 1 : 0);
 
   const taxonomy = useTaxonomy();
   const lists = useQuery({ queryKey: ['lists'], queryFn: api.lists });
@@ -56,7 +68,9 @@ export function Catalog() {
   }, [loaded, optimistic, byRank]);
   const dragEnabled = byRank && filters.review !== 'pending';
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    // no toque, segurar ~200ms pela alça inicia o arraste; mover antes disso é rolagem
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
@@ -174,60 +188,53 @@ export function Catalog() {
             setFilter('q', e.target.value.trim());
           }}
         />
-        <select aria-label="Tipo" value={filters.kind ?? ''} onChange={(e) => setFilter('kind', e.target.value)}>
-          <option value="">Todos os tipos</option>
-          {KINDS.map((k) => (
-            <option key={k} value={k}>
-              {KIND_LABEL[k]}
-            </option>
-          ))}
-        </select>
-        <select aria-label="Status" value={filters.status ?? ''} onChange={(e) => setFilter('status', e.target.value)}>
-          <option value="">Todos os status</option>
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {STATUS_LABEL[s]}
-            </option>
-          ))}
-        </select>
-        <select aria-label="Gênero" value={filters.genre ?? ''} onChange={(e) => setFilter('genre', e.target.value)}>
-          <option value="">Todos os gêneros</option>
-          {genres.map((g) => (
-            <option key={g.key} value={g.key}>
-              {g.label}
-            </option>
-          ))}
-        </select>
-        <select aria-label="Lista" value={filters.listId ?? ''} onChange={(e) => setFilter('listId', e.target.value)}>
-          <option value="">Todas as listas</option>
-          {(lists.data ?? []).map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-            </option>
-          ))}
-        </select>
-        <select aria-label="Ordenar" value={filters.sort ?? 'rank'} onChange={(e) => setFilter('sort', e.target.value)}>
-          <option value="rank">Prioridade (fila)</option>
-          <option value="recent">Mais recentes</option>
-          <option value="title">Título</option>
-        </select>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={filters.review === 'pending'}
-            onChange={(e) => setFilter('review', e.target.checked ? 'pending' : '')}
-          />
-          Pendentes de revisão
-        </label>
-        {filters.shareId && (
-          <button type="button" className="chip" onClick={() => setFilter('shareId', '')}>
-            Fonte: 1 compartilhamento ×
+        {isMobile ? (
+          <button
+            type="button"
+            className="btn filters-toggle"
+            aria-haspopup="dialog"
+            aria-expanded={filtersOpen}
+            onClick={() => setFiltersOpen(true)}
+          >
+            <Icon name="filter" /> Filtros
+            {activeFilters > 0 && (
+              <span className="count-badge" aria-label={`${activeFilters} filtro(s) ativo(s)`}>
+                {activeFilters}
+              </span>
+            )}
           </button>
+        ) : (
+          <FilterFields filters={filters} setFilter={setFilter} genres={genres} lists={lists.data ?? []} />
         )}
       </div>
+      {isMobile && filtersOpen && (
+        <Modal title="Filtros" onClose={() => setFiltersOpen(false)}>
+          <div className="form filters-sheet">
+            <FilterFields stacked filters={filters} setFilter={setFilter} genres={genres} lists={lists.data ?? []} />
+            <div className="actions">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  const next = new URLSearchParams();
+                  if (filters.q) next.set('q', filters.q);
+                  setParams(next, { replace: true });
+                }}
+                disabled={activeFilters === 0}
+              >
+                Limpar filtros
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => setFiltersOpen(false)}>
+                Ver resultados
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {selected.size > 0 && (
         <BulkBar
+          compact={isMobile}
           count={selected.size}
           lists={lists.data ?? []}
           genres={genres}
@@ -238,62 +245,103 @@ export function Catalog() {
 
       <ErrorNote error={library.error} />
       {dragEnabled && items.length > 1 && (
-        <p className="muted small">Arraste pela alça ou use ▲/▼ para mudar a prioridade. #1 é o mais prioritário.</p>
+        <p className="muted small drag-hint">
+          {isMobile
+            ? 'Segure a alça ⠿ para arrastar, ou use ▲/▼. #1 é o mais prioritário.'
+            : 'Arraste pela alça ou use ▲/▼ para mudar a prioridade. #1 é o mais prioritário.'}
+        </p>
       )}
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-        <div className="table-wrap catalog-wrap">
-        <table className="table catalog-table">
-          <colgroup>
-            <col className="col-check" />
-            <col className="col-rank" />
-            <col className="col-title" />
-            <col className="col-kind" />
-            <col className="col-genres" />
-            <col className="col-status" />
-            <col className="col-rating" />
-            <col className="col-origin" />
-          </colgroup>
-          <thead>
-            <tr>
-              <th>
+        {isMobile ? (
+          <div className="catalog-cards-wrap">
+            {items.length > 0 && (
+              <label className="check select-all-row">
                 <input
                   type="checkbox"
                   aria-label="Selecionar todos"
                   checked={allChecked}
                   onChange={() => setSelected(allChecked ? new Set() : new Set(items.map((t) => t.id)))}
                 />
-              </th>
-              <th aria-label="Posição na fila">#</th>
-              <th>Título</th>
-              <th>Tipo</th>
-              <th>Gêneros</th>
-              <th>Status</th>
-              <th>Nota</th>
-              <th>Origem</th>
-            </tr>
-          </thead>
-          <SortableContext items={items.map((t) => t.id)} strategy={verticalListSortingStrategy} disabled={!dragEnabled}>
-            <tbody>
-              {items.map((t) => (
-                <CatalogRow
-                  key={t.id}
-                  t={t}
-                  draggable={dragEnabled && t.rank != null}
-                  selected={selected.has(t.id)}
-                  onToggle={() => toggle(t.id)}
-                  onOpen={() => setOpenId(t.id)}
-                  onPatch={(body) => void patch(t, body)}
-                  onMove={(req) => void move(t, req)}
-                />
-              ))}
-            </tbody>
-          </SortableContext>
-        </table>
-        {library.isLoading && <SkeletonRows />}
-        {!library.isLoading && items.length === 0 && (
-          <EmptyState title="Nenhum título com esses filtros.">Ajuste os filtros ou importe prints pelo app.</EmptyState>
+                Selecionar todos ({items.length})
+              </label>
+            )}
+            <SortableContext items={items.map((t) => t.id)} strategy={verticalListSortingStrategy} disabled={!dragEnabled}>
+              <ul className="catalog-cards" aria-label="Títulos do catálogo">
+                {items.map((t) => (
+                  <CatalogCard
+                    key={t.id}
+                    t={t}
+                    draggable={dragEnabled && t.rank != null}
+                    selected={selected.has(t.id)}
+                    onToggle={() => toggle(t.id)}
+                    onOpen={() => setOpenId(t.id)}
+                    onPatch={(body) => void patch(t, body)}
+                    onMove={(req) => void move(t, req)}
+                  />
+                ))}
+              </ul>
+            </SortableContext>
+            {library.isLoading && <SkeletonRows />}
+            {!library.isLoading && items.length === 0 && (
+              <EmptyState title="Nenhum título com esses filtros.">Ajuste os filtros ou importe prints pelo app.</EmptyState>
+            )}
+          </div>
+        ) : (
+          <div className="table-wrap catalog-wrap" ref={wrapRef}>
+            <table className="table catalog-table" style={{ minWidth: tableMinWidth }}>
+              <colgroup>
+                <col className="col-check" />
+                <col className="col-rank" style={{ width: rankWidth }} />
+                <col className="col-title" />
+                {cols.kind && <col className="col-kind" />}
+                {cols.genres && <col className="col-genres" />}
+                <col className="col-status" />
+                <col className="col-rating" />
+                {cols.origin && <col className="col-origin" />}
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>
+                    <input
+                      type="checkbox"
+                      aria-label="Selecionar todos"
+                      checked={allChecked}
+                      onChange={() => setSelected(allChecked ? new Set() : new Set(items.map((t) => t.id)))}
+                    />
+                  </th>
+                  <th aria-label="Posição na fila">#</th>
+                  <th>Título</th>
+                  {cols.kind && <th>Tipo</th>}
+                  {cols.genres && <th>Gêneros</th>}
+                  <th>Status</th>
+                  <th>Nota</th>
+                  {cols.origin && <th>Origem</th>}
+                </tr>
+              </thead>
+              <SortableContext items={items.map((t) => t.id)} strategy={verticalListSortingStrategy} disabled={!dragEnabled}>
+                <tbody>
+                  {items.map((t) => (
+                    <CatalogRow
+                      key={t.id}
+                      t={t}
+                      cols={cols}
+                      draggable={dragEnabled && t.rank != null}
+                      selected={selected.has(t.id)}
+                      onToggle={() => toggle(t.id)}
+                      onOpen={() => setOpenId(t.id)}
+                      onPatch={(body) => void patch(t, body)}
+                      onMove={(req) => void move(t, req)}
+                    />
+                  ))}
+                </tbody>
+              </SortableContext>
+            </table>
+            {library.isLoading && <SkeletonRows />}
+            {!library.isLoading && items.length === 0 && (
+              <EmptyState title="Nenhum título com esses filtros.">Ajuste os filtros ou importe prints pelo app.</EmptyState>
+            )}
+          </div>
         )}
-        </div>
       </DndContext>
       {library.hasNextPage && (
         <div className="load-more">
@@ -310,12 +358,14 @@ export function Catalog() {
 }
 
 function BulkBar({
+  compact = false,
   count,
   lists,
   genres,
   onRun,
   onClear,
 }: {
+  compact?: boolean;
   count: number;
   lists: { id: string; name: string }[];
   genres: { key: string; label: string }[];
@@ -325,9 +375,34 @@ function BulkBar({
   const [listId, setListId] = useState('');
   const [fromListId, setFromListId] = useState('');
   const [genre, setGenre] = useState('');
+  const [expanded, setExpanded] = useState(false);
+  // no celular a barra fica fixa no rodapé; os toasts sobem para não ficarem por baixo dela
+  useEffect(() => {
+    if (!compact) return;
+    document.documentElement.classList.add('has-docked-bulkbar');
+    return () => document.documentElement.classList.remove('has-docked-bulkbar');
+  }, [compact]);
+  const showGroups = !compact || expanded;
   return (
-    <div className="bulkbar" role="region" aria-label="Ações em massa">
-      <strong>{count} selecionado(s)</strong>
+    <div className={compact ? 'bulkbar bulkbar-docked' : 'bulkbar'} role="region" aria-label="Ações em massa">
+      <div className="bulkbar-head">
+        <strong>{count} selecionado(s)</strong>
+        {compact && (
+          <>
+            <button type="button" className="btn" onClick={() => onRun({ type: 'move_top' }, 'Levados ao topo da fila')}>
+              <Icon name="top" /> Topo
+            </button>
+            <button type="button" className="btn" aria-expanded={expanded} onClick={() => setExpanded((e) => !e)}>
+              {expanded ? 'Menos' : 'Mais ações'}
+            </button>
+            <button type="button" className="icon-btn" aria-label="Limpar seleção" onClick={onClear}>
+              <Icon name="x" />
+            </button>
+          </>
+        )}
+      </div>
+      {showGroups && (
+        <>
       <span className="group">
         <select aria-label="Lista de destino" value={listId} onChange={(e) => setListId(e.target.value)}>
           <option value="">Lista…</option>
@@ -396,10 +471,106 @@ function BulkBar({
       <button type="button" className="btn btn-danger" onClick={() => onRun({ type: 'delete' }, 'Removidos')}>
         Remover
       </button>
-      <button type="button" className="btn btn-link" onClick={onClear}>
-        Limpar seleção
-      </button>
+      {!compact && (
+        <button type="button" className="btn btn-link" onClick={onClear}>
+          Limpar seleção
+        </button>
+      )}
+        </>
+      )}
     </div>
+  );
+}
+
+type CatalogColumns = { genres: boolean; kind: boolean; origin: boolean };
+
+/** Campos de filtro: em linha na barra (desktop) ou empilhados com rótulo (painel do celular). */
+function FilterFields({
+  filters,
+  setFilter,
+  genres,
+  lists,
+  stacked = false,
+}: {
+  filters: LibraryFilters;
+  setFilter: (key: (typeof FILTER_KEYS)[number], value: string) => void;
+  genres: { key: string; label: string }[];
+  lists: { id: string; name: string }[];
+  stacked?: boolean;
+}) {
+  const field = (label: string, control: ReactElement) =>
+    stacked ? (
+      <label key={label}>
+        {label}
+        {control}
+      </label>
+    ) : (
+      control
+    );
+  return (
+    <>
+      {field(
+        'Tipo',
+        <select key="kind" aria-label="Tipo" value={filters.kind ?? ''} onChange={(e) => setFilter('kind', e.target.value)}>
+          <option value="">Todos os tipos</option>
+          {KINDS.map((k) => (
+            <option key={k} value={k}>
+              {KIND_LABEL[k]}
+            </option>
+          ))}
+        </select>,
+      )}
+      {field(
+        'Status',
+        <select key="status" aria-label="Status" value={filters.status ?? ''} onChange={(e) => setFilter('status', e.target.value)}>
+          <option value="">Todos os status</option>
+          {STATUSES.map((st) => (
+            <option key={st} value={st}>
+              {STATUS_LABEL[st]}
+            </option>
+          ))}
+        </select>,
+      )}
+      {field(
+        'Gênero',
+        <select key="genre" aria-label="Gênero" value={filters.genre ?? ''} onChange={(e) => setFilter('genre', e.target.value)}>
+          <option value="">Todos os gêneros</option>
+          {genres.map((g) => (
+            <option key={g.key} value={g.key}>
+              {g.label}
+            </option>
+          ))}
+        </select>,
+      )}
+      {field(
+        'Lista',
+        <select key="list" aria-label="Lista" value={filters.listId ?? ''} onChange={(e) => setFilter('listId', e.target.value)}>
+          <option value="">Todas as listas</option>
+          {lists.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.name}
+            </option>
+          ))}
+        </select>,
+      )}
+      {field(
+        'Ordenar',
+        <select key="sort" aria-label="Ordenar" value={filters.sort ?? 'rank'} onChange={(e) => setFilter('sort', e.target.value)}>
+          <option value="rank">Prioridade (fila)</option>
+          <option value="recent">Mais recentes</option>
+          <option value="title">Título</option>
+        </select>,
+      )}
+      <label className="check">
+        <input type="checkbox" checked={filters.review === 'pending'} onChange={(e) => setFilter('review', e.target.checked ? 'pending' : '')} />
+        Pendentes de revisão
+      </label>
+      {filters.shareId && (
+        <button type="button" className="chip" onClick={() => setFilter('shareId', '')}>
+          Fonte: 1 compartilhamento ×
+        </button>
+      )}
+    </>
   );
 }
 
@@ -631,6 +802,7 @@ function AddTitle({ onClose }: { onClose: () => void }) {
 
 function CatalogRow({
   t,
+  cols,
   draggable,
   selected,
   onToggle,
@@ -639,6 +811,7 @@ function CatalogRow({
   onMove,
 }: {
   t: Title;
+  cols: CatalogColumns;
   draggable: boolean;
   selected: boolean;
   onToggle: () => void;
@@ -692,25 +865,12 @@ function CatalogRow({
           </div>
         </div>
       </td>
-      <td className="small">{KIND_LABEL[t.kind]}</td>
-      <td>
-        {t.genres.length ? (
-          <span className="genre-chips">
-            {t.genres.slice(0, 2).map((g) => (
-              <span key={g.key} className="genre-chip">
-                {g.label}
-              </span>
-            ))}
-            {t.genres.length > 2 && (
-              <span className="genre-chip genre-chip-more" title={t.genres.slice(2).map((g) => g.label).join(', ')}>
-                +{t.genres.length - 2}
-              </span>
-            )}
-          </span>
-        ) : (
-          <span className="muted">—</span>
-        )}
-      </td>
+      {cols.kind && <td className="small">{KIND_LABEL[t.kind]}</td>}
+      {cols.genres && (
+        <td>
+          <GenreChips t={t} />
+        </td>
+      )}
       <td>
         <select className="status-select" data-status={t.status} aria-label={`Status de ${t.title}`} value={t.status} onChange={(e) => onPatch({ status: e.target.value as TitleStatus })}>
           {STATUSES.map((st) => (
@@ -735,19 +895,125 @@ function CatalogRow({
           ))}
         </select>
       </td>
-      <td className="small origin-cell">
-        <div className="ellipsis" title={t.lists.map((l) => l.name).join(', ') || undefined}>
-          {t.lists.map((l) => l.name).join(', ') || <span className="muted">sem lista</span>}
-        </div>
-        <div className="ellipsis">
-          {t.shareId ? (
-            <Link to={`/atividade/${t.shareId}`}>compartilhamento</Link>
-          ) : (
-            <span className="muted">{t.enrichment === 'demo' ? 'demo' : 'manual'}</span>
-          )}
-        </div>
-      </td>
+      {cols.origin && (
+        <td className="small origin-cell">
+          <div className="ellipsis" title={t.lists.map((l) => l.name).join(', ') || undefined}>
+            {t.lists.map((l) => l.name).join(', ') || <span className="muted">sem lista</span>}
+          </div>
+          <div className="ellipsis">
+            {t.shareId ? (
+              <Link to={`/atividade/${t.shareId}`}>compartilhamento</Link>
+            ) : (
+              <span className="muted">{t.enrichment === 'demo' ? 'demo' : 'manual'}</span>
+            )}
+          </div>
+        </td>
+      )}
     </tr>
+  );
+}
+
+function GenreChips({ t }: { t: Title }) {
+  if (!t.genres.length) return <span className="muted">—</span>;
+  return (
+    <span className="genre-chips">
+      {t.genres.slice(0, 2).map((g) => (
+        <span key={g.key} className="genre-chip">
+          {g.label}
+        </span>
+      ))}
+      {t.genres.length > 2 && (
+        <span className="genre-chip genre-chip-more" title={t.genres.slice(2).map((g) => g.label).join(', ')}>
+          +{t.genres.length - 2}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Card do catálogo no celular: pôster, #N em destaque, status/nota e controles de fila com alvos de 44px. */
+function CatalogCard({
+  t,
+  draggable,
+  selected,
+  onToggle,
+  onOpen,
+  onPatch,
+  onMove,
+}: {
+  t: Title;
+  draggable: boolean;
+  selected: boolean;
+  onToggle: () => void;
+  onOpen: () => void;
+  onPatch: (body: Parameters<typeof api.updateTitle>[1]) => void;
+  onMove: (req: MoveTitleRequest) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: t.id, disabled: !draggable });
+  const style = { transform: CSS.Transform.toString(transform), transition };
+  const cls = ['catalog-card', selected ? 'is-selected' : '', t.rank === 1 ? 'rank-top' : '', isDragging ? 'dragging' : '']
+    .filter(Boolean)
+    .join(' ');
+  return (
+    <li ref={setNodeRef} style={style} className={cls}>
+      <div className="cc-top">
+        <label className="cc-check">
+          <input type="checkbox" aria-label={`Selecionar ${t.title}`} checked={selected} onChange={onToggle} />
+        </label>
+        <button type="button" className="cc-poster" onClick={onOpen} aria-label={`Abrir ${t.title}`} tabIndex={-1}>
+          <Thumb src={t.posterUrl} title={t.title} width={56} height={84} />
+        </button>
+        <div className="cc-main">
+          <div className="cc-rankline">
+            {t.rank == null ? <span className="badge badge-review_queue">revisão</span> : <strong className="rank-number">#{t.rank}</strong>}
+            <span className="muted small">{[KIND_LABEL[t.kind], t.year].filter(Boolean).join(' · ')}</span>
+          </div>
+          <button type="button" className="btn btn-link title-link cc-title" onClick={onOpen}>
+            {t.title}
+          </button>
+          {t.creator && <div className="muted small ellipsis">{t.creator}</div>}
+          <GenreChips t={t} />
+        </div>
+      </div>
+      <div className="cc-bottom">
+        <select className="status-select" data-status={t.status} aria-label={`Status de ${t.title}`} value={t.status} onChange={(e) => onPatch({ status: e.target.value as TitleStatus })}>
+          {STATUSES.map((st) => (
+            <option key={st} value={st}>
+              {STATUS_LABEL[st]}
+            </option>
+          ))}
+        </select>
+        <select
+          className="rating-select"
+          aria-label={`Nota de ${t.title}`}
+          value={t.rating ?? ''}
+          onChange={(e) => onPatch({ rating: e.target.value ? Number(e.target.value) : null })}
+        >
+          <option value="">—</option>
+          {[1, 2, 3, 4, 5].map((n) => (
+            <option key={n} value={n}>
+              {'★'.repeat(n)}
+            </option>
+          ))}
+        </select>
+        {t.rank != null && (
+          <span className="rank-controls cc-rank">
+            {draggable && (
+              <button type="button" className="drag-handle" aria-label={`Arrastar ${t.title}`} {...attributes} {...listeners}>
+                <Icon name="grip" size={18} />
+              </button>
+            )}
+            <button type="button" className="btn btn-icon" aria-label={`Subir ${t.title}`} disabled={t.rank === 1} onClick={() => onMove({ to: 'up' })}>
+              <Icon name="up" size={17} />
+            </button>
+            <button type="button" className="btn btn-icon" aria-label={`Descer ${t.title}`} onClick={() => onMove({ to: 'down' })}>
+              <Icon name="down" size={17} />
+            </button>
+            <RankMenu title={t.title} onMove={onMove} />
+          </span>
+        )}
+      </div>
+    </li>
   );
 }
 

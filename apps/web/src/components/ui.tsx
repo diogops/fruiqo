@@ -1,5 +1,83 @@
 // Primitivas visuais do design system: ícones (SVG inline, sem dependência), tema, menu acessível e estado vazio.
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
+
+// ---------------------------------------------------------- responsividade
+
+/** Breakpoints do sistema (px). Espelhados em styles.css. */
+export const BREAKPOINTS = { sm: 480, md: 768, lg: 1024, xl: 1280, xxl: 1440 } as const;
+export const MQ = {
+  /** celular: catálogo em cards, filtros em painel, ação em massa no rodapé */
+  mobile: `(max-width: ${BREAKPOINTS.md}px)`,
+  /** até tablet paisagem: sidebar vira drawer */
+  drawer: `(max-width: ${BREAKPOINTS.lg}px)`,
+  /** notebook: sidebar recolhida (só ícones) por padrão */
+  compact: `(min-width: ${BREAKPOINTS.lg + 1}px) and (max-width: ${BREAKPOINTS.xl}px)`,
+  /** celular estreito: busca do cabeçalho vira botão */
+  small: `(max-width: ${BREAKPOINTS.sm}px)`,
+} as const;
+
+function matches(query: string): boolean {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(query).matches;
+}
+
+/** Acompanha uma media query (sem matchMedia, ex.: testes/SSR, assume desktop). */
+export function useMediaQuery(query: string): boolean {
+  const [value, setValue] = useState(() => matches(query));
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const mql = window.matchMedia(query);
+    const update = () => setValue(mql.matches);
+    update();
+    mql.addEventListener?.('change', update);
+    return () => mql.removeEventListener?.('change', update);
+  }, [query]);
+  return value;
+}
+
+/**
+ * Largura atual de um elemento (ResizeObserver), via callback ref — funciona quando o elemento
+ * monta/desmonta (ex.: tabela ↔ cards). Sem suporte, devolve Infinity (layout completo).
+ */
+export function useElementWidth(): [number, (el: HTMLElement | null) => void] {
+  const [el, setEl] = useState<HTMLElement | null>(null);
+  const [width, setWidth] = useState(Infinity);
+  useEffect(() => {
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (w) setWidth(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [el]);
+  return [width, setEl];
+}
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** Mantém o Tab dentro do container enquanto `active` (drawer, modal). */
+export function useFocusTrap(ref: RefObject<HTMLElement | null>, active: boolean) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!active || !el) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const nodes = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((n) => n.tabIndex !== -1);
+      if (nodes.length === 0) return;
+      const first = nodes[0]!;
+      const last = nodes[nodes.length - 1]!;
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    el.addEventListener('keydown', onKey);
+    return () => el.removeEventListener('keydown', onKey);
+  }, [ref, active]);
+}
 
 const PATHS = {
   film: 'M4 4h16v16H4zM8 4v16M16 4v16M4 8h4M4 12h4M4 16h4M16 8h4M16 12h4M16 16h4',
@@ -25,6 +103,10 @@ const PATHS = {
   sparkles: 'M12 3l1.8 4.9L19 9.7l-5.2 1.8L12 16.5l-1.8-5L5 9.7l5.2-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z',
   star: 'M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z',
   play: 'M6 4l14 8-14 8z',
+  menu: 'M3 6h18M3 12h18M3 18h18',
+  filter: 'M22 3H2l8 9.46V19l4 2v-8.54z',
+  sidebar: 'M3 3h18v18H3zM9 3v18',
+  check: 'M20 6L9 17l-5-5',
 } as const;
 
 export type IconName = keyof typeof PATHS;

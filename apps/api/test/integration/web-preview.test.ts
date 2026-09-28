@@ -13,6 +13,20 @@ let ctx: Awaited<ReturnType<typeof startTestApp>>;
 let noCors: Awaited<ReturnType<typeof startTestApp>>;
 const { db, pool } = createDb(APP_URL);
 const owner = new pg.Pool({ connectionString: OWNER_URL });
+// Leitura direta como a API faz: role fruiqo_app + app.user_id (o owner não é superusuário e obedece ao RLS).
+const app = new pg.Pool({ connectionString: APP_URL });
+async function asUser<T>(userId: string, fn: (c: pg.PoolClient) => Promise<T>): Promise<T> {
+  const c = await app.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query("SELECT set_config('app.user_id', $1, true)", [userId]);
+    const r = await fn(c);
+    await c.query('COMMIT');
+    return r;
+  } finally {
+    c.release();
+  }
+}
 
 beforeAll(async () => {
   ctx = await startTestApp({ WEB_ORIGIN: `${WEB},http://127.0.0.1:8082/` });
@@ -23,6 +37,7 @@ afterAll(async () => {
   await noCors.app.close();
   await pool.end();
   await owner.end();
+  await app.end();
 });
 
 describe('CORS (WEB_ORIGIN)', () => {
@@ -77,9 +92,11 @@ describe('PATCH /library/:id grava sinais de gosto (RF-34)', () => {
 
     const signals = async () =>
       (
-        await owner.query<{ signal: string; value: number }>(
-          'SELECT signal, value FROM taste_signals WHERE user_id = $1 AND recommendation_id = $2 ORDER BY created_at, signal',
-          [userId, id],
+        await asUser(userId, (c) =>
+          c.query<{ signal: string; value: number }>(
+            'SELECT signal, value FROM taste_signals WHERE user_id = $1 AND recommendation_id = $2 ORDER BY created_at, signal',
+            [userId, id],
+          ),
         )
       ).rows;
 

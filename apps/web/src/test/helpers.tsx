@@ -77,3 +77,31 @@ export function makeTitle(over: Partial<Title> = {}): Title {
     ...over,
   };
 }
+
+/**
+ * Simula a largura da janela para as media queries do app (`matchMedia`).
+ * Avalia só `max-width`/`min-width` em px — suficiente para os breakpoints de `MQ`.
+ */
+export function mockViewport(width: number) {
+  const evaluate = (query: string) =>
+    query.split(' and ').every((part) => {
+      const max = /max-width:\s*(\d+)px/.exec(part);
+      const min = /min-width:\s*(\d+)px/.exec(part);
+      if (max) return width <= Number(max[1]);
+      if (min) return width >= Number(min[1]);
+      return false;
+    });
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn((query: string) => ({
+      matches: evaluate(query),
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  );
+}

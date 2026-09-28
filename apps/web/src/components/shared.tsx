@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import { api, ApiError } from '../api/client';
 import { DECISION_LABEL, KIND_LABEL, KINDS, STEP_LABEL, formatUsd, percent } from '../labels';
 import { useToast } from './Toast';
+import { useFocusTrap } from './ui';
 
 export function useTaxonomy() {
   return useQuery({ queryKey: ['taxonomy'], queryFn: api.taxonomy, staleTime: Infinity });
@@ -11,6 +12,7 @@ export function useTaxonomy() {
 
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
+  useFocusTrap(ref, true);
   useEffect(() => {
     // foca o primeiro campo; sem campo, o primeiro botão (o × do cabeçalho vem antes no DOM)
     const root = ref.current;
@@ -19,14 +21,20 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    // modal aberto (sheet em tela cheia no celular): trava a rolagem da página
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
   }, [onClose]);
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" role="dialog" aria-modal="true" aria-label={title} ref={ref}>
         <div className="modal-head">
           <h2>{title}</h2>
-          <button type="button" className="btn btn-icon" aria-label="Fechar" onClick={onClose}>
+          <button type="button" className="btn btn-icon modal-close" aria-label="Fechar" onClick={onClose}>
             ×
           </button>
         </div>
@@ -179,7 +187,7 @@ function Summary({ value }: { value: Record<string, unknown> }) {
 export function StepsTable({ steps }: { steps: PipelineStep[] }) {
   if (steps.length === 0) return <p className="muted">Nenhuma etapa registrada.</p>;
   return (
-    <table className="table steps-table">
+    <table className="table steps-table stack-table">
       <thead>
         <tr>
           <th>#</th>
@@ -193,22 +201,22 @@ export function StepsTable({ steps }: { steps: PipelineStep[] }) {
       <tbody>
         {steps.map((s) => (
           <tr key={s.seq} className={s.error ? 'row-error' : undefined}>
-            <td>
+            <td className="stack-lead">
               <span className={s.error ? 'step-dot step-dot-error' : 'step-dot'}>{s.seq}</span>
             </td>
-            <td>
+            <td className="stack-title">
               <strong>{STEP_LABEL[s.step]}</strong>
               <div className="muted small">{s.mode}</div>
               {s.error && <div className="error small">{s.error}</div>}
             </td>
-            <td>
+            <td data-label="Entrada">
               <Summary value={s.inputSummary} />
             </td>
-            <td>
+            <td data-label="Saída">
               <Summary value={s.outputSummary} />
             </td>
-            <td>{s.durationMs} ms</td>
-            <td>
+            <td data-label="Duração">{s.durationMs} ms</td>
+            <td data-label="Custo">
               {formatUsd(s.costEstimateUsd)}
               {s.tokensIn + s.tokensOut > 0 && <div className="muted small">{s.tokensIn + s.tokensOut} tokens</div>}
             </td>
@@ -228,7 +236,7 @@ export function DecisionsTable({
 }) {
   if (decisions.length === 0) return <p className="muted">Nenhum candidato.</p>;
   return (
-    <table className="table">
+    <table className="table stack-table">
       <thead>
         <tr>
           <th>Candidato</th>
@@ -242,15 +250,15 @@ export function DecisionsTable({
       <tbody>
         {decisions.map((d, i) => (
           <tr key={`${d.rawTitle}-${i}`}>
-            <td>{d.rawTitle}</td>
-            <td>{KIND_LABEL[d.kind]}</td>
-            <td>{percent(d.confidenceScore)}</td>
-            <td>
+            <td className="stack-title">{d.rawTitle}</td>
+            <td data-label="Tipo">{KIND_LABEL[d.kind]}</td>
+            <td data-label="Confiança">{percent(d.confidenceScore)}</td>
+            <td data-label="Decisão">
               <span className={`badge badge-${d.decision}`}>{DECISION_LABEL[d.decision] ?? d.decision}</span>
             </td>
-            <td className="muted">{d.reason}</td>
+            <td className="muted" data-label="Motivo">{d.reason}</td>
             {onCorrect && (
-              <td>
+              <td className="stack-actions">
                 {d.recommendationId && (
                   <button type="button" className="btn btn-link" onClick={() => onCorrect(d)}>
                     Corrigir
