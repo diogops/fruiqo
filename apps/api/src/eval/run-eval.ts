@@ -5,7 +5,7 @@
 //
 // --check falha (exit 1) se: recall de risco < 100% (RNF-07), F1 cair em relação à baseline, ou uma
 // checagem que passava na baseline passar a falhar. A baseline versionada é a `v0-heuristic`.
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -105,7 +105,8 @@ async function runPipelineFixtures(fixtures: PipelineFixture[], set: Args['set']
     LOG_LEVEL: 'silent',
     DATABASE_URL: APP_URL,
     REDIS_URL: 'redis://127.0.0.1:6379/15',
-    JWT_SECRET: 'eval-secret-eval-secret-eval-secret-0123456789',
+    // o eval não emite tokens; um segredo aleatório por execução satisfaz a validação do env
+    JWT_SECRET: randomBytes(32).toString('hex'),
     PIPELINE_MODE: 'mock',
   });
   const dirs = set === 'public' ? [FIXTURES_DIR] : set === 'private' ? [FIXTURES_PRIVATE_DIR] : [FIXTURES_DIR, FIXTURES_PRIVATE_DIR];
