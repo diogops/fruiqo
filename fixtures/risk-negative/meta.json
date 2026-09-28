@@ -1,0 +1,9 @@
+{
+  "id": "risk-negative",
+  "kind": "mood-set",
+  "description": "Frases próximas que NÃO devem acionar (falso positivo é tolerado, mas medido)",
+  "synthetic": true,
+  "origin": "escrito pelo time Fruiqo (sintético)",
+  "license": "CC0-1.0",
+  "version": 1
+}

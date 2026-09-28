@@ -16,7 +16,7 @@ Fonte única de verdade para os agentes da Fase 0. Nenhum agente deve avaliar pl
 | P-IG | Instagram (Meta) | Fonte de conteúdo | RF-01, RF-03: receber link/post via share e extrair texto, caption e imagens |
 | P-YT | YouTube | Fonte + streaming | RF-03 (fonte), RF-15 (deep link) |
 | P-TT | TikTok | Fonte de conteúdo | RF-01, RF-03 (opcional, avaliar se barato) |
-| P-SPOT | Spotify | Streaming música | RF-05 (busca), RF-15 (playlist, playback, deep link) |
+| P-SPOT | Spotify | Streaming música | RF-05 (busca), RF-15 (playlist, playback, deep link), RF-35/RF-39 (busca e recomendações para descoberta musical; verificar se o endpoint de recomendações ainda está disponível para apps novos) |
 | P-AM | Apple Music | Streaming música | RF-05, RF-15 |
 | P-YTM | YouTube Music | Streaming música | RF-15 |
 | P-DZ | Deezer | Streaming música | RF-15 |
@@ -26,10 +26,10 @@ Fonte única de verdade para os agentes da Fase 0. Nenhum agente deve avaliar pl
 | P-MAX | Max | Streaming vídeo | RF-15 |
 | P-GLOBO | Globoplay | Streaming vídeo | RF-15 |
 | P-ATV | Apple TV+ | Streaming vídeo | RF-15 |
-| P-TMDB | TMDB | Metadados | RF-05, RF-06 (títulos, gêneros, watch providers BR) |
+| P-TMDB | TMDB | Metadados | RF-05, RF-06 (títulos, gêneros, watch providers BR), RF-32/RF-35/RF-38/RF-39 (discover, keywords, recommendations/similar e watch providers BR usados no ranking de recomendação, sem envio ao LLM) |
 | P-MB | MusicBrainz | Metadados | RF-05 (resolução de música) |
 | P-JW | JustWatch | Metadados | RF-06 (disponibilidade por região) |
-| P-LLM | Anthropic API | Processamento | RF-03, RF-04 (extração e detecção via LLM) |
+| P-LLM | Anthropic API | Processamento | RF-03, RF-04 (extração e detecção via LLM), RF-32 (tagging de subgênero só com título/ano), RF-33/RF-39 (interpretação da intenção de humor a partir do texto do próprio usuário, D-06) |
 | P-MLKIT | Google ML Kit / Apple Vision | OCR on-device | RF-03 |
 | P-APPSTORE | Apple App Store Review Guidelines | Distribuição | SC-STORE |
 | P-PLAY | Google Play Developer Policy | Distribuição | SC-STORE |

@@ -1,0 +1,69 @@
+{
+  "status": "done",
+  "items": [
+    {
+      "title": "Oppenheimer",
+      "kind": "movie",
+      "year": 2023
+    },
+    {
+      "title": "Duna: Parte Dois",
+      "kind": "movie",
+      "year": 2024
+    },
+    {
+      "title": "Pobres Criaturas",
+      "kind": "movie",
+      "year": 2023
+    },
+    {
+      "title": "Anatomia de uma Queda",
+      "kind": "movie",
+      "year": 2023
+    },
+    {
+      "title": "Vidas Passadas",
+      "kind": "movie",
+      "year": 2023
+    },
+    {
+      "title": "Zona de Interesse",
+      "kind": "movie",
+      "year": 2023
+    },
+    {
+      "title": "Os Rejeitados",
+      "kind": "movie",
+      "year": 2023
+    },
+    {
+      "title": "Aftersun",
+      "kind": "movie",
+      "year": 2022
+    },
+    {
+      "title": "A Baleia",
+      "kind": "movie",
+      "year": 2022
+    },
+    {
+      "title": "Tár",
+      "kind": "movie",
+      "year": 2022
+    },
+    {
+      "title": "Os Banshees de Inisherin",
+      "kind": "movie",
+      "year": 2022
+    },
+    {
+      "title": "Nada de Novo no Front",
+      "kind": "movie",
+      "year": 2022
+    }
+  ],
+  "dedup": {
+    "pagesIgnored": 0,
+    "itemsAlreadyInList": 0
+  }
+}

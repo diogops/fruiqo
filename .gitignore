@@ -14,3 +14,8 @@ apps/mobile/ios/
 # spikes: dependências e nativos gerados
 docs/phase0/spikes/**/node_modules/
 docs/phase0/spikes/**/ios/
+
+# fixtures reais e gravações do PIPELINE_MODE=record (nunca versionar: repositório público)
+fixtures-private/
+# relatórios do pnpm eval
+reports/

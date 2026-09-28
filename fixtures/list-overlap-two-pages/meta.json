@@ -1,0 +1,9 @@
+{
+  "id": "list-overlap-two-pages",
+  "kind": "screenshot",
+  "description": "Dois prints da mesma lista (1–7 e 5–12); as linhas 5–7 aparecem nos dois",
+  "synthetic": true,
+  "origin": "escrito pelo time Fruiqo (sintético)",
+  "license": "CC0-1.0",
+  "version": 1
+}

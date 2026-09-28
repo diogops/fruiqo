@@ -1,5 +1,5 @@
-import type { Recommendation, Share } from '@fruiqo/contracts';
-import type { RecommendationRow, ShareRow } from '../db/schema.js';
+import type { CandidateDecision, PipelineStep, Recommendation, Share } from '@fruiqo/contracts';
+import type { RecommendationRow, ShareRow, candidateDecisions, pipelineStepLogs } from '../db/schema.js';
 
 export function toShare(row: ShareRow, recs: RecommendationRow[]): Share {
   return {
@@ -32,5 +32,33 @@ function toRecommendation(r: RecommendationRow): Recommendation {
     confidence: r.confidence,
     extractor: r.extractor,
     ...(r.resolution ? { resolution: r.resolution } : {}),
+    decision: r.decision,
+  };
+}
+
+export function toStep(s: typeof pipelineStepLogs.$inferSelect): PipelineStep {
+  return {
+    seq: s.seq,
+    step: s.step as PipelineStep['step'],
+    mode: s.mode,
+    startedAt: s.startedAt.toISOString(),
+    durationMs: s.durationMs,
+    inputSummary: s.inputSummary,
+    outputSummary: s.outputSummary,
+    tokensIn: s.tokensIn,
+    tokensOut: s.tokensOut,
+    costEstimateUsd: s.costEstimateUsd,
+    ...(s.error ? { error: s.error } : {}),
+  };
+}
+
+export function toDecision(d: typeof candidateDecisions.$inferSelect): CandidateDecision {
+  return {
+    rawTitle: d.rawTitle,
+    kind: d.kind,
+    confidenceScore: d.confidenceScore,
+    decision: d.decision,
+    reason: d.reason,
+    ...(d.recommendationId ? { recommendationId: d.recommendationId } : {}),
   };
 }

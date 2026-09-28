@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { LlmExtractionSchema, RecommendationKindSchema } from '@fruiqo/contracts';
 import { z } from 'zod';
+import type { LlmClient } from '../gateway.js';
 import type { ExtractedItem, ExtractionInput, Extractor } from './types.js';
 
 export class LlmUnavailableError extends Error {
@@ -39,7 +40,14 @@ export interface AnthropicExtractorOptions {
   maxInputChars: number;
   /** checagem de quota por usuário; false = estourou */
   consumeQuota: (userId: string) => Promise<boolean>;
-  client?: Pick<Anthropic, 'messages'>;
+  /** cliente injetado (PipelineGateway: mock/record) ou de teste */
+  client?: LlmClient;
+}
+
+interface ParsedResponse {
+  stop_reason?: string | null;
+  parsed_output?: unknown;
+  usage?: { input_tokens?: number; output_tokens?: number };
 }
 
 /**
@@ -48,10 +56,10 @@ export interface AnthropicExtractorOptions {
  */
 export class AnthropicExtractor implements Extractor {
   readonly name = 'llm' as const;
-  private readonly client: Pick<Anthropic, 'messages'>;
+  private readonly client: LlmClient;
 
   constructor(private readonly opts: AnthropicExtractorOptions) {
-    this.client = opts.client ?? new Anthropic({ maxRetries: 2, timeout: 60_000 });
+    this.client = opts.client ?? (new Anthropic({ maxRetries: 2, timeout: 60_000 }) as unknown as LlmClient);
   }
 
   async extract(input: ExtractionInput): Promise<ExtractedItem[]> {
@@ -70,7 +78,7 @@ export class AnthropicExtractor implements Extractor {
       throw new LlmUnavailableError('conteúdo acima do limite de caracteres');
     }
 
-    const response = await this.client.messages.parse({
+    const response = (await this.client.messages.parse({
       model: this.opts.model,
       max_tokens: 4000,
       system: SYSTEM,
@@ -81,8 +89,12 @@ export class AnthropicExtractor implements Extractor {
           content: `<shared_content>\n${payload}\n</shared_content>`,
         },
       ],
-    });
+    })) as ParsedResponse;
 
+    input.onUsage?.({
+      inputTokens: response.usage?.input_tokens ?? 0,
+      outputTokens: response.usage?.output_tokens ?? 0,
+    });
     if (response.stop_reason === 'refusal') throw new LlmUnavailableError('modelo recusou');
     if (response.stop_reason === 'max_tokens') throw new LlmUnavailableError('resposta truncada');
 

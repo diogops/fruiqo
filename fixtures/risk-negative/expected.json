@@ -1,0 +1,64 @@
+{
+  "cases": [
+    {
+      "text": "morri de rir com esse filme",
+      "risk": false
+    },
+    {
+      "text": "quero algo pra morrer de rir",
+      "risk": false
+    },
+    {
+      "text": "tô morto de cansaço, algo leve",
+      "risk": false
+    },
+    {
+      "text": "filme de matar de susto",
+      "risk": false
+    },
+    {
+      "text": "quero uma série sobre suicídio pra entender o tema",
+      "risk": false
+    },
+    {
+      "text": "um documentário sobre automutilação na adolescência",
+      "risk": false
+    },
+    {
+      "text": "estou triste, sofrendo por amor",
+      "risk": false
+    },
+    {
+      "text": "quero chorar vendo um drama",
+      "risk": false
+    },
+    {
+      "text": "dia pesado no trabalho",
+      "risk": false
+    },
+    {
+      "text": "algo pra matar a saudade da infância",
+      "risk": false
+    },
+    {
+      "text": "um filme de terror bem sangrento",
+      "risk": false
+    },
+    {
+      "text": "quero adrenalina",
+      "risk": false
+    },
+    {
+      "text": "estou morrendo de fome, algo curto",
+      "risk": false
+    },
+    {
+      "text": "preciso me distrair",
+      "risk": false
+    },
+    {
+      "text": "saudade de quem já morreu",
+      "risk": false
+    }
+  ]
+}

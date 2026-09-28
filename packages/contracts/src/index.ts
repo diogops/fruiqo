@@ -101,6 +101,11 @@ export const RecommendationSchema = z.object({
   /** de onde veio: 'llm' ou 'heuristic' */
   extractor: z.enum(['llm', 'heuristic']),
   resolution: ResolutionSchema.optional(),
+  /**
+   * RF-19/RF-28: 'cataloged' entra no catálogo; 'review_queue' espera revisão (confiança baixa ou
+   * sem correspondência). Candidatos 'discarded' não viram recomendação (ver GET /shares/:id/steps).
+   */
+  decision: z.enum(['cataloged', 'review_queue']).optional(),
 });
 export type Recommendation = z.infer<typeof RecommendationSchema>;
 
@@ -144,6 +149,65 @@ export const ShareListResponseSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 export type ShareListResponse = z.infer<typeof ShareListResponseSchema>;
+
+// ---------- Pipeline inspector (RF-19) ----------
+
+export const PipelineModeSchema = z.enum(['mock', 'live', 'record']);
+export type PipelineMode = z.infer<typeof PipelineModeSchema>;
+
+export const PipelineStepNameSchema = z.enum([
+  'normalize',
+  'metadata',
+  'ocr_input',
+  'merge_pages',
+  'noise_filter',
+  'extract',
+  'dedup',
+  'resolve',
+  'decide',
+]);
+export type PipelineStepName = z.infer<typeof PipelineStepNameSchema>;
+
+/**
+ * Resumos são JSON pequenos. Trechos de texto de terceiros ficam em campos `preview` (≤ 200
+ * caracteres) e só são guardados em shares de fixture; nos shares reais saem antes de gravar.
+ */
+export const PipelineStepSchema = z.object({
+  seq: z.number().int().min(0),
+  step: PipelineStepNameSchema,
+  mode: PipelineModeSchema,
+  startedAt: z.iso.datetime(),
+  durationMs: z.number().int().min(0),
+  inputSummary: z.record(z.string(), z.unknown()),
+  outputSummary: z.record(z.string(), z.unknown()),
+  tokensIn: z.number().int().min(0),
+  tokensOut: z.number().int().min(0),
+  costEstimateUsd: z.number().min(0),
+  error: z.string().optional(),
+});
+export type PipelineStep = z.infer<typeof PipelineStepSchema>;
+
+export const CandidateDecisionValueSchema = z.enum(['cataloged', 'review_queue', 'discarded']);
+export type CandidateDecisionValue = z.infer<typeof CandidateDecisionValueSchema>;
+
+export const CandidateDecisionSchema = z.object({
+  rawTitle: z.string(),
+  kind: RecommendationKindSchema,
+  confidenceScore: z.number().min(0).max(1),
+  decision: CandidateDecisionValueSchema,
+  reason: z.string(),
+  /** recomendação criada (null quando descartado ou quando o item já estava na lista) */
+  recommendationId: z.uuid().optional(),
+});
+export type CandidateDecision = z.infer<typeof CandidateDecisionSchema>;
+
+export const ShareStepsResponseSchema = z.object({
+  shareId: z.uuid(),
+  isFixture: z.boolean(),
+  steps: z.array(PipelineStepSchema),
+  decisions: z.array(CandidateDecisionSchema),
+});
+export type ShareStepsResponse = z.infer<typeof ShareStepsResponseSchema>;
 
 // ---------- Saída do LLM (validada no worker, fail-closed: SEC-REQ-05) ----------
 

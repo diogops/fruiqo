@@ -1,0 +1,16 @@
+{
+  "synthetic": true,
+  "recorded_at": "2026-09-28T00:00:00.000Z",
+  "request": {
+    "method": "GET",
+    "url": "https://www.tiktok.com/oembed?url=https%3A%2F%2Fwww.tiktok.com%2F%40perfil.teste%2Fvideo%2F7000000000000000001"
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "title": "Cantora Exemplo - Refrão Inventado",
+      "author_name": "perfil.teste"
+    }
+  }
+}

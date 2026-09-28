@@ -6,8 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Fruiqo é um app mobile (Android + iOS) + backend: o usuário compartilha um post (Instagram, YouTube, TikTok) com o app pelo share sheet, o backend extrai recomendações de filmes/séries/música e as resolve contra TMDB/Spotify, com links de volta para os serviços.
 
-- **Fase 0 (discovery) concluída**: relatórios em `docs/phase0/`. As decisões do dono do produto estão em `docs/phase0/decisions.md` (D-01 a D-05) e os requisitos herdados (`TOS-REQ-xx`, `SEC-REQ-xx`, `ARB-REQ-xx`) na seção 4 de `docs/phase0/decision-matrix.md`. Resultados de teste em device ficam em `docs/phase0/device-tests-log.md`.
-- **Fase 1 em andamento**: versão inicial no cenário SC-PERSONAL (1 usuário), com a arquitetura já preparada para SC-STORE (D-01).
+- **Fase 0 (discovery) concluída**: relatórios em `docs/phase0/`. As decisões do dono do produto estão em `docs/phase0/decisions.md` (D-01 a D-06) e os requisitos herdados (`TOS-REQ-xx`, `SEC-REQ-xx`, `ARB-REQ-xx`) na seção 4 de `docs/phase0/decision-matrix.md`. Resultados de teste em device ficam em `docs/phase0/device-tests-log.md`.
+- **Fase 1 v0 publicada**; a **v2** (simulador, sistema web, recomendação) está especificada em `docs/spec/` (delta, arquitetura, wireframes, taxonomia, fases). Fase 2a (sandbox, pipeline instrumentado, fixtures, eval, taxonomia) implementada; 2b–2d seguem `docs/spec/phases-v2.md`.
 
 ## Comandos
 
@@ -16,8 +16,11 @@ Monorepo pnpm (`node-linker=hoisted`, exigido pelo React Native). Node ≥ 20.19
 ```bash
 pnpm install
 pnpm infra:up                               # Postgres 17 (127.0.0.1:55432) + Redis (127.0.0.1:6379) via Docker
-pnpm --filter @fruiqo/contracts build       # obrigatório antes de api/mobile (dist/ é gitignored)
-pnpm typecheck && pnpm test                 # tudo; é o que a CI roda
+pnpm build:packages                         # taxonomy + contracts; obrigatório antes de api/mobile (dist/ é gitignored)
+pnpm typecheck && pnpm test                 # tudo; a CI roda isso + fixtures:check + eval --check
+pnpm fixtures:check                         # fixtures/ só sintéticas (repositório público)
+pnpm fixtures:build                         # regenera fixtures/ (Python + Pillow) a partir de tools/fixtures/
+pnpm eval [--check] [--label x]             # fixtures no pipeline em PIPELINE_MODE=mock, sem rede; relatório em reports/
 
 # API (apps/api): lê apps/api/.env (copie de .env.example)
 cd apps/api
@@ -39,12 +42,15 @@ O app usa módulo nativo (`expo-share-intent`), então **não roda no Expo Go**:
 
 ## Arquitetura
 
-- `packages/contracts`: schemas zod v4 do contrato HTTP (auth, shares, recomendações) e da saída do LLM. É a fonte única dos formatos: a API valida as entradas com eles e o app valida as respostas. Mudou o contrato → rebuild do pacote e ajuste nos dois lados.
+- `packages/taxonomy`: taxonomia v1 versionada (gêneros próprios ↔ IDs do TMDB, subgêneros, intenção de humor `MoodIntent`, pesos), o detector de risco local (RNF-07, resposta com CVV 188) e o `interpretMood` por regras (modo `rules`). Puro, sem I/O. Nada com origem no TMDB vai para o LLM.
+- `packages/contracts`: schemas zod v4 do contrato HTTP (auth, shares, recomendações, etapas do pipeline) e da saída do LLM. É a fonte única dos formatos: a API valida as entradas com eles e o app valida as respostas. Mudou o contrato → rebuild do pacote e ajuste nos dois lados.
 - `apps/api` (NestJS 12, ESM, Drizzle + pg, BullMQ): dois entrypoints do mesmo código, `src/main.ts` (HTTP) e `src/worker.ts` (fila). O `POST /shares` só persiste e enfileira; o worker roda o pipeline, nesta ordem (ARB-REQ-02):
   1. normalização: allowlist de domínio e remoção de parâmetros de rastreamento;
   2. metadados **só via oEmbed oficial**, com o cliente `safeFetch`: allowlist fixa de host, sem HTML e sem scraping (ARB-REQ-01, SEC-REQ-01);
   3. extração: heurística por padrão; o extrator Anthropic só liga com `LLM_ENABLED` **e** `LLM_REAL_CONTENT_ALLOWED` (D-04), e a saída dele é validada contra `LlmExtractionSchema` (fail-closed);
-  4. resolução TMDB/Spotify, só quando há chave.
+  4. resolução TMDB/Spotify, só quando há chave;
+  5. decisão por candidato (`cataloged` / `review_queue` / `discarded`, limiares por env).
+  Cada etapa é gravada em `pipeline_step_logs` + `candidate_decisions` (`GET /shares/:id/steps`), e toda chamada externa passa pelo `PipelineGateway` (`PIPELINE_MODE` = `live` / `mock` / `record`). Chamada nova à rede no pipeline tem que passar pelo gateway (`fetchImpl`), senão o mock/eval deixa de ser hermético.
 - **Multi-tenancy por RLS** (SEC-REQ-16): a app conecta como `fruiqo_app`, que não é dona das tabelas, e as policies usam `app.user_id`. Todo acesso a dados de usuário passa por `withUser()`. O login usa a função `auth_lookup_user` (SECURITY DEFINER). Nunca consulte tabelas de usuário fora de `withUser()`.
 - `apps/mobile` (Expo SDK 57 + Expo Router): `app/_layout.tsx` redireciona consentimento → login → inbox. O share recebido vira `CreateShareRequest` em `src/share/`, com `clientShareId` para idempotência. O cliente em `src/api/client.ts` guarda o access token em memória e o refresh token no secure-store, com rotação em 401.
 - **Prints de tela**: o OCR roda no aparelho (`expo-text-extractor`: ML Kit/Vision; TOS-REQ-21) e só o texto vai à API, em `pages`. A imagem nunca sai do celular. Não repetir itens é regra do produto, garantida no backend em três níveis: hash da página por usuário (`seen_pages`), mescla de linhas sobrepostas entre prints do mesmo share, e índice único `(user_id, dedup_key)` em `recommendations`. A normalização das chaves e a lista de ruído de UI ficam em `apps/api/src/pipeline/`.

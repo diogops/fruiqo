@@ -2,12 +2,18 @@
   "name": "fruiqo",
   "private": true,
   "packageManager": "pnpm@10.33.0",
-  "engines": { "node": ">=20.19" },
+  "engines": {
+    "node": ">=20.19"
+  },
   "scripts": {
     "infra:up": "docker compose -f infra/docker-compose.yml up -d",
     "infra:down": "docker compose -f infra/docker-compose.yml down",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "lint": "pnpm -r lint"
+    "lint": "pnpm -r lint",
+    "build:packages": "pnpm --filter @fruiqo/taxonomy build && pnpm --filter @fruiqo/contracts build",
+    "eval": "pnpm --filter @fruiqo/api eval",
+    "fixtures:check": "node tools/fixtures/check.mjs",
+    "fixtures:build": "python tools/fixtures/build_fixtures.py && python tools/fixtures/render_pages.py"
   }
 }

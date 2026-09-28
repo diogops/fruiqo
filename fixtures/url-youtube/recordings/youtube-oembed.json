@@ -1,0 +1,17 @@
+{
+  "synthetic": true,
+  "recorded_at": "2026-09-28T00:00:00.000Z",
+  "request": {
+    "method": "GET",
+    "url": "https://www.youtube.com/oembed?format=json&url=https%3A%2F%2Fyoutube.com%2Fwatch%3Fv%3DFIXTURE0001"
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "title": "Banda Fictícia - Canção de Teste (Clipe Oficial)",
+      "author_name": "Banda Fictícia",
+      "thumbnail_url": "https://i.ytimg.com/vi/FIXTURE0001/hqdefault.jpg"
+    }
+  }
+}

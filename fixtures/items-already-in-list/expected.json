@@ -1,0 +1,37 @@
+{
+  "shares": [
+    {
+      "status": "done",
+      "items": [
+        {
+          "title": "Marte Um",
+          "kind": "movie",
+          "year": 2022
+        },
+        {
+          "title": "Medida Provisória",
+          "kind": "movie",
+          "year": 2020
+        }
+      ],
+      "dedup": {
+        "pagesIgnored": 0,
+        "itemsAlreadyInList": 0
+      }
+    },
+    {
+      "status": "done",
+      "items": [
+        {
+          "title": "Carvão",
+          "kind": "movie",
+          "year": 2022
+        }
+      ],
+      "dedup": {
+        "pagesIgnored": 0,
+        "itemsAlreadyInList": 2
+      }
+    }
+  ]
+}

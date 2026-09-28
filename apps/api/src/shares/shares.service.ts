@@ -1,11 +1,11 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import type { CreateShareRequest, Share, ShareListResponse } from '@fruiqo/contracts';
+import type { CreateShareRequest, Share, ShareListResponse, ShareStepsResponse } from '@fruiqo/contracts';
 import type { Queue } from 'bullmq';
 import { and, asc, desc, eq, inArray, lt, or } from 'drizzle-orm';
 import { DB, type Db, type Tx, withUser } from '../db/client.js';
-import { recommendations, shares } from '../db/schema.js';
+import { candidateDecisions, pipelineStepLogs, recommendations, shares } from '../db/schema.js';
 import { SHARE_QUEUE_TOKEN, type ShareJob } from '../queue/queue.js';
-import { toShare } from './share-mapper.js';
+import { toDecision, toShare, toStep } from './share-mapper.js';
 
 const PAGE_SIZE = 20;
 
@@ -17,7 +17,15 @@ export class SharesService {
   ) {}
 
   /** Idempotente por (usuário, clientShareId): retries do app devolvem o mesmo share. */
-  async create(userId: string, input: CreateShareRequest): Promise<{ share: Share; created: boolean }> {
+  /**
+   * `fixture`: share criado pelo sandbox/eval (só fora de produção, validado no controller); guarda
+   * os trechos de texto nos logs de etapa (RF-19).
+   */
+  async create(
+    userId: string,
+    input: CreateShareRequest,
+    fixture?: string,
+  ): Promise<{ share: Share; created: boolean }> {
     const { row, created } = await withUser(this.db, userId, async (tx) => {
       const inserted = await tx
         .insert(shares)
@@ -27,6 +35,7 @@ export class SharesService {
           status: 'queued',
           inputText: input.text ?? null,
           inputUrl: input.url ?? null,
+          ...(fixture ? { isFixture: true, fixtureId: fixture } : {}),
           // prints: OCR feito no device; plataforma não é inferida do texto
           ...(input.pages
             ? { inputPages: input.pages, origin: 'screenshot' as const, pageCount: input.pages.length }
@@ -59,6 +68,23 @@ export class SharesService {
     });
     if (!share) throw new NotFoundException('Compartilhamento não encontrado');
     return share;
+  }
+
+  /** RF-19: etapas do pipeline e decisão por candidato, em ordem. */
+  async steps(userId: string, id: string): Promise<ShareStepsResponse> {
+    const res = await withUser(this.db, userId, async (tx) => {
+      const [row] = await tx.select({ id: shares.id, isFixture: shares.isFixture }).from(shares).where(eq(shares.id, id));
+      if (!row) return null;
+      const steps = await tx.select().from(pipelineStepLogs).where(eq(pipelineStepLogs.shareId, id)).orderBy(asc(pipelineStepLogs.seq));
+      const decisions = await tx
+        .select()
+        .from(candidateDecisions)
+        .where(eq(candidateDecisions.shareId, id))
+        .orderBy(desc(candidateDecisions.confidenceScore), asc(candidateDecisions.rawTitle));
+      return { shareId: row.id, isFixture: row.isFixture, steps: steps.map(toStep), decisions: decisions.map(toDecision) };
+    });
+    if (!res) throw new NotFoundException('Compartilhamento não encontrado');
+    return res;
   }
 
   async list(userId: string, cursor: string | undefined): Promise<ShareListResponse> {

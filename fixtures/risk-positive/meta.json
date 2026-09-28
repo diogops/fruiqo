@@ -1,0 +1,9 @@
+{
+  "id": "risk-positive",
+  "kind": "mood-set",
+  "description": "Frases que DEVEM acionar o acolhimento com CVV (recall 100% obrigatório)",
+  "synthetic": true,
+  "origin": "escrito pelo time Fruiqo (sintético)",
+  "license": "CC0-1.0",
+  "version": 1
+}

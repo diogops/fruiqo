@@ -1,0 +1,9 @@
+{
+  "id": "carousel-no-numbering",
+  "kind": "screenshot",
+  "description": "Carrossel com um título por slide, sem número nem marcador (a heurística não pega; o LLM pegaria)",
+  "synthetic": true,
+  "origin": "escrito pelo time Fruiqo (sintético)",
+  "license": "CC0-1.0",
+  "version": 1
+}

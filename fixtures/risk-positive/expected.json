@@ -1,0 +1,72 @@
+{
+  "cases": [
+    {
+      "text": "quero morrer",
+      "risk": true
+    },
+    {
+      "text": "eu não quero mais viver",
+      "risk": true
+    },
+    {
+      "text": "vou me matar hoje",
+      "risk": true
+    },
+    {
+      "text": "tô pensando em suicídio",
+      "risk": true
+    },
+    {
+      "text": "queria tirar minha vida",
+      "risk": true
+    },
+    {
+      "text": "acho que vou acabar com tudo",
+      "risk": true
+    },
+    {
+      "text": "não aguento mais viver assim",
+      "risk": true
+    },
+    {
+      "text": "todo mundo ficaria melhor sem mim",
+      "risk": true
+    },
+    {
+      "text": "tenho vontade de me cortar",
+      "risk": true
+    },
+    {
+      "text": "quero me machucar",
+      "risk": true
+    },
+    {
+      "text": "não tem mais saída pra mim",
+      "risk": true
+    },
+    {
+      "text": "não vejo sentido em viver",
+      "risk": true
+    },
+    {
+      "text": "ninguém sentiria minha falta",
+      "risk": true
+    },
+    {
+      "text": "sou um peso pra todos",
+      "risk": true
+    },
+    {
+      "text": "escrevi uma carta de despedida",
+      "risk": true
+    },
+    {
+      "text": "vi uma série sobre suicídio e eu também quero morrer",
+      "risk": true
+    },
+    {
+      "text": "queria não existir",
+      "risk": true
+    }
+  ]
+}

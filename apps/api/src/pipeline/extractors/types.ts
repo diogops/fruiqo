@@ -8,6 +8,8 @@ export interface ExtractionInput {
   text?: string;
   title?: string;
   author?: string;
+  /** tokens gastos (só o extrator por LLM chama); alimenta o custo estimado do RF-19 */
+  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void;
 }
 
 export type ExtractedItem = LlmExtraction['items'][number];

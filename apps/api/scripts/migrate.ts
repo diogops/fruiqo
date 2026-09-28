@@ -1,19 +1,8 @@
 // Aplica as migrações com a role dona do schema (DATABASE_URL_OWNER).
 import { fileURLToPath } from 'node:url';
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import pg from 'pg';
+import { runMigrations } from '../src/db/migrations.js';
 
-const migrationsFolder = fileURLToPath(new URL('../drizzle', import.meta.url));
-
-export async function runMigrations(ownerUrl: string) {
-  const pool = new pg.Pool({ connectionString: ownerUrl, max: 1 });
-  try {
-    await migrate(drizzle(pool), { migrationsFolder });
-  } finally {
-    await pool.end();
-  }
-}
+export { runMigrations };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const url = process.env.DATABASE_URL_OWNER;

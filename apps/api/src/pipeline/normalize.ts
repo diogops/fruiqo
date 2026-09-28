@@ -30,6 +30,8 @@ const TRACKING_PARAMS = new Set([
   'feature',
   'igsh',
   'igshid',
+  // Instagram (Reel, Android): token de quem compartilhou (device-tests-log A-09 / F-03)
+  'stkn',
   'img_index',
   '_r',
   '_t',

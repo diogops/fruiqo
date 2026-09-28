@@ -1,0 +1,20 @@
+{
+  "status": "done",
+  "items": [
+    {
+      "title": "Amélie Poulain",
+      "kind": "movie",
+      "year": 2001
+    },
+    {
+      "title": "Antes do Amanhecer",
+      "kind": "movie",
+      "year": 1995
+    },
+    {
+      "title": "Questão de Tempo",
+      "kind": "movie",
+      "year": 2013
+    }
+  ]
+}

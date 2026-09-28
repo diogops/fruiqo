@@ -1,0 +1,36 @@
+{
+  "shares": [
+    {
+      "status": "done",
+      "items": [
+        {
+          "title": "Parasita",
+          "kind": "movie",
+          "year": 2019
+        },
+        {
+          "title": "Coringa",
+          "kind": "movie",
+          "year": 2019
+        },
+        {
+          "title": "Era Uma Vez em... Hollywood",
+          "kind": "movie",
+          "year": 2019
+        }
+      ],
+      "dedup": {
+        "pagesIgnored": 0,
+        "itemsAlreadyInList": 0
+      }
+    },
+    {
+      "status": "done",
+      "items": [],
+      "dedup": {
+        "pagesIgnored": 1,
+        "itemsAlreadyInList": 0
+      }
+    }
+  ]
+}

@@ -48,8 +48,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Role da aplicação (mesmo papel de infra/postgres/init.sql)
         run: PGPASSWORD=dev_owner_password psql -h 127.0.0.1 -p 55432 -U fruiqo_owner -d fruiqo -f infra/postgres/init.sql
-      - run: pnpm --filter @fruiqo/contracts build
+      - run: pnpm build:packages
+      # RF-21: repositório público, então fixtures/ só pode ter conteúdo sintético
+      - run: pnpm fixtures:check
       - run: pnpm typecheck
       - run: pnpm test
+      # RF-22 / RNF-07: pipeline em PIPELINE_MODE=mock com a rede bloqueada; falha em regressão
+      # contra a baseline v0-heuristic ou recall de risco < 100%
+      - run: pnpm eval --check --label ci
       # SEC-REQ-24: bloqueia CVE crítica em dependências
       - run: pnpm audit --audit-level critical --prod

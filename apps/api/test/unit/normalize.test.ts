@@ -9,6 +9,12 @@ describe('normalizeSource', () => {
     });
   });
 
+  it('remove o stkn do Reel do Instagram (device-tests-log A-09 / F-03)', () => {
+    expect(
+      normalizeSource({ text: 'https://www.instagram.com/reel/DbGQZTzBj6W/?stkn=cGFmc3ozMXFxdXVw' }),
+    ).toEqual({ platform: 'instagram', url: 'https://www.instagram.com/reel/DbGQZTzBj6W/' });
+  });
+
   it('preserva parâmetros de conteúdo e remove os de rastreamento', () => {
     const r = normalizeSource({ url: 'https://www.youtube.com/watch?v=abc&si=xyz&t=42&utm_source=share&feature=shared' });
     expect(r).toEqual({ platform: 'youtube', url: 'https://www.youtube.com/watch?v=abc&t=42' });

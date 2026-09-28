@@ -1,0 +1,23 @@
+{
+  "synthetic": true,
+  "recorded_at": "2026-09-28T00:00:00.000Z",
+  "request": {
+    "method": "GET",
+    "url": "https://api.themoviedb.org/3/search/multi?query=Noites+de+Vidro&language=pt-BR&include_adult=false"
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "results": [
+        {
+          "id": 9900002,
+          "media_type": "movie",
+          "title": "Noites de Vidro",
+          "release_date": "2019-05-01",
+          "poster_path": null
+        }
+      ]
+    }
+  }
+}

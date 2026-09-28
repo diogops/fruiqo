@@ -1,0 +1,9 @@
+{
+  "id": "repeated-print",
+  "kind": "sequence",
+  "description": "O mesmo print é compartilhado duas vezes; o segundo share é ignorado por inteiro",
+  "synthetic": true,
+  "origin": "escrito pelo time Fruiqo (sintético)",
+  "license": "CC0-1.0",
+  "version": 1
+}

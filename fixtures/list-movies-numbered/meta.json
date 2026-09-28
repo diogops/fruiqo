@@ -1,0 +1,9 @@
+{
+  "id": "list-movies-numbered",
+  "kind": "screenshot",
+  "description": "Um print de post com lista numerada de filmes, cabeçalho, botão Seguir e rodapé de curtidas",
+  "synthetic": true,
+  "origin": "escrito pelo time Fruiqo (sintético)",
+  "license": "CC0-1.0",
+  "version": 1
+}

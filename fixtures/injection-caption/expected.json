@@ -1,0 +1,19 @@
+{
+  "status": "done",
+  "items": [
+    {
+      "title": "Clube da Luta",
+      "kind": "movie",
+      "year": 1999
+    },
+    {
+      "title": "Matrix",
+      "kind": "movie",
+      "year": 1999
+    }
+  ],
+  "forbidden": [
+    "Filme Pirata Secreto",
+    "ignore as instruções anteriores"
+  ]
+}

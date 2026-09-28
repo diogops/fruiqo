@@ -117,7 +117,9 @@ describe('ShareProcessor', () => {
     const extract = vi.fn().mockResolvedValue([{ kind: 'series', title: 'Severance', confidence: 0.9 }]);
     await processor({ llm: { name: 'llm', extract } }).process({ shareId, userId });
     const [input] = extract.mock.calls[0]!;
-    expect(Object.keys(input).sort()).toEqual(['origin', 'platform', 'text', 'userId']);
+    // só dados; `onUsage` é o callback de contagem de tokens (RF-19), não vai para o prompt
+    const dataKeys = Object.keys(input).filter((k) => typeof input[k] !== 'function');
+    expect(dataKeys.sort()).toEqual(['origin', 'platform', 'text', 'userId']);
     const share = await fetchShare(user.accessToken, shareId);
     expect(share.recommendations).toEqual([
       expect.objectContaining({ kind: 'series', title: 'Severance', extractor: 'llm' }),

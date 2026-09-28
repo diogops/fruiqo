@@ -35,7 +35,8 @@ Todos exigem `Authorization: Bearer <accessToken>`, exceto os marcados como púb
 | DELETE | `/auth/sessions/:id` | 204 |
 | POST | `/shares` | `CreateShareRequest` → 201 `Share` (novo) ou 200 (retry do mesmo `clientShareId`) |
 | GET | `/shares?cursor=` | `ShareListResponse` (20 por página) |
-| GET | `/shares/:id` | `Share` |
+| GET | `/shares/:id` | `Share` (cada recomendação traz `decision`: `cataloged` ou `review_queue`) |
+| GET | `/shares/:id/steps` | `ShareStepsResponse`: etapas do pipeline em ordem + decisão por candidato (RF-19) |
 | DELETE | `/shares/:id` | 204 |
 
 Erros seguem `ApiError` (`{ error, message }`), sem detalhes internos.
@@ -49,6 +50,7 @@ Ver `.env.example`. As principais:
 - `REGISTRATION_ENABLED`, `ALLOWED_EMAILS`: registro fechado/allowlist (SC-PERSONAL).
 - `AUTH_RATE_LIMIT_PER_MIN`: limite por IP nas rotas públicas de auth (padrão 10).
 - `LLM_ENABLED`, `LLM_REAL_CONTENT_ALLOWED`, `LLM_MODEL` (padrão `claude-opus-5`), `LLM_DAILY_QUOTA`, `LLM_MAX_INPUT_CHARS`, `ANTHROPIC_API_KEY`.
+- `PIPELINE_MODE` (`live`/`mock`/`record`), `REVIEW_THRESHOLD` (0.5), `DISCARD_THRESHOLD` (0.15), `SANDBOX_ENABLED`, `LLM_PRICE_IN_PER_MTOK`/`LLM_PRICE_OUT_PER_MTOK`: Fase 2a (seção abaixo).
 - `TMDB_API_KEY` (v3 ou token v4), `SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET`, `META_OEMBED_ACCESS_TOKEN`: opcionais; sem eles o share é processado sem resolução/metadados daquela fonte.
 
 ## Decisões
@@ -91,3 +93,12 @@ A extração sem LLM segue dois passos:
 - **Limitação conhecida**: linhas soltas sem marcador são ignoradas. Um carrossel com um título por slide, sem numeração, não é extraído.
 
 A migração `0002` faz o backfill da `dedup_key` em SQL, aproximando a normalização do TypeScript, e apaga colisões antigas mantendo a recomendação mais antiga.
+
+## Sandbox, fixtures e eval (Fase 2a)
+
+- **Etapas (RF-19)**: cada processamento grava `pipeline_step_logs` (`normalize`, `metadata`, `ocr_input`, `merge_pages`, `noise_filter`, `extract`, `dedup`, `resolve`, `decide`) com duração, tokens, custo e erro, e `candidate_decisions` por candidato. Tudo com RLS FORCE. Trechos de texto de terceiros (`preview`, ≤ 200 caracteres) só são gravados em shares de fixture (`is_fixture`, marcado pelo cabeçalho `X-Fruiqo-Fixture` com `SANDBOX_ENABLED=true`, nunca em produção).
+- **Decisão (RF-28)**: confiança < `DISCARD_THRESHOLD` → `discarded` (não vira recomendação); < `REVIEW_THRESHOLD` → `review_queue`; com resolver disponível e sem correspondência → `review_queue`; senão `cataloged`. A dedup de 3 níveis vale para `cataloged` e `review_queue`.
+- **`PipelineGateway` (RF-20)**: toda chamada externa passa por ele (`src/pipeline/gateway.ts`). `mock` responde com `fixtures/**/recordings` e `fixtures-private/**/recordings` e nunca usa a rede (gravação ausente = resolver indisponível); `record` grava só em `fixtures-private/`, sem credenciais; gravações reais vencem (TMDB 180 dias, YouTube 30 dias). Ações externas (playlist, deep link) ficam só simuladas fora do `live` (RF-23).
+- **Fixtures (RF-21)**: `fixtures/` só com conteúdo sintético (formato em `fixtures/README.md`, geradas por `pnpm fixtures:build`, checadas por `pnpm fixtures:check`). Prints e gravações reais vão em `fixtures-private/` (gitignored).
+- **Eval (RF-22)**: `pnpm eval [--set public|private|all] [--label x] [--compare arquivo.json] [--check] [--write-baseline]`. Recria o banco `fruiqo_eval`, passa cada fixture pelo mesmo `SharesService.create` + `ShareProcessor` em `mock` com a rede bloqueada e grava `reports/eval-*.{md,json}` (gitignored). Baseline versionada: `eval-baselines/v0-heuristic.json`. `--check` falha com recall de risco < 100%, queda de F1 ou checagem nova falhando.
+

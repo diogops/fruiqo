@@ -13,7 +13,8 @@
     "db:migrate": "node --env-file=.env --import tsx scripts/migrate.ts",
     "test": "vitest run",
     "test:unit": "vitest run test/unit",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "eval": "tsc -p tsconfig.build.json && node dist/eval/run-eval.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
@@ -35,7 +36,8 @@
     "pino-http": "^11.0.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "zod": "^4.6.5"
+    "zod": "^4.6.5",
+    "@fruiqo/taxonomy": "workspace:*"
   },
   "devDependencies": {
     "@nestjs/testing": "^12.1.0",

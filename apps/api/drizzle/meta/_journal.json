@@ -22,6 +22,13 @@
       "when": 1790588304939,
       "tag": "0002_dedup_screenshots",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790599327450,
+      "tag": "0003_pipeline_steps",
+      "breakpoints": true
     }
   ]
 }

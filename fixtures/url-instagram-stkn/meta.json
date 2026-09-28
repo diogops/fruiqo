@@ -1,0 +1,9 @@
+{
+  "id": "url-instagram-stkn",
+  "kind": "url",
+  "description": "Reel do Instagram compartilhado no Android: só a URL, com ?stkn= (device-tests-log A-09)",
+  "synthetic": true,
+  "origin": "escrito pelo time Fruiqo (sintético)",
+  "license": "CC0-1.0",
+  "version": 1
+}

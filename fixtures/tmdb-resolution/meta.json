@@ -1,0 +1,9 @@
+{
+  "id": "tmdb-resolution",
+  "kind": "text",
+  "description": "Dois filmes fictícios resolvidos por gravações simuladas do TMDB (IDs inventados)",
+  "synthetic": true,
+  "origin": "escrito pelo time Fruiqo (sintético)",
+  "license": "CC0-1.0",
+  "version": 1
+}

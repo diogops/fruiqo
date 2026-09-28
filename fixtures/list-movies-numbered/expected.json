@@ -1,0 +1,45 @@
+{
+  "status": "done",
+  "items": [
+    {
+      "title": "Central do Brasil",
+      "kind": "movie",
+      "year": 1998
+    },
+    {
+      "title": "Cidade de Deus",
+      "kind": "movie",
+      "year": 2002
+    },
+    {
+      "title": "O Auto da Compadecida",
+      "kind": "movie",
+      "year": 2000
+    },
+    {
+      "title": "Tropa de Elite",
+      "kind": "movie",
+      "year": 2007
+    },
+    {
+      "title": "O Som ao Redor",
+      "kind": "movie",
+      "year": 2012
+    },
+    {
+      "title": "Bacurau",
+      "kind": "movie",
+      "year": 2019
+    },
+    {
+      "title": "Ainda Estou Aqui",
+      "kind": "movie",
+      "year": 2024
+    }
+  ],
+  "forbidden": [
+    "Seguir",
+    "Curtido por",
+    "Ver todos os 87 comentários"
+  ]
+}

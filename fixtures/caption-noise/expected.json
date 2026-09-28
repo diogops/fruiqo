@@ -1,0 +1,25 @@
+{
+  "status": "done",
+  "items": [
+    {
+      "title": "Ted Lasso",
+      "kind": "series"
+    },
+    {
+      "title": "The Bear",
+      "kind": "series"
+    },
+    {
+      "title": "Only Murders in the Building",
+      "kind": "series"
+    },
+    {
+      "title": "Abbott Elementary",
+      "kind": "series"
+    }
+  ],
+  "forbidden": [
+    "#series",
+    "Salva pra depois"
+  ]
+}

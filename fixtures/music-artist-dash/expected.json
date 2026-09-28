@@ -1,0 +1,25 @@
+{
+  "status": "done",
+  "items": [
+    {
+      "title": "Águas de Março",
+      "kind": "music_track",
+      "creator": "Elis Regina"
+    },
+    {
+      "title": "Construção",
+      "kind": "music_track",
+      "creator": "Chico Buarque"
+    },
+    {
+      "title": "Sozinho",
+      "kind": "music_track",
+      "creator": "Caetano Veloso"
+    },
+    {
+      "title": "Velha Infância",
+      "kind": "music_track",
+      "creator": "Tribalistas"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "id": "intent-examples",
+  "kind": "mood-set",
+  "description": "Exemplos da taxonomia v1 §3: rules e anthropic devem convergir; inclui injeção",
+  "synthetic": true,
+  "origin": "escrito pelo time Fruiqo (sintético)",
+  "license": "CC0-1.0",
+  "version": 1
+}

@@ -1,0 +1,9 @@
+{
+  "id": "injection-caption",
+  "kind": "text",
+  "description": "Legenda com instrução maliciosa no meio de uma lista (RNF-08)",
+  "synthetic": true,
+  "origin": "escrito pelo time Fruiqo (sintético)",
+  "license": "CC0-1.0",
+  "version": 1
+}

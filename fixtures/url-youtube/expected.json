@@ -1,0 +1,14 @@
+{
+  "status": "done",
+  "source": {
+    "platform": "youtube",
+    "url": "https://youtube.com/watch?v=FIXTURE0001"
+  },
+  "items": [
+    {
+      "title": "Canção de Teste",
+      "kind": "music_track",
+      "creator": "Banda Fictícia"
+    }
+  ]
+}

@@ -1,10 +1,10 @@
-import type Anthropic from '@anthropic-ai/sdk';
 import { describe, expect, it, vi } from 'vitest';
 import { AnthropicExtractor, LlmUnavailableError } from '../../src/pipeline/extractors/anthropic.js';
+import type { LlmClient } from '../../src/pipeline/gateway.js';
 
 function fakeClient(response: { stop_reason?: string; parsed_output: unknown }) {
   const parse = vi.fn().mockResolvedValue({ stop_reason: 'end_turn', ...response });
-  return { client: { messages: { parse } } as unknown as Pick<Anthropic, 'messages'>, parse };
+  return { client: { messages: { parse } } as LlmClient, parse };
 }
 
 function extractor(response: Parameters<typeof fakeClient>[0], quota = true, maxInputChars = 4000) {

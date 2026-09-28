@@ -1,0 +1,18 @@
+{
+  "status": "done",
+  "items": [
+    {
+      "title": "Coraline",
+      "kind": "movie"
+    },
+    {
+      "title": "A Viagem de Chihiro",
+      "kind": "movie"
+    },
+    {
+      "title": "Up: Altas Aventuras",
+      "kind": "movie"
+    }
+  ],
+  "knownLimitation": "heurística exige marcador de lista ou ano"
+}

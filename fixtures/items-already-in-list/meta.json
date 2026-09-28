@@ -1,0 +1,9 @@
+{
+  "id": "items-already-in-list",
+  "kind": "sequence",
+  "description": "Segundo share repete dois filmes já salvos e traz um novo",
+  "synthetic": true,
+  "origin": "escrito pelo time Fruiqo (sintético)",
+  "license": "CC0-1.0",
+  "version": 1
+}

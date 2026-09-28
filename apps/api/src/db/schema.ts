@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  boolean,
   index,
   integer,
   primaryKey,
@@ -78,6 +79,9 @@ export const shares = pgTable(
     /** quando os metadados de oEmbed foram obtidos (TTL do YouTube: 30 dias) */
     sourceFetchedAt: timestamp('source_fetched_at', { withTimezone: true }),
     error: text('error'),
+    /** share criado pelo sandbox/eval (RF-18/19): os resumos das etapas guardam trechos de texto */
+    isFixture: boolean('is_fixture').notNull().default(false),
+    fixtureId: text('fixture_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -110,6 +114,9 @@ export const recommendations = pgTable(
     resolvedAt: timestamp('resolved_at', { withTimezone: true }),
     /** chave de deduplicação por usuário (ver src/pipeline/dedup.ts) */
     dedupKey: text('dedup_key').notNull(),
+    /** RF-19/RF-28: só 'cataloged' é catálogo; 'review_queue' espera revisão. Descartados não viram linha aqui. */
+    decision: text('decision', { enum: ['cataloged', 'review_queue'] }).notNull().default('cataloged'),
+    decisionReason: text('decision_reason'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -135,6 +142,59 @@ export const seenPages = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.pageHash] })],
+);
+
+/**
+ * RF-19: uma linha por etapa do pipeline de um share. Resumos pequenos; trechos de texto de
+ * terceiros (`preview`) só ficam em shares de fixture (ver src/pipeline/steps.ts).
+ */
+export const pipelineStepLogs = pgTable(
+  'pipeline_step_logs',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    shareId: uuid('share_id')
+      .notNull()
+      .references(() => shares.id, { onDelete: 'cascade' }),
+    seq: integer('seq').notNull(),
+    step: text('step').notNull(),
+    mode: text('mode', { enum: ['mock', 'live', 'record'] }).notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    durationMs: integer('duration_ms').notNull(),
+    inputSummary: jsonb('input_summary').$type<Record<string, unknown>>().notNull(),
+    outputSummary: jsonb('output_summary').$type<Record<string, unknown>>().notNull(),
+    tokensIn: integer('tokens_in').notNull().default(0),
+    tokensOut: integer('tokens_out').notNull().default(0),
+    costEstimateUsd: real('cost_estimate_usd').notNull().default(0),
+    error: text('error'),
+  },
+  (t) => [uniqueIndex('pipeline_step_logs_share_seq').on(t.shareId, t.seq)],
+);
+
+/** RF-19/RF-28: decisão por candidato extraído (inclui os descartados, que não viram recomendação). */
+export const candidateDecisions = pgTable(
+  'candidate_decisions',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    shareId: uuid('share_id')
+      .notNull()
+      .references(() => shares.id, { onDelete: 'cascade' }),
+    recommendationId: uuid('recommendation_id').references(() => recommendations.id, { onDelete: 'set null' }),
+    rawTitle: text('raw_title').notNull(),
+    kind: text('kind', {
+      enum: ['movie', 'series', 'music_track', 'music_album', 'artist', 'other'],
+    }).notNull(),
+    confidenceScore: real('confidence_score').notNull(),
+    decision: text('decision', { enum: ['cataloged', 'review_queue', 'discarded'] }).notNull(),
+    reason: text('reason').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('candidate_decisions_share_idx').on(t.shareId)],
 );
 
 export type ShareRow = typeof shares.$inferSelect;

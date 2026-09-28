@@ -46,6 +46,28 @@ const EnvSchema = z.object({
   SPOTIFY_CLIENT_ID: optionalSecret,
   SPOTIFY_CLIENT_SECRET: optionalSecret,
   META_OEMBED_ACCESS_TOKEN: optionalSecret,
+
+  /** RF-20: mock = só gravações de fixtures (sem rede); record = APIs reais + grava em fixtures-private/ */
+  PIPELINE_MODE: z.enum(['mock', 'live', 'record']).default('live'),
+  /** RF-28: abaixo disto o candidato vai para a fila de revisão; abaixo do DISCARD, é descartado */
+  REVIEW_THRESHOLD: z.coerce.number().min(0).max(1).default(0.5),
+  DISCARD_THRESHOLD: z.coerce.number().min(0).max(1).default(0.15),
+  /** RF-18/19: aceita o cabeçalho X-Fruiqo-Fixture (nunca em produção) */
+  SANDBOX_ENABLED: bool,
+  /** RNF-09: preço por milhão de tokens do modelo em uso (0 = desconhecido; custo estimado fica 0) */
+  LLM_PRICE_IN_PER_MTOK: z.coerce.number().min(0).default(0),
+  LLM_PRICE_OUT_PER_MTOK: z.coerce.number().min(0).default(0),
+}).superRefine((env, ctx) => {
+  // Fail-closed: gravação e respostas simuladas não existem em produção (RF-20).
+  if (env.NODE_ENV === 'production' && env.PIPELINE_MODE !== 'live') {
+    ctx.addIssue({ code: 'custom', path: ['PIPELINE_MODE'], message: 'só live em produção' });
+  }
+  if (env.NODE_ENV === 'production' && env.SANDBOX_ENABLED) {
+    ctx.addIssue({ code: 'custom', path: ['SANDBOX_ENABLED'], message: 'sandbox desligado em produção' });
+  }
+  if (env.DISCARD_THRESHOLD > env.REVIEW_THRESHOLD) {
+    ctx.addIssue({ code: 'custom', path: ['DISCARD_THRESHOLD'], message: 'deve ser ≤ REVIEW_THRESHOLD' });
+  }
 });
 
 export type Env = z.infer<typeof EnvSchema>;

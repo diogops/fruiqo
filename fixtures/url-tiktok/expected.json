@@ -1,0 +1,14 @@
+{
+  "status": "done",
+  "source": {
+    "platform": "tiktok",
+    "url": "https://www.tiktok.com/@perfil.teste/video/7000000000000000001"
+  },
+  "items": [
+    {
+      "title": "Refrão Inventado",
+      "kind": "music_track",
+      "creator": "Cantora Exemplo"
+    }
+  ]
+}
