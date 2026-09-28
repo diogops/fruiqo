@@ -17,7 +17,7 @@ module.exports = ({ config }) => ({
   scheme: isDev ? 'fruiqo-dev' : 'fruiqo',
   version: '0.1.0',
   orientation: 'portrait',
-  userInterfaceStyle: 'light',
+  userInterfaceStyle: 'automatic',
   ios: {
     bundleIdentifier: appId,
     supportsTablet: false,

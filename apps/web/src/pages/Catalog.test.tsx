@@ -1,5 +1,6 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useNavigate } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import { __setAccessToken } from '../api/client';
 import { makeTitle, mockApi, renderWithProviders } from '../test/helpers';
@@ -63,5 +64,36 @@ describe('catálogo (RF-24/25)', () => {
     await user.click(screen.getByLabelText('Subir Segundo'));
     await waitFor(() => expect(calls.find((c) => c.path === `/library/${items[1]!.id}/move`)?.body).toEqual({ to: 'up' }));
     await screen.findByText('"Segundo" agora é o #1 de 2.');
+  });
+  it('busca global com o catálogo aberto atualiza o campo de busca e mantém os filtros', async () => {
+    __setAccessToken('tok');
+    const { calls } = mockApi({
+      'GET /taxonomy/genres': { version: 1, genres: [], subgenres: [] },
+      'GET /lists': [],
+      'GET /library': { items: [makeTitle({ title: 'Oppenheimer' })], nextCursor: null },
+    });
+    // simula o cabeçalho navegando para o catálogo com uma busca nova
+    function GlobalSearch() {
+      const navigate = useNavigate();
+      return (
+        <button type="button" onClick={() => navigate('/catalogo?status=to_watch&q=duna', { replace: true })}>
+          buscar-global
+        </button>
+      );
+    }
+    const user = userEvent.setup();
+    renderWithProviders(
+      <>
+        <GlobalSearch />
+        <Catalog />
+      </>,
+      { route: '/catalogo?status=to_watch' },
+    );
+    await screen.findByText('Oppenheimer');
+    const input = screen.getByRole('searchbox', { name: 'Buscar por título' });
+    expect(input).toHaveProperty('value', '');
+    await user.click(screen.getByRole('button', { name: 'buscar-global' }));
+    await waitFor(() => expect(input).toHaveProperty('value', 'duna'));
+    await waitFor(() => expect(calls.some((c) => c.path.includes('q=duna') && c.path.includes('status=to_watch'))).toBe(true));
   });
 });

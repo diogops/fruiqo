@@ -1,7 +1,16 @@
 import { JUSTWATCH_ATTRIBUTION, type ShareStatus, TMDB_ATTRIBUTION, type Title, type WatchProvider } from '@fruiqo/contracts';
 import { ActivityIndicator, Image, Linking, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
-import { colors, gradients } from './theme';
+import Ionicons from '@expo/vector-icons/Ionicons';
+
+import { colors, gradients, onThemeChange } from './theme';
+
+export type IconName = React.ComponentProps<typeof Ionicons>['name'];
+
+/** Ícones do app: um único conjunto (Ionicons), fontes carregadas pelo expo-font. */
+export function Icon({ name, size = 20, color }: { name: IconName; size?: number; color?: string }) {
+  return <Ionicons name={name} size={size} color={color ?? colors.text2} />;
+}
 
 /**
  * Fundo em degradê sem módulo nativo novo: `experimental_backgroundImage` do React Native
@@ -29,14 +38,19 @@ export function Button({
   variant = 'primary',
   disabled,
   loading,
+  icon,
+  compact,
 }: {
   title: string;
   onPress: () => void;
   variant?: 'primary' | 'secondary' | 'danger';
   disabled?: boolean;
   loading?: boolean;
+  icon?: IconName;
+  /** altura menor (44px), para linhas com vários botões */
+  compact?: boolean;
 }) {
-  const bg = variant === 'primary' ? colors.primary : variant === 'danger' ? 'rgba(248,113,113,0.16)' : colors.surface2;
+  const bg = variant === 'primary' ? colors.primary : variant === 'danger' ? colors.dangerSoft : colors.surface2;
   const fg = variant === 'secondary' ? colors.text : variant === 'danger' ? colors.danger : colors.primaryText;
   return (
     <Pressable
@@ -45,28 +59,40 @@ export function Button({
       disabled={disabled || loading}
       style={({ pressed }) => [
         styles.button,
+        compact && styles.buttonCompact,
         { backgroundColor: bg, opacity: disabled ? 0.5 : pressed ? 0.85 : 1 },
         variant === 'primary' && ({ experimental_backgroundImage: gradients.brand } as ViewStyle),
         variant === 'primary' && styles.buttonGlow,
         variant === 'secondary' && { borderWidth: 1, borderColor: colors.borderStrong },
-        variant === 'danger' && { borderWidth: 1, borderColor: 'rgba(248,113,113,0.4)' },
+        variant === 'danger' && { borderWidth: 1, borderColor: colors.dangerBorder },
       ]}
     >
-      {loading ? <ActivityIndicator color={fg} /> : <Text style={[styles.buttonText, { color: fg }]}>{title}</Text>}
+      {loading ? (
+        <ActivityIndicator color={fg} />
+      ) : (
+        <View style={styles.buttonRow}>
+          {icon ? <Icon name={icon} size={compact ? 17 : 19} color={fg} /> : null}
+          <Text style={[styles.buttonText, compact && styles.buttonTextCompact, { color: fg }]} numberOfLines={1}>
+            {title}
+          </Text>
+        </View>
+      )}
     </Pressable>
   );
 }
 
-const STATUS_LABEL: Record<ShareStatus, { label: string; color: string }> = {
-  queued: { label: 'Na fila', color: colors.muted },
-  processing: { label: 'Processando', color: colors.warn },
-  done: { label: 'Pronto', color: colors.ok },
-  failed: { label: 'Falhou', color: colors.danger },
-  rejected: { label: 'Recusado', color: colors.danger },
-};
+function statusLabel(): Record<ShareStatus, { label: string; color: string }> {
+  return {
+    queued: { label: 'Na fila', color: colors.muted },
+    processing: { label: 'Processando', color: colors.warn },
+    done: { label: 'Pronto', color: colors.ok },
+    failed: { label: 'Falhou', color: colors.danger },
+    rejected: { label: 'Recusado', color: colors.danger },
+  };
+}
 
 export function StatusBadge({ status }: { status: ShareStatus }) {
-  const s = STATUS_LABEL[status];
+  const s = statusLabel()[status];
   return (
     <View style={[styles.badge, { borderColor: s.color }]}>
       <Text style={[styles.badgeText, { color: s.color }]}>{s.label}</Text>
@@ -100,11 +126,13 @@ export function Chip({
   selected,
   disabled,
   hint,
+  icon,
 }: {
   label: string;
   onPress?: () => void;
   selected?: boolean;
   disabled?: boolean;
+  icon?: IconName;
   /** texto pequeno ao lado do rótulo (ex.: quantos títulos combinam) */
   hint?: string;
 }) {
@@ -120,10 +148,13 @@ export function Chip({
         { opacity: disabled ? 0.45 : pressed ? 0.75 : 1 },
       ]}
     >
-      <Text style={[styles.chipText, selected && { color: colors.primaryText }]}>
-        {label}
-        {hint ? <Text style={[styles.chipHint, selected && { color: colors.primaryText }]}> {hint}</Text> : null}
-      </Text>
+      <View style={styles.buttonRow}>
+        {icon ? <Icon name={icon} size={16} color={selected ? colors.primaryText : colors.primary2} /> : null}
+        <Text style={[styles.chipText, selected && { color: colors.primaryText }]}>
+          {label}
+          {hint ? <Text style={[styles.chipHint, selected && { color: colors.primaryText }]}> {hint}</Text> : null}
+        </Text>
+      </View>
     </Pressable>
   );
 }
@@ -197,32 +228,41 @@ export function TmdbAttribution() {
   return <Text style={styles.attribution}>Dados de filmes e séries: TMDB. {TMDB_ATTRIBUTION}</Text>;
 }
 
-const styles = StyleSheet.create({
-  providerLogo: { width: 30, height: 30, borderRadius: 8 },
-  providerName: { fontSize: 13, color: colors.text, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface2, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
-  providerGroup: { fontSize: 12, color: colors.muted, minWidth: 70 },
-  attribution: { fontSize: 11, color: colors.muted },
-  chip: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface2,
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-  chipText: { fontSize: 14, fontWeight: '600', color: colors.text2 },
-  chipHint: { fontSize: 12, color: colors.muted },
-  progressTrack: { height: 7, borderRadius: 4, backgroundColor: colors.surface3, overflow: 'hidden' },
-  progressFill: { height: 7, borderRadius: 4, backgroundColor: colors.primary },
-  poster: { borderRadius: 10 },
-  posterEmpty: { backgroundColor: colors.primary3, alignItems: 'center', justifyContent: 'center' },
-  posterLetter: { fontSize: 24, fontWeight: '800', color: '#ffffff' },
-  button: { borderRadius: 12, paddingVertical: 13, paddingHorizontal: 18, alignItems: 'center', minHeight: 48, justifyContent: 'center' },
-  buttonGlow: { shadowColor: '#2563eb', shadowOpacity: 0.45, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 6 },
-  buttonText: { fontSize: 16, fontWeight: '700' },
-  badge: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3, alignSelf: 'flex-start' },
-  badgeText: { fontSize: 12, fontWeight: '700' },
-  link: { color: colors.primary2, fontSize: 15, fontWeight: '600' },
-});
+function buildStyles() {
+  return StyleSheet.create({
+    providerLogo: { width: 30, height: 30, borderRadius: 8 },
+    providerName: { fontSize: 13, color: colors.text, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface2, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+    providerGroup: { fontSize: 12, color: colors.muted, minWidth: 70 },
+    attribution: { fontSize: 11, color: colors.muted },
+    chip: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface2,
+      borderRadius: 999,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      minHeight: 44,
+      justifyContent: 'center',
+    },
+    chipText: { fontSize: 14, fontWeight: '600', color: colors.text2 },
+    chipHint: { fontSize: 12, color: colors.muted },
+    progressTrack: { height: 7, borderRadius: 4, backgroundColor: colors.surface3, overflow: 'hidden' },
+    progressFill: { height: 7, borderRadius: 4, backgroundColor: colors.primary },
+    poster: { borderRadius: 10 },
+    posterEmpty: { backgroundColor: colors.primary3, alignItems: 'center', justifyContent: 'center' },
+    posterLetter: { fontSize: 24, fontWeight: '800', color: '#ffffff' },
+    buttonRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+    buttonCompact: { minHeight: 44, paddingVertical: 10, paddingHorizontal: 12 },
+    buttonTextCompact: { fontSize: 15 },
+    button: { borderRadius: 12, paddingVertical: 13, paddingHorizontal: 18, alignItems: 'center', minHeight: 48, justifyContent: 'center' },
+    buttonGlow: { shadowColor: '#2563eb', shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 6 },
+    buttonText: { fontSize: 16, fontWeight: '700' },
+    badge: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3, alignSelf: 'flex-start' },
+    badgeText: { fontSize: 12, fontWeight: '700' },
+    link: { color: colors.primary2, fontSize: 15, fontWeight: '600' },
+  });
+}
+
+const styles = buildStyles();
+onThemeChange(() => Object.assign(styles, buildStyles()));
+

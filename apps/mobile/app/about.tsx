@@ -3,9 +3,11 @@ import { ScrollView, Text } from 'react-native';
 
 import { Link } from '../src/ui/components';
 import { ui } from '../src/ui/theme';
+import { useTheme } from '../src/ui/ThemeProvider';
 
 // Atribuições exigidas (TOS-REQ-01, TOS-REQ-10) e avisos de licença OSS (TOS-REQ-34).
 export default function About() {
+  useTheme(); // re-renderiza na troca de tema
   return (
     <ScrollView style={ui.screen} contentContainerStyle={ui.pad}>
       <Text style={ui.h1}>Fruiqo</Text>

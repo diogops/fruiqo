@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router';
+import { useEffect, useState, type FormEvent } from 'react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { useAuth } from '../auth/AuthContext';
 import { BrandMark, Icon, Menu, ThemeToggle, type IconName } from './ui';
 
@@ -15,12 +15,24 @@ const NAV: { to: string; label: string; icon: IconName }[] = [
 export function Layout() {
   const { email, signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [q, setQ] = useState('');
+  const onCatalog = location.pathname.startsWith('/catalogo');
+
+  // com o catálogo aberto, o campo global reflete a busca atual da URL
+  useEffect(() => {
+    if (onCatalog) setQ(new URLSearchParams(location.search).get('q') ?? '');
+  }, [onCatalog, location.search]);
 
   const search = (e: FormEvent) => {
     e.preventDefault();
     const term = q.trim();
-    navigate(term ? `/catalogo?q=${encodeURIComponent(term)}` : '/catalogo');
+    // já no catálogo: troca só a busca e mantém os outros filtros
+    const next = onCatalog ? new URLSearchParams(location.search) : new URLSearchParams();
+    if (term) next.set('q', term);
+    else next.delete('q');
+    const qs = next.toString();
+    navigate(qs ? `/catalogo?${qs}` : '/catalogo', { replace: onCatalog });
   };
 
   const initial = (email ?? '?').trim().charAt(0).toUpperCase();

@@ -1,14 +1,21 @@
 import { Tabs } from 'expo-router';
-import { type ColorValue, Text } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import type { ColorValue } from 'react-native';
 
 import { colors } from '../../src/ui/theme';
+import { useTheme } from '../../src/ui/ThemeProvider';
 
-// Ícones como glifos de texto: evita biblioteca de ícones (e um novo build nativo) nesta etapa.
-function Glyph({ symbol, color }: { symbol: string; color: ColorValue }) {
-  return <Text style={{ color, fontSize: 20, lineHeight: 24, fontWeight: '700' }}>{symbol}</Text>;
+type IconName = React.ComponentProps<typeof Ionicons>['name'];
+
+// Ionicons: ícone cheio na aba ativa, contorno nas demais.
+function tabIcon(active: IconName, idle: IconName) {
+  return ({ color, focused, size }: { color: ColorValue; focused: boolean; size: number }) => (
+    <Ionicons name={focused ? active : idle} size={size ?? 24} color={color as string} />
+  );
 }
 
 export default function TabsLayout() {
+  useTheme(); // re-renderiza na troca de tema
   return (
     <Tabs
       screenOptions={{
@@ -25,19 +32,19 @@ export default function TabsLayout() {
     >
       <Tabs.Screen
         name="home"
-        options={{ title: 'Início', headerTitle: 'Fruiqo', tabBarIcon: ({ color }) => <Glyph symbol="⌂" color={color} /> }}
+        options={{ title: 'Início', headerTitle: 'Fruiqo', tabBarIcon: tabIcon('home', 'home-outline') }}
       />
       <Tabs.Screen
         name="lists"
-        options={{ title: 'Listas', tabBarIcon: ({ color }) => <Glyph symbol="☰" color={color} /> }}
+        options={{ title: 'Listas', tabBarIcon: tabIcon('albums', 'albums-outline') }}
       />
       <Tabs.Screen
         name="inbox"
-        options={{ title: 'Compartilhamentos', tabBarLabel: 'Recebidos', tabBarIcon: ({ color }) => <Glyph symbol="⇩" color={color} /> }}
+        options={{ title: 'Compartilhamentos', tabBarLabel: 'Recebidos', tabBarIcon: tabIcon('download', 'download-outline') }}
       />
       <Tabs.Screen
         name="settings"
-        options={{ title: 'Ajustes', tabBarIcon: ({ color }) => <Glyph symbol="⚙" color={color} /> }}
+        options={{ title: 'Ajustes', tabBarIcon: tabIcon('settings', 'settings-outline') }}
       />
     </Tabs>
   );

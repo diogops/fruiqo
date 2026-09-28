@@ -12,12 +12,14 @@ import { ImportPrints } from '../../src/share/ImportPrints';
 import { Button, Chip, Poster, ProgressBar } from '../../src/ui/components';
 import { titleMeta } from '../../src/ui/labels';
 import { colors, gradients, ui } from '../../src/ui/theme';
+import { useTheme } from '../../src/ui/ThemeProvider';
 
 function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : 'Algo deu errado. Tente de novo.';
 }
 
 export default function Home() {
+  useTheme(); // re-renderiza na troca de tema
   const router = useRouter();
   const [home, setHome] = useState<HomeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -152,13 +154,14 @@ export default function Home() {
               <View style={{ flex: 1 }}>
                 <Button
                   title={cont.next.status === 'watching' ? 'Assistindo' : 'Assistir agora'}
+                  icon="play"
                   onPress={() => void markNext('watching')}
                   disabled={cont.next.status === 'watching'}
                   loading={busy === 'watching'}
                 />
               </View>
               <View style={{ flex: 1 }}>
-                <Button title="Já vi" variant="secondary" onPress={() => void markNext('watched')} loading={busy === 'watched'} />
+                <Button title="Já vi" icon="checkmark-circle-outline" variant="secondary" onPress={() => void markNext('watched')} loading={busy === 'watched'} />
               </View>
             </View>
           </>
@@ -209,7 +212,7 @@ export default function Home() {
             maxLength={MOOD_MAX_CHARS}
             autoCorrect
           />
-          <Button title="Sugerir algo" onPress={() => void sendMood()} disabled={!moodText.trim()} loading={busy === 'mood'} />
+          <Button title="Sugerir algo" icon="sparkles" onPress={() => void sendMood()} disabled={!moodText.trim()} loading={busy === 'mood'} />
           <Text style={ui.muted}>O texto não é guardado: só a intenção interpretada.</Text>
         </View>
       )}
@@ -217,7 +220,7 @@ export default function Home() {
       {/* Acessos secundários */}
       <View style={{ gap: 8 }}>
         <ImportPrints />
-        <Button title="Ver compartilhamentos recebidos" variant="secondary" onPress={() => router.push('/inbox')} />
+        <Button title="Ver compartilhamentos recebidos" icon="download-outline" variant="secondary" onPress={() => router.push('/inbox')} />
       </View>
 
       <Modal visible={showOptIn} animationType="slide" transparent onRequestClose={() => setShowOptIn(false)}>

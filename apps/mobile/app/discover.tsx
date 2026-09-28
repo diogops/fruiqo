@@ -10,12 +10,14 @@ import { forgetResult, getResult, putResult, takeRiskText } from '../src/discove
 import { Button, Chip, Poster, WatchProviders, openExternal } from '../src/ui/components';
 import { REASON_OPTIONS, titleMeta } from '../src/ui/labels';
 import { colors, gradients, ui } from '../src/ui/theme';
+import { useTheme } from '../src/ui/ThemeProvider';
 
 function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : 'Algo deu errado. Tente de novo.';
 }
 
 export default function DiscoverResult() {
+  useTheme(); // re-renderiza na troca de tema
   const { runId } = useLocalSearchParams<{ runId: string }>();
   const router = useRouter();
   const [result, setResult] = useState<DiscoverResponse | undefined>(() => (runId ? getResult(runId) : undefined));
@@ -139,20 +141,30 @@ export default function DiscoverResult() {
               <Text style={{ fontWeight: '600' }}>Por que isso: </Text>
               {s.reason}
             </Text>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              <View style={{ flex: 1 }}>
-                <Button title="Vou ver" onPress={() => void feedback(s, 'accept')} loading={busy === `accept:${s.title.id}`} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Button title="Pular" variant="secondary" onPress={() => void feedback(s, 'skip')} loading={busy === `skip:${s.title.id}`} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Button
-                  title="Outra coisa"
-                  variant="secondary"
-                  onPress={() => setAskReasonFor(s)}
-                  loading={busy === `another:${s.title.id}`}
-                />
+            {/* primário em largura cheia; secundários lado a lado, com ícone e alvo ≥ 44px */}
+            <View style={{ gap: 8 }}>
+              <Button title="Vou ver" icon="play-circle" onPress={() => void feedback(s, 'accept')} loading={busy === `accept:${s.title.id}`} />
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Button
+                    title="Pular"
+                    icon="play-skip-forward"
+                    variant="secondary"
+                    compact
+                    onPress={() => void feedback(s, 'skip')}
+                    loading={busy === `skip:${s.title.id}`}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Button
+                    title="Outra coisa"
+                    icon="shuffle"
+                    variant="secondary"
+                    compact
+                    onPress={() => setAskReasonFor(s)}
+                    loading={busy === `another:${s.title.id}`}
+                  />
+                </View>
               </View>
             </View>
           </View>

@@ -6,11 +6,13 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'rea
 
 import { deleteList, getList, reorderList } from '../../src/api/client';
 import { moveItem, progressOf } from '../../src/discover/logic';
-import { Button, Poster, ProgressBar } from '../../src/ui/components';
+import { Button, Icon, Poster, ProgressBar } from '../../src/ui/components';
 import { TITLE_STATUS_LABEL, titleMeta } from '../../src/ui/labels';
 import { colors, ui } from '../../src/ui/theme';
+import { useTheme } from '../../src/ui/ThemeProvider';
 
 export default function ListScreen() {
+  useTheme(); // re-renderiza na troca de tema
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [list, setList] = useState<ListDetail | null>(null);
@@ -117,7 +119,7 @@ export default function ListScreen() {
                 onPress={() => void move(index, -1)}
                 hitSlop={6}
               >
-                <Text style={{ fontSize: 20, color: index === 0 ? colors.border : colors.primary }}>▲</Text>
+                <Icon name="chevron-up" size={24} color={index === 0 ? colors.border : colors.primary} />
               </Pressable>
               <Pressable
                 accessibilityRole="button"
@@ -126,7 +128,7 @@ export default function ListScreen() {
                 onPress={() => void move(index, 1)}
                 hitSlop={6}
               >
-                <Text style={{ fontSize: 20, color: index === list.items.length - 1 ? colors.border : colors.primary }}>▼</Text>
+                <Icon name="chevron-down" size={24} color={index === list.items.length - 1 ? colors.border : colors.primary} />
               </Pressable>
             </View>
           </View>

@@ -484,3 +484,26 @@ textarea { width: 100%; }
 .subs { align-items: flex-start; }
 .subs fieldset { display: grid; grid-template-columns: repeat(2, minmax(120px, auto)); column-gap: 1.25rem; }
 .subs fieldset legend { grid-column: 1 / -1; }
+
+/* catálogo: cabe em 1280–1440px; abaixo disso rola só dentro do card */
+.catalog-wrap { overflow-x: auto; overflow-y: visible; }
+.catalog-table { table-layout: fixed; min-width: 900px; }
+.catalog-table .col-check { width: 44px; }
+.catalog-table .col-rank { width: 150px; }
+.catalog-table .col-kind { width: 70px; }
+.catalog-table .col-genres { width: 182px; }
+.catalog-table .col-status { width: 132px; }
+.catalog-table .col-rating { width: 92px; }
+.catalog-table .col-origin { width: 128px; }
+.catalog-table th, .catalog-table td { padding-left: 0.6rem; padding-right: 0.6rem; }
+.catalog-table .title-cell { min-width: 0; }
+.catalog-table .title-text { min-width: 0; flex: 1; }
+.catalog-table .title-link { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-table .title-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-table .genre-chips { flex-wrap: nowrap; overflow: hidden; }
+.genre-chip-more { color: var(--muted); background: var(--surface-3); border-color: var(--border); }
+.catalog-table .status-select, .catalog-table .rating-select { width: 100%; }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.origin-cell > div + div { margin-top: 0.15rem; }
+.catalog-table .genre-chip { padding: 0.1rem 0.45rem; font-size: 0.7rem; }
+.catalog-table .genre-chips { gap: 0.25rem; }

@@ -5,9 +5,11 @@ import { ScrollView, Text } from 'react-native';
 import { useAppState } from '../src/state/AppState';
 import { Button } from '../src/ui/components';
 import { ui } from '../src/ui/theme';
+import { useTheme } from '../src/ui/ThemeProvider';
 
 // Transparência sobre o tratamento dos dados antes do primeiro uso (TOS-REQ-30, SEC-REQ-23).
 export default function Consent() {
+  useTheme(); // re-renderiza na troca de tema
   const { acceptConsent } = useAppState();
   const router = useRouter();
   const [saving, setSaving] = useState(false);

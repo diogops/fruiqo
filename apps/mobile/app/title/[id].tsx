@@ -6,9 +6,10 @@ import { ActivityIndicator, Alert, ImageBackground, Pressable, ScrollView, Text,
 
 import { ApiError, getLibrary, getTaxonomy, getTitle, moveTitle, updateTitle } from '../../src/api/client';
 import { collectGenreOptions, toggleGenre } from '../../src/discover/logic';
-import { Button, Chip, Link, Poster, TmdbAttribution, WatchProviders } from '../../src/ui/components';
+import { Button, Chip, Icon, Link, Poster, TmdbAttribution, WatchProviders } from '../../src/ui/components';
 import { rankLabel, TITLE_STATUS_LABEL, titleMeta } from '../../src/ui/labels';
 import { colors, gradients, ui } from '../../src/ui/theme';
+import { useTheme } from '../../src/ui/ThemeProvider';
 
 const STATUSES: TitleStatus[] = ['to_watch', 'watching', 'watched', 'dropped'];
 
@@ -20,6 +21,7 @@ function errorMessage(e: unknown) {
 }
 
 export default function TitleDetail() {
+  useTheme(); // re-renderiza na troca de tema
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [title, setTitle] = useState<Title | null>(null);
@@ -166,9 +168,9 @@ export default function TitleDetail() {
         <Text style={{ fontSize: 22, fontWeight: '700', color: colors.text, minWidth: 64 }}>{rankLabel(title.rank, queueTotal)}</Text>
         {title.rank != null && (
           <>
-            <Chip label="▲ Subir" disabled={saving !== null || title.rank === 1} onPress={() => void move({ to: 'up' })} />
-            <Chip label="▼ Descer" disabled={saving !== null} onPress={() => void move({ to: 'down' })} />
-            <Chip label="⤒ Topo" disabled={saving !== null || title.rank === 1} onPress={() => void move({ to: 'top' })} />
+            <Chip icon="arrow-up" label="Subir" disabled={saving !== null || title.rank === 1} onPress={() => void move({ to: 'up' })} />
+            <Chip icon="arrow-down" label="Descer" disabled={saving !== null} onPress={() => void move({ to: 'down' })} />
+            <Chip icon="push-outline" label="Topo" disabled={saving !== null || title.rank === 1} onPress={() => void move({ to: 'top' })} />
           </>
         )}
       </View>
@@ -184,7 +186,7 @@ export default function TitleDetail() {
             onPress={() => void patch('rating', { rating: title.rating === n ? null : n })}
             hitSlop={6}
           >
-            <Text style={{ fontSize: 30, color: title.rating && n <= title.rating ? colors.star : colors.border }}>★</Text>
+            <Icon name={title.rating && n <= title.rating ? 'star' : 'star-outline'} size={30} color={title.rating && n <= title.rating ? colors.star : colors.muted} />
           </Pressable>
         ))}
         {title.rating ? <Text style={ui.muted}>toque de novo para limpar</Text> : null}

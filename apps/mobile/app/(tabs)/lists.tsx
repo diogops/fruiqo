@@ -6,10 +6,12 @@ import { Alert, FlatList, Pressable, RefreshControl, Text, TextInput, View, type
 
 import { createList, listLists } from '../../src/api/client';
 import { progressOf } from '../../src/discover/logic';
-import { Button, ProgressBar } from '../../src/ui/components';
+import { Button, Icon, ProgressBar } from '../../src/ui/components';
 import { colors, gradients, ui } from '../../src/ui/theme';
+import { useTheme } from '../../src/ui/ThemeProvider';
 
 export default function Lists() {
+  useTheme(); // re-renderiza na troca de tema
   const router = useRouter();
   const [lists, setLists] = useState<ListSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -72,13 +74,13 @@ export default function Lists() {
               style={[ui.input, { flex: 1 }]}
               value={name}
               onChangeText={setName}
-              placeholder="Nova lista (ex.: Filmes com a família)"
+              placeholder="Nome da nova lista"
               placeholderTextColor={colors.muted}
               maxLength={80}
               onSubmitEditing={() => void create()}
               returnKeyType="done"
             />
-            <Button title="Criar" onPress={() => void create()} disabled={!name.trim()} loading={creating} />
+            <Button title="Criar" icon="add" onPress={() => void create()} disabled={!name.trim()} loading={creating} />
           </View>
         </View>
       }
@@ -98,14 +100,14 @@ export default function Lists() {
             onPress={() => router.push({ pathname: '/list/[id]', params: { id: item.id } })}
             style={({ pressed }) => [ui.heroCard, { padding: 0, gap: 0 }, pressed && { opacity: 0.8 }]}
           >
-            <View style={[{ height: 74, paddingHorizontal: 16, justifyContent: 'flex-end', paddingBottom: 8, backgroundColor: colors.primary3 }, { experimental_backgroundImage: gradients.hero } as ViewStyle]}>
+            <View style={[{ height: 74, paddingHorizontal: 16, justifyContent: 'flex-end', paddingBottom: 8, backgroundColor: colors.primary3 }, { experimental_backgroundImage: gradients.cover } as ViewStyle]}>
               <Text style={{ fontSize: 28, fontWeight: '800', color: 'rgba(255,255,255,0.92)', letterSpacing: -1 }}>
                 {item.name.trim().split(/\s+/).slice(0, 2).map((w) => w.charAt(0)).join('').toUpperCase()}
               </Text>
             </View>
             <View style={{ padding: 16, gap: 8 }}>
             <Text style={ui.h2} numberOfLines={2}>
-              {item.pinned ? '📌 ' : ''}
+              {item.pinned ? <Icon name="pin" size={16} color={colors.primary2} /> : null}
               {item.name}
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>

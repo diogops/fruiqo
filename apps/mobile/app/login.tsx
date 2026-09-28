@@ -6,6 +6,7 @@ import { KeyboardAvoidingView, Platform, ScrollView, Text, TextInput } from 'rea
 import { useAppState } from '../src/state/AppState';
 import { Button } from '../src/ui/components';
 import { ui } from '../src/ui/theme';
+import { useTheme } from '../src/ui/ThemeProvider';
 
 function deviceName() {
   const name = Device.deviceName ?? Device.modelName ?? `${Platform.OS} device`;
@@ -13,6 +14,7 @@ function deviceName() {
 }
 
 export default function Login() {
+  useTheme(); // re-renderiza na troca de tema
   const { signIn, pendingShare } = useAppState();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');

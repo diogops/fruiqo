@@ -8,10 +8,12 @@ import { ImportPrints } from '../../src/share/ImportPrints';
 import { StatusBadge } from '../../src/ui/components';
 import { sourceLabel, sourceTitle } from '../../src/ui/labels';
 import { ui } from '../../src/ui/theme';
+import { useTheme } from '../../src/ui/ThemeProvider';
 
 const POLL_MS = 4000;
 
 export default function Inbox() {
+  useTheme(); // re-renderiza na troca de tema
   const router = useRouter();
   const [items, setItems] = useState<Share[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);

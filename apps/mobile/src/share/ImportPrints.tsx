@@ -100,7 +100,7 @@ export function ImportPrints() {
 
   return (
     <>
-      <Button title="Importar prints" onPress={() => setOpen(true)} />
+      <Button title="Importar prints" icon="images-outline" onPress={() => setOpen(true)} />
       <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
         <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' }} onPress={() => setOpen(false)} />
         <View style={[ui.pad, { backgroundColor: colors.bg, borderTopLeftRadius: 16, borderTopRightRadius: 16 }]}>
@@ -109,9 +109,9 @@ export function ImportPrints() {
             Até {MAX_SCREENSHOT_PAGES} imagens, na ordem escolhida. O texto é lido no seu aparelho; a imagem não sai do
             celular.
           </Text>
-          <Button title="Galeria" onPress={fromGallery} />
-          <Button title="Arquivos" variant="secondary" onPress={fromFiles} />
-          <Button title="Câmera" variant="secondary" onPress={fromCamera} />
+          <Button title="Galeria" icon="images" onPress={fromGallery} />
+          <Button title="Arquivos" icon="folder-open-outline" variant="secondary" onPress={fromFiles} />
+          <Button title="Câmera" icon="camera-outline" variant="secondary" onPress={fromCamera} />
           <Button title="Cancelar" variant="secondary" onPress={() => setOpen(false)} />
         </View>
       </Modal>

@@ -7,11 +7,19 @@ import { API_URL, getSettings, listSessions, revokeSession, updateSettings } fro
 import { useMoodOptIn } from '../../src/discover/moodOptIn';
 import { useAppState } from '../../src/state/AppState';
 import { devToolsEnabled } from '../../src/state/devTools';
-import { Button } from '../../src/ui/components';
+import { Button, Chip } from '../../src/ui/components';
 import { colors, ui } from '../../src/ui/theme';
+import { type ThemePreference, useTheme } from '../../src/ui/ThemeProvider';
+
+const THEME_OPTIONS: { value: ThemePreference; label: string; icon: 'phone-portrait-outline' | 'moon' | 'sunny' }[] = [
+  { value: 'system', label: 'Sistema', icon: 'phone-portrait-outline' },
+  { value: 'dark', label: 'Escuro', icon: 'moon' },
+  { value: 'light', label: 'Claro', icon: 'sunny' },
+];
 
 // Sessões listáveis e revogáveis (SEC-REQ-22).
 export default function Settings() {
+  const theme = useTheme(); // re-renderiza na troca de tema
   const { signOut } = useAppState();
   const router = useRouter();
   const moodOptIn = useMoodOptIn();
@@ -90,6 +98,23 @@ export default function Settings() {
           <Button title="Encerrar" variant="secondary" onPress={() => revoke(s)} />
         </View>
       ))}
+      <Text style={ui.h2}>Aparência</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        {THEME_OPTIONS.map((o) => (
+          <Chip
+            key={o.value}
+            icon={o.icon}
+            label={o.label}
+            selected={theme.preference === o.value}
+            onPress={() => theme.setPreference(o.value)}
+          />
+        ))}
+      </View>
+      <Text style={ui.muted}>
+        {theme.preference === 'system'
+          ? `Seguindo o sistema (agora: ${theme.name === 'dark' ? 'escuro' : 'claro'}).`
+          : 'Escolha salva só neste aparelho.'}
+      </Text>
       <Text style={ui.h2}>Como estou</Text>
       <Text style={ui.muted}>
         {moodOptIn.accepted
@@ -139,12 +164,12 @@ export default function Settings() {
       ) : (
         <Text style={ui.muted}>Não foi possível carregar as preferências.</Text>
       )}
-      <Button title="Sobre e créditos" variant="secondary" onPress={() => router.push('/about')} />
+      <Button title="Sobre e créditos" icon="information-circle-outline" variant="secondary" onPress={() => router.push('/about')} />
       {devToolsEnabled ? (
         // Só fora de produção (RF-18); em produção a rota nem existe no bundle.
         <Button title="Simulador de share (dev)" variant="secondary" onPress={() => router.push('/dev/share' as never)} />
       ) : null}
-      <Button title="Sair" variant="danger" onPress={() => void signOut()} />
+      <Button title="Sair" icon="log-out-outline" variant="danger" onPress={() => void signOut()} />
       <Text style={ui.muted}>Servidor: {API_URL}</Text>
     </ScrollView>
   );

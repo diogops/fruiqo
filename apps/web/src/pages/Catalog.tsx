@@ -3,7 +3,7 @@ import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalList
 import { CSS } from '@dnd-kit/utilities';
 import { type BulkOperation, JUSTWATCH_ATTRIBUTION, type MoveTitleRequest, type RecommendationKind, TMDB_ATTRIBUTION, type Title, type TitleStatus, type WatchProvider } from '@fruiqo/contracts';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { api, type LibraryFilters } from '../api/client';
 import { CorrectTitleForm, ErrorNote, Modal, useTaxonomy } from '../components/shared';
@@ -29,6 +29,11 @@ export function Catalog() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openId, setOpenId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  // campo de busca controlado: acompanha a URL (ex.: busca global do cabeçalho com o catálogo aberto)
+  const [searchText, setSearchText] = useState(filters.q ?? '');
+  useEffect(() => {
+    setSearchText((cur) => (cur.trim() === (filters.q ?? '') ? cur : (filters.q ?? '')));
+  }, [filters.q]);
   const qc = useQueryClient();
   const toast = useToast();
 
@@ -163,8 +168,11 @@ export function Catalog() {
           type="search"
           aria-label="Buscar por título"
           placeholder="Buscar título…"
-          defaultValue={filters.q ?? ''}
-          onChange={(e) => setFilter('q', e.target.value.trim())}
+          value={searchText}
+          onChange={(e) => {
+            setSearchText(e.target.value);
+            setFilter('q', e.target.value.trim());
+          }}
         />
         <select aria-label="Tipo" value={filters.kind ?? ''} onChange={(e) => setFilter('kind', e.target.value)}>
           <option value="">Todos os tipos</option>
@@ -233,8 +241,18 @@ export function Catalog() {
         <p className="muted small">Arraste pela alça ou use ▲/▼ para mudar a prioridade. #1 é o mais prioritário.</p>
       )}
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-        <div className="table-wrap">
-        <table className="table">
+        <div className="table-wrap catalog-wrap">
+        <table className="table catalog-table">
+          <colgroup>
+            <col className="col-check" />
+            <col className="col-rank" />
+            <col className="col-title" />
+            <col className="col-kind" />
+            <col className="col-genres" />
+            <col className="col-status" />
+            <col className="col-rating" />
+            <col className="col-origin" />
+          </colgroup>
           <thead>
             <tr>
               <th>
@@ -251,8 +269,7 @@ export function Catalog() {
               <th>Gêneros</th>
               <th>Status</th>
               <th>Nota</th>
-              <th>Listas</th>
-              <th>Fonte</th>
+              <th>Origem</th>
             </tr>
           </thead>
           <SortableContext items={items.map((t) => t.id)} strategy={verticalListSortingStrategy} disabled={!dragEnabled}>
@@ -664,11 +681,11 @@ function CatalogRow({
       <td>
         <div className="title-cell">
           <Thumb src={t.posterUrl} title={t.title} />
-          <div>
-            <button type="button" className="btn btn-link title-link" onClick={onOpen}>
+          <div className="title-text">
+            <button type="button" className="btn btn-link title-link" onClick={onOpen} title={t.title}>
               {t.title}
             </button>
-            <div className="muted small">
+            <div className="muted small title-meta" title={[t.year, t.creator].filter(Boolean).join(' · ')}>
               {[t.year, t.creator].filter(Boolean).join(' · ')}
               {t.decision === 'review_queue' && <span className="badge badge-review_queue">revisão</span>}
             </div>
@@ -679,11 +696,16 @@ function CatalogRow({
       <td>
         {t.genres.length ? (
           <span className="genre-chips">
-            {t.genres.slice(0, 3).map((g) => (
+            {t.genres.slice(0, 2).map((g) => (
               <span key={g.key} className="genre-chip">
                 {g.label}
               </span>
             ))}
+            {t.genres.length > 2 && (
+              <span className="genre-chip genre-chip-more" title={t.genres.slice(2).map((g) => g.label).join(', ')}>
+                +{t.genres.length - 2}
+              </span>
+            )}
           </span>
         ) : (
           <span className="muted">—</span>
@@ -713,13 +735,17 @@ function CatalogRow({
           ))}
         </select>
       </td>
-      <td className="small">{t.lists.map((l) => l.name).join(', ') || <span className="muted">—</span>}</td>
-      <td className="small">
-        {t.shareId ? (
-          <Link to={`/atividade/${t.shareId}`}>compartilhamento</Link>
-        ) : (
-          <span className="muted">{t.enrichment === 'demo' ? 'demo' : 'manual'}</span>
-        )}
+      <td className="small origin-cell">
+        <div className="ellipsis" title={t.lists.map((l) => l.name).join(', ') || undefined}>
+          {t.lists.map((l) => l.name).join(', ') || <span className="muted">sem lista</span>}
+        </div>
+        <div className="ellipsis">
+          {t.shareId ? (
+            <Link to={`/atividade/${t.shareId}`}>compartilhamento</Link>
+          ) : (
+            <span className="muted">{t.enrichment === 'demo' ? 'demo' : 'manual'}</span>
+          )}
+        </div>
       </td>
     </tr>
   );

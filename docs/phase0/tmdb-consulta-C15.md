@@ -25,6 +25,15 @@ Thank you for the clarification.
 
 ---
 
+## Evidência pública encontrada (pesquisa em 2026-09-28)
+
+| Fonte | Data | Conteúdo | Relevância |
+|---|---|---|---|
+| [API Terms of Use](https://www.themoviedb.org/api-terms-of-use) | última atualização 2023-10-20 | §1.C proíbe uso "in connection with, including for training, a machine learning (ML) or artificial intelligence (AI) based Application"; §2.A classifica como **uso comercial** o uso "in connection with ... interactive query-response system (including large language model (LLM) ...) or chatbots"; "Application" = "any website, program, service, application, or other product" | Mostra que o uso com LLM é tratado sobretudo como gatilho de licença comercial |
+| [Talk: "API Usage for Towards Data Science Article"](https://www.themoviedb.org/talk/662199ec8a88b20185ca984d) | 2024-04-18 (posterior aos termos) | Desenvolvedor descreve app **gratuito, não comercial** de recomendação de filmes que puxa dados do TMDB e usa **RAG + LLM** para resumir/recomendar; **Travis Bell (fundador, staff TMDB)** responde: "Yup, that's fine. Thanks for sharing." | Precedente oficial **mais permissivo** que o Fruiqo (lá os dados do TMDB vão ao LLM; aqui nunca vão — ARB-REQ-06). Forte suporte à leitura restrita (a) em uso não comercial |
+
+**Limites da evidência**: resposta a outro usuário, curta e sem analisar arquitetura; não cobre SC-STORE nem uso comercial (que exige licença comercial). A consulta acima continua recomendada antes de SC-STORE.
+
 ## Registro da resposta
 
 | Data | Canal | Resumo da resposta | Efeito |

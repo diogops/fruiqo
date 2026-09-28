@@ -8,6 +8,7 @@ import { devToolsEnabled } from '../src/state/devTools';
 import { ShareIntentHandler } from '../src/share/ShareIntentHandler';
 import { AppStateProvider, useAppState } from '../src/state/AppState';
 import { colors } from '../src/ui/theme';
+import { ThemeProvider, useTheme } from '../src/ui/ThemeProvider';
 
 // Consentimento vem antes de tudo; depois, login. Rotas públicas: consent, login, about.
 function Gate() {
@@ -31,6 +32,7 @@ function Gate() {
 }
 
 function Root() {
+  const { name: themeName } = useTheme();
   const { ready } = useAppState();
   if (!ready) {
     return (
@@ -63,17 +65,19 @@ function Root() {
       </Stack>
       <Gate />
       <ShareIntentHandler />
-      <StatusBar style="light" />
+      <StatusBar style={themeName === 'dark' ? 'light' : 'dark'} />
     </>
   );
 }
 
 export default function RootLayout() {
   return (
-    <ShareIntentProvider options={{ resetOnBackground: false }}>
-      <AppStateProvider>
-        <Root />
-      </AppStateProvider>
-    </ShareIntentProvider>
+    <ThemeProvider>
+      <ShareIntentProvider options={{ resetOnBackground: false }}>
+        <AppStateProvider>
+          <Root />
+        </AppStateProvider>
+      </ShareIntentProvider>
+    </ThemeProvider>
   );
 }

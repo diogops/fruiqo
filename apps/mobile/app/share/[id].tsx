@@ -7,6 +7,7 @@ import { deleteShare, getShare } from '../../src/api/client';
 import { Button, Link, StatusBadge } from '../../src/ui/components';
 import { plural, sourceLabel, sourceTitle } from '../../src/ui/labels';
 import { colors, ui } from '../../src/ui/theme';
+import { useTheme } from '../../src/ui/ThemeProvider';
 
 const POLL_MS = 3000;
 const KIND_LABEL: Record<Recommendation['kind'], string> = {
@@ -49,6 +50,7 @@ function RecommendationCard({ rec }: { rec: Recommendation }) {
 }
 
 export default function ShareDetail() {
+  useTheme(); // re-renderiza na troca de tema
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [share, setShare] = useState<Share | null>(null);
