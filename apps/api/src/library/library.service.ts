@@ -34,6 +34,7 @@ import { DB, type Db, type Tx, withUser } from '../db/client.js';
 import {
   listItems,
   lists,
+  tasteOverrides,
   recommendationFeedback,
   recommendationRuns,
   recommendations,
@@ -77,8 +78,11 @@ export class LibraryService {
     const offset = decodeCursor(q.cursor);
     return withUser(this.db, userId, async (tx) => {
       const where = and(
-        eq(recommendations.decision, 'cataloged'),
+        // RF-28: `review=pending` lista a fila de revisão em vez do catálogo
+        eq(recommendations.decision, q.review === 'pending' ? 'review_queue' : 'cataloged'),
         q.status ? eq(recommendations.status, q.status) : undefined,
+        q.priority !== undefined ? eq(recommendations.priority, q.priority) : undefined,
+        q.shareId ? eq(recommendations.shareId, q.shareId) : undefined,
         q.kind ? eq(recommendations.kind, q.kind) : undefined,
         q.genre ? sql`${q.genre} = ANY(${recommendations.genres})` : undefined,
         q.q ? ilike(recommendations.title, `%${escapeLike(q.q)}%`) : undefined,
@@ -387,7 +391,16 @@ export class LibraryService {
       .from(tasteSignals)
       .where(and(eq(tasteSignals.signal, 'skipped'), gte(tasteSignals.createdAt, since)));
     const taste = await this.taste(tx, titles);
-    const items: RankItem[] = titles.map((t) => ({
+    // RF-29/RNF-10: overrides do perfil valem sobre os sinais; gênero excluído nunca é sugerido
+    const overrides = await tx.select().from(tasteOverrides);
+    const excluded = new Set(overrides.filter((o) => o.mode === 'exclude').map((o) => o.genre));
+    for (const o of overrides) {
+      if (!GENRE_SET.has(o.genre)) continue;
+      taste[o.genre as GenreKey] = o.mode === 'pin' ? 1 : -1;
+    }
+    const items: RankItem[] = titles
+      .filter((t) => !t.genres.some((g) => excluded.has(g)))
+      .map((t) => ({
       id: t.id,
       kind: t.kind,
       status: t.status,
@@ -444,13 +457,13 @@ export class LibraryService {
     if (rows.length !== ids.length) throw new BadRequestException('Entrada inválida: titleIds');
   }
 
-  private async touchListsOf(tx: Tx, titleIds: string[], now: Date) {
+  async touchListsOf(tx: Tx, titleIds: string[], now: Date) {
     const rows = await tx.select({ listId: listItems.listId }).from(listItems).where(inArray(listItems.recommendationId, titleIds));
     const ids = [...new Set(rows.map((r) => r.listId))];
     if (ids.length > 0) await tx.update(lists).set({ updatedAt: now }).where(inArray(lists.id, ids));
   }
 
-  private async withLists(tx: Tx, rows: RecommendationRow[]): Promise<Title[]> {
+  async withLists(tx: Tx, rows: RecommendationRow[]): Promise<Title[]> {
     if (rows.length === 0) return [];
     const refs = await tx
       .select({ titleId: listItems.recommendationId, id: lists.id, name: lists.name })
@@ -486,7 +499,7 @@ export class LibraryService {
     }));
   }
 
-  private async detail(tx: Tx, id: string): Promise<ListDetail> {
+  async detail(tx: Tx, id: string): Promise<ListDetail> {
     const list = await this.findList(tx, id);
     const [summary] = await this.summaries(tx, [list]);
     const rows = await tx

@@ -53,6 +53,8 @@ jobs:
       - run: pnpm fixtures:check
       - run: pnpm typecheck
       - run: pnpm test
+      # RF-30: sistema web (Vite) precisa compilar
+      - run: pnpm --filter @fruiqo/web build
       # RF-22 / RNF-07: pipeline em PIPELINE_MODE=mock com a rede bloqueada; falha em regressão
       # contra a baseline v0-heuristic ou recall de risco < 100%
       - run: pnpm eval --check --label ci

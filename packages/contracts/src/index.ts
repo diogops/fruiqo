@@ -263,10 +263,16 @@ export const LibraryQuerySchema = z.object({
   kind: RecommendationKindSchema.optional(),
   genre: z.string().max(32).optional(),
   listId: z.uuid().optional(),
+  /** RF-24: 0 baixa · 1 normal · 2 alta · 3 urgente */
+  priority: z.coerce.number().int().min(0).max(3).optional(),
+  /** RF-24 (fonte): títulos que vieram deste share */
+  shareId: z.uuid().optional(),
+  /** `pending`: itens da fila de revisão (RF-28) em vez do catálogo */
+  review: z.enum(['pending']).optional(),
   q: z.string().trim().min(1).max(100).optional(),
   sort: LibrarySortSchema.default('priority'),
   cursor: z.string().max(200).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 export type LibraryQuery = z.infer<typeof LibraryQuerySchema>;
 
@@ -298,6 +304,8 @@ export const TitleConflictErrorSchema = z.object({
   error: z.literal('conflict'),
   message: z.string(),
   conflictWith: z.uuid(),
+  /** RF-27: correção que colide sugere mesclar (`POST /library/:id/merge`) */
+  suggestion: z.literal('merge').optional(),
 });
 export type TitleConflictError = z.infer<typeof TitleConflictErrorSchema>;
 
@@ -499,3 +507,227 @@ export const TaxonomyResponseSchema = z.object({
   subgenres: z.array(TaxonomyEntrySchema),
 });
 export type TaxonomyResponse = z.infer<typeof TaxonomyResponseSchema>;
+
+// ---------- Fase 2c: sistema web (RF-24..RF-30) ----------
+
+/** RF-30: o sistema web se identifica por este cabeçalho (também protege o refresh por cookie contra CSRF). */
+export const WEB_CLIENT_HEADER = 'X-Fruiqo-Client';
+export const WEB_CLIENT_VALUE = 'web';
+/** Cookie httpOnly do refresh token do web (Path=/auth, SameSite=Strict). */
+export const WEB_REFRESH_COOKIE = 'fruiqo_rt';
+
+/** Resposta de login/registro/refresh do web: o refresh vai só no cookie, nunca no corpo. */
+export const WebSessionResponseSchema = TokenPairSchema.omit({ refreshToken: true });
+export type WebSessionResponse = z.infer<typeof WebSessionResponseSchema>;
+
+// RF-24: adicionar título manualmente
+export const CreateTitleRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200),
+    kind: RecommendationKindSchema,
+    year: z.number().int().min(1870).max(2100).optional(),
+    creator: z.string().trim().max(200).optional(),
+    genres: z.array(z.string().max(32)).max(6).optional(),
+    status: TitleStatusSchema.optional(),
+    priority: TitlePrioritySchema.optional(),
+    listId: z.uuid().optional(),
+  })
+  .strict();
+export type CreateTitleRequest = z.infer<typeof CreateTitleRequestSchema>;
+
+// RF-25: edição em massa (transacional) com desfazer
+export const BulkOperationSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('add_to_list'), listId: z.uuid() }).strict(),
+  z.object({ type: z.literal('remove_from_list'), listId: z.uuid() }).strict(),
+  z.object({ type: z.literal('move_to_list'), fromListId: z.uuid(), toListId: z.uuid() }).strict(),
+  z.object({ type: z.literal('add_genres'), genres: z.array(z.string().max(32)).min(1).max(6) }).strict(),
+  z.object({ type: z.literal('remove_genres'), genres: z.array(z.string().max(32)).min(1).max(6) }).strict(),
+  z.object({ type: z.literal('set_priority'), priority: TitlePrioritySchema }).strict(),
+  z.object({ type: z.literal('set_status'), status: TitleStatusSchema }).strict(),
+  z.object({ type: z.literal('delete') }).strict(),
+]);
+export type BulkOperation = z.infer<typeof BulkOperationSchema>;
+
+export const BulkRequestSchema = z
+  .object({ titleIds: z.array(z.uuid()).min(1).max(1000), operation: BulkOperationSchema })
+  .strict();
+export type BulkRequest = z.infer<typeof BulkRequestSchema>;
+
+export const BulkResponseSchema = z.object({
+  affected: z.number().int().min(0),
+  /** use em POST /library/bulk/undo antes de `undoExpiresAt` (uso único) */
+  undoToken: z.uuid(),
+  undoExpiresAt: z.iso.datetime(),
+});
+export type BulkResponse = z.infer<typeof BulkResponseSchema>;
+
+export const BulkUndoRequestSchema = z.object({ undoToken: z.uuid() }).strict();
+export type BulkUndoRequest = z.infer<typeof BulkUndoRequestSchema>;
+export const BulkUndoResponseSchema = z.object({ restored: z.number().int().min(0) });
+export type BulkUndoResponse = z.infer<typeof BulkUndoResponseSchema>;
+
+// RF-26: listas
+export const UpdateListRequestSchema = z
+  .object({ name: z.string().trim().min(1).max(80).optional(), pinned: z.boolean().optional() })
+  .strict()
+  .refine((v) => Object.keys(v).length > 0, { message: 'nada para alterar' });
+export type UpdateListRequest = z.infer<typeof UpdateListRequestSchema>;
+
+export const DuplicateListRequestSchema = z.object({ name: z.string().trim().min(1).max(80).optional() }).strict();
+export type DuplicateListRequest = z.infer<typeof DuplicateListRequestSchema>;
+
+// RF-27: correção de match / título (grava review_actions)
+export const CorrectTitleRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200).optional(),
+    kind: RecommendationKindSchema.optional(),
+    year: z.number().int().min(1870).max(2100).nullable().optional(),
+    creator: z.string().trim().max(200).nullable().optional(),
+  })
+  .strict()
+  .refine((v) => Object.keys(v).length > 0, { message: 'nada para corrigir' });
+export type CorrectTitleRequest = z.infer<typeof CorrectTitleRequestSchema>;
+
+export const MergeTitleRequestSchema = z.object({ intoId: z.uuid() }).strict();
+export type MergeTitleRequest = z.infer<typeof MergeTitleRequestSchema>;
+
+// RF-19/RF-27: activity log
+export const ActivityItemSchema = z.object({
+  shareId: z.uuid(),
+  status: ShareStatusSchema,
+  origin: z.enum(['link', 'screenshot']),
+  platform: PlatformSchema,
+  sourceTitle: z.string().optional(),
+  sourceUrl: z.string().optional(),
+  pageCount: z.number().int().optional(),
+  isFixture: z.boolean(),
+  error: z.string().optional(),
+  dedup: z.object({ pagesIgnored: z.number().int().min(0), itemsAlreadyInList: z.number().int().min(0) }),
+  counts: z.object({
+    cataloged: z.number().int().min(0),
+    review: z.number().int().min(0),
+    discarded: z.number().int().min(0),
+  }),
+  steps: z.array(z.object({ step: z.string(), durationMs: z.number().int().min(0), error: z.string().optional() })),
+  durationMs: z.number().int().min(0),
+  costEstimateUsd: z.number().min(0),
+  createdAt: z.iso.datetime(),
+});
+export type ActivityItem = z.infer<typeof ActivityItemSchema>;
+export const ActivityResponseSchema = z.object({ items: z.array(ActivityItemSchema), nextCursor: z.string().nullable() });
+export type ActivityResponse = z.infer<typeof ActivityResponseSchema>;
+
+// RF-28: fila de revisão
+export const ReviewItemSchema = z.object({
+  title: TitleSchema,
+  candidate: z
+    .object({ rawTitle: z.string(), confidenceScore: z.number().min(0).max(1), reason: z.string() })
+    .nullable(),
+  share: z
+    .object({ id: z.uuid(), platform: PlatformSchema, origin: z.enum(['link', 'screenshot']), sourceTitle: z.string().optional() })
+    .nullable(),
+});
+export type ReviewItem = z.infer<typeof ReviewItemSchema>;
+export const ReviewListResponseSchema = z.object({ items: z.array(ReviewItemSchema) });
+export type ReviewListResponse = z.infer<typeof ReviewListResponseSchema>;
+/** rematch = corrigir título/ano/tipo e aprovar */
+export const ReviewRematchRequestSchema = CorrectTitleRequestSchema;
+export type ReviewRematchRequest = z.infer<typeof ReviewRematchRequestSchema>;
+
+// RF-29 / RNF-10: perfil de gosto transparente e editável
+export const TasteEntrySchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  /** -1..1 (0 = neutro) */
+  score: z.number(),
+  /** de onde vem o valor: sinais do usuário ou override manual */
+  source: z.enum(['signals', 'pinned', 'excluded']),
+  /** quantos sinais contribuíram */
+  signals: z.number().int().min(0),
+});
+export type TasteEntry = z.infer<typeof TasteEntrySchema>;
+
+export const TasteProfileSchema = z.object({
+  genres: z.array(TasteEntrySchema),
+  subgenres: z.array(z.object({ key: z.string(), label: z.string(), score: z.number() })),
+  overrides: z.object({ pinned: z.array(z.string()), excluded: z.array(z.string()) }),
+  totals: z.object({ signals: z.number().int().min(0), watched: z.number().int().min(0), rated: z.number().int().min(0) }),
+});
+export type TasteProfile = z.infer<typeof TasteProfileSchema>;
+
+export const UpdateTasteRequestSchema = z
+  .object({
+    /** gêneros que nunca devem ser sugeridos */
+    exclude: z.array(z.string().max(32)).max(30).optional(),
+    /** gêneros que o usuário afirma gostar (afinidade máxima) */
+    pin: z.array(z.string().max(32)).max(30).optional(),
+    /** remove o override (volta a valer só o que os sinais dizem) */
+    clear: z.array(z.string().max(32)).max(30).optional(),
+  })
+  .strict()
+  .refine((v) => Object.keys(v).length > 0, { message: 'nada para alterar' });
+export type UpdateTasteRequest = z.infer<typeof UpdateTasteRequestSchema>;
+
+// RF-38 (declaração): serviços que o usuário assina; sem integração com as plataformas
+export const StreamingProviderSchema = z.object({ key: z.string(), label: z.string(), category: z.enum(['video', 'music']) });
+export type StreamingProvider = z.infer<typeof StreamingProviderSchema>;
+export const SubscriptionsResponseSchema = z.object({ available: z.array(StreamingProviderSchema), selected: z.array(z.string()) });
+export type SubscriptionsResponse = z.infer<typeof SubscriptionsResponseSchema>;
+export const UpdateSubscriptionsRequestSchema = z.object({ providers: z.array(z.string().max(32)).max(30) }).strict();
+export type UpdateSubscriptionsRequest = z.infer<typeof UpdateSubscriptionsRequestSchema>;
+
+// RNF-06: histórico de humor = só intenções estruturadas (o texto nunca foi guardado)
+export const MoodHistoryItemSchema = z.object({
+  runId: z.uuid(),
+  createdAt: z.iso.datetime(),
+  need: z.string().optional(),
+  needLabel: z.string().optional(),
+  avoid: z.array(z.string()),
+  riskShown: z.boolean(),
+});
+export type MoodHistoryItem = z.infer<typeof MoodHistoryItemSchema>;
+export const MoodHistoryResponseSchema = z.object({ items: z.array(MoodHistoryItemSchema) });
+export type MoodHistoryResponse = z.infer<typeof MoodHistoryResponseSchema>;
+
+// RF-19/RF-22: sandbox (só com SANDBOX_ENABLED e fora de produção)
+export const SandboxFixtureSchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  description: z.string(),
+  shareCount: z.number().int().min(0),
+});
+export type SandboxFixture = z.infer<typeof SandboxFixtureSchema>;
+export const SandboxFixturesResponseSchema = z.object({ items: z.array(SandboxFixtureSchema) });
+export type SandboxFixturesResponse = z.infer<typeof SandboxFixturesResponseSchema>;
+
+export const SandboxShareResultSchema = z.object({
+  status: ShareStatusSchema,
+  items: z.array(z.object({ title: z.string(), kind: z.string(), decision: z.string() })),
+  steps: z.array(PipelineStepSchema),
+  decisions: z.array(CandidateDecisionSchema),
+  diff: z.object({
+    tp: z.number().int().min(0),
+    fp: z.number().int().min(0),
+    fn: z.number().int().min(0),
+    missing: z.array(z.string()),
+    unexpected: z.array(z.string()),
+    failedAssertions: z.array(z.string()),
+  }),
+});
+export type SandboxShareResult = z.infer<typeof SandboxShareResultSchema>;
+export const SandboxRunResponseSchema = z.object({
+  fixtureId: z.string(),
+  mode: z.literal('mock'),
+  passed: z.boolean(),
+  shares: z.array(SandboxShareResultSchema),
+});
+export type SandboxRunResponse = z.infer<typeof SandboxRunResponseSchema>;
+
+export const SandboxEvalReportSchema = z.object({
+  file: z.string(),
+  label: z.string(),
+  createdAt: z.string(),
+  metrics: z.record(z.string(), z.unknown()),
+});
+export const SandboxEvalsResponseSchema = z.object({ reports: z.array(SandboxEvalReportSchema) });
+export type SandboxEvalsResponse = z.infer<typeof SandboxEvalsResponseSchema>;

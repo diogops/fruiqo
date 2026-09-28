@@ -56,7 +56,7 @@ const EnvSchema = z.object({
   DISCARD_THRESHOLD: z.coerce.number().min(0).max(1).default(0.15),
   /** RF-18/19: aceita o cabeçalho X-Fruiqo-Fixture (nunca em produção) */
   SANDBOX_ENABLED: bool,
-  /** RF-17: origens do navegador aceitas por CORS (lista separada por vírgula; vazio = sem CORS). Sem credenciais: o web usa bearer em memória */
+  /** RF-17/RF-30: origens do navegador aceitas por CORS e pelo fluxo de cookie do sistema web (lista separada por vírgula; vazio = sem CORS e sem login web) */
   WEB_ORIGIN: z
     .string()
     .default('')

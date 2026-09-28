@@ -37,6 +37,11 @@ cd apps/mobile
 npx jest                                    # testes (jest-expo)
 npx expo export --platform android          # checa o bundle
 EAS_NO_VCS=1 EAS_PROJECT_ROOT=../.. eas build --profile preview-apk --platform android
+
+# Sistema web (apps/web): Vite + React, contra a API em :4000 (WEB_ORIGIN inclui http://localhost:5173)
+pnpm --filter @fruiqo/web dev               # http://localhost:5173
+pnpm --filter @fruiqo/web test              # vitest + Testing Library (jsdom)
+pnpm --filter @fruiqo/web build             # tsc + vite build (a CI roda)
 ```
 
 Preview do app no navegador: `pnpm --filter @fruiqo/mobile web` (API com `WEB_ORIGIN=http://localhost:8082`). O simulador de share `/dev/share` (Ajustes, só fora de produção) envia link/texto/imagens/fixtures por `receiveShare`, o mesmo ponto de entrada do share real; `pnpm --filter @fruiqo/mobile check:prod-bundle` prova que `app/dev` e `src/dev` ficam fora do bundle de produção, então nada fora dessas pastas pode importá-las. O índice de fixtures do simulador (`apps/mobile/src/dev/fixtureIndex.generated.ts`) é gerado por `node tools/fixtures/build_sim_index.mjs` e checado no `pnpm fixtures:check`.
@@ -60,6 +65,8 @@ O app usa módulo nativo (`expo-share-intent`), então **não roda no Expo Go**:
 - `apps/mobile` (Expo SDK 57 + Expo Router): `app/_layout.tsx` redireciona consentimento → login → inbox. O share recebido vira `CreateShareRequest` em `src/share/`, com `clientShareId` para idempotência. O cliente em `src/api/client.ts` guarda o access token em memória e o refresh token no secure-store, com rotação em 401.
 - **Prints de tela**: o OCR roda no aparelho (`expo-text-extractor`: ML Kit/Vision; TOS-REQ-21) e só o texto vai à API, em `pages`. A imagem nunca sai do celular. Não repetir itens é regra do produto, garantida no backend em três níveis: hash da página por usuário (`seen_pages`), mescla de linhas sobrepostas entre prints do mesmo share, e índice único `(user_id, dedup_key)` em `recommendations`. A normalização das chaves e a lista de ruído de UI ficam em `apps/api/src/pipeline/`.
 - **Catálogo e recomendação** (`apps/api/src/library/`): `recommendations` é o catálogo do usuário (status, prioridade, nota, gêneros da taxonomia). Home/"Continuar", "Surpreenda-me" e "Como estou" usam ranking local e determinístico (`ranking.ts`); o texto do "Como estou" nunca é persistido nem logado (RNF-06), e risco (RNF-07) responde com CVV e sem sugestões.
+- **Sistema web (backend, Fase 2c)**: o web se identifica com `X-Fruiqo-Client: web`; login/registro/refresh devolvem só o access token no corpo e o refresh vai no cookie `fruiqo_rt` (httpOnly, SameSite=Strict, Path=/auth). Refresh do web exige cookie + esse cabeçalho + `Origin` em `WEB_ORIGIN` (CSRF); o app mobile segue com refresh no corpo. Rotas de organização em `catalog.service.ts`: `POST /library/bulk` (transacional, com `undoToken` de 10 min em `bulk_undo`), correção/merge e fila de revisão (gravam `review_actions`), `GET /activity`, perfil de gosto com overrides que o `/discover` respeita, assinaturas declaradas e `/sandbox/*` (só com `SANDBOX_ENABLED`; roda a fixture num usuário efêmero).
+- `apps/web` (Vite + React + react-router + TanStack Query): só consome a API (RF-30), sem regra de negócio no front; filtros, ordenação e ranking vêm do servidor, e toda resposta é validada com `@fruiqo/contracts` (importado pelo código-fonte TS via alias no `vite.config.ts`, porque o `dist` é CommonJS). `src/api/client.ts` guarda o access token só em memória, manda `credentials: 'include'` + `X-Fruiqo-Client: web` e renova pelo cookie em 401 (uma renovação por vez). Telas em `src/pages/` (Catálogo com ações em massa + desfazer, Listas com drag-and-drop, Revisão com atalhos de teclado, Atividade/inspector, Perfil, Sandbox).
 - `patches/expo-share-intent@8.0.1.patch` (registrado em `pnpm-workspace.yaml`) corrige no plugin o crash com cursor vazio (F-01) e o uso do caminho absoluto em vez da `content://` (F-02, EACCES no OCR). Mantenha o patch ao atualizar o plugin.
 
 ## Regras que valem para qualquer mudança

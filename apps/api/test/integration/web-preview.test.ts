@@ -26,7 +26,7 @@ afterAll(async () => {
 });
 
 describe('CORS (WEB_ORIGIN)', () => {
-  it('preflight da origem configurada é aceito, sem credenciais', async () => {
+  it('preflight da origem configurada é aceito (credenciais só para a allowlist, RF-30)', async () => {
     const res = await ctx
       .http()
       .options('/shares')
@@ -35,7 +35,8 @@ describe('CORS (WEB_ORIGIN)', () => {
       .set('Access-Control-Request-Headers', 'authorization,content-type,x-fruiqo-fixture');
     expect(res.status).toBeLessThan(300);
     expect(res.headers['access-control-allow-origin']).toBe(WEB);
-    expect(res.headers['access-control-allow-credentials']).toBeUndefined();
+    // RF-30: o sistema web usa cookie de refresh; o preview do app segue com bearer
+    expect(res.headers['access-control-allow-credentials']).toBe('true');
     expect(res.headers['access-control-allow-headers']).toMatch(/X-Fruiqo-Fixture/i);
   });
 

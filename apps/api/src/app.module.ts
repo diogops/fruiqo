@@ -23,6 +23,15 @@ import { createDb, DB } from './db/client.js';
 import { createShareQueue, SHARE_QUEUE_TOKEN, type ShareJob } from './queue/queue.js';
 import { HomeController, LibraryController, ListsController } from './library/library.controller.js';
 import { TaxonomyController } from './library/taxonomy.controller.js';
+import {
+  CatalogController,
+  ListsAdminController,
+  ProfileController,
+  ReviewController,
+  SandboxController,
+} from './library/catalog.controller.js';
+import { CatalogService } from './library/catalog.service.js';
+import { SandboxService } from './sandbox/sandbox.service.js';
 import { LibraryService } from './library/library.service.js';
 import { SharesController } from './shares/shares.controller.js';
 import { SharesService } from './shares/shares.service.js';
@@ -80,11 +89,27 @@ export class AppModule {
         LoggerModule.forRoot(pinoParams(env)),
         ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
       ],
-      controllers: [HealthController, AuthController, SharesController, LibraryController, ListsController, HomeController, TaxonomyController],
+      controllers: [
+        HealthController,
+        AuthController,
+        SharesController,
+        // CatalogController antes do LibraryController: rotas estáticas de /library (bulk) vêm primeiro
+        CatalogController,
+        LibraryController,
+        ListsController,
+        ListsAdminController,
+        HomeController,
+        TaxonomyController,
+        ReviewController,
+        ProfileController,
+        SandboxController,
+      ],
       providers: [
         AuthService,
         SharesService,
         LibraryService,
+        CatalogService,
+        SandboxService,
         { provide: APP_GUARD, useClass: ThrottlerGuard },
         { provide: APP_GUARD, useClass: AuthGuard },
         { provide: APP_FILTER, useClass: HttpExceptionFilter },

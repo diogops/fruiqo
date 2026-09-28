@@ -118,3 +118,17 @@ A migração `0002` faz o backfill da `dedup_key` em SQL, aproximando a normaliz
 - **"Como estou"** (RNF-06/07): o texto só existe em memória (risco + `interpretMood`); o banco guarda a intenção estruturada em `recommendation_runs`, e nada quando há risco (só `risk_shown`). Risco devolve o acolhimento com CVV 188 e zero sugestões até `continueAfterRisk`. `AI_MODE=rules` (padrão) é local; `anthropic` ainda cai nas regras; `off` desliga o modo.
 - **Seed**: `pnpm seed:demo -- --email <email> [--password <senha>]` insere 32 títulos com gêneros escritos pelo time (`enrichment: demo`, nada do TMDB), 3 listas (a "Maratona" já em andamento) e notas. Idempotente e não apaga nada.
 
+## Sistema web (Fase 2c)
+
+| Área | Rotas |
+|---|---|
+| Auth web (RF-30) | `POST /auth/login`, `/auth/register`, `/auth/refresh`, `/auth/logout` com `X-Fruiqo-Client: web` + `Origin` em `WEB_ORIGIN`. Corpo: `{accessToken, expiresIn}`; refresh só no cookie `fruiqo_rt` (httpOnly, SameSite=Strict, Path=/auth, Secure em https). Sem o cabeçalho, o cookie é ignorado. |
+| Catálogo (RF-24/25) | `GET /library` (filtros `status`, `kind`, `genre`, `priority`, `listId`, `shareId`, `review=pending`, `q`), `POST /library`, `POST /library/bulk`, `POST /library/bulk/undo` |
+| Listas (RF-26) | `PATCH /lists/:id` (nome, fixar), `POST /lists/:id/duplicate` |
+| Correção (RF-27) | `POST /library/:id/correct` (409 com `suggestion: 'merge'`), `POST /library/:id/merge` |
+| Revisão (RF-28) | `GET /review`, `POST /review/:id/approve`, `/reject`, `/rematch` |
+| Activity (RF-19) | `GET /activity` (etapas resumidas, contagens por decisão, custo) |
+| Perfil (RF-29/38, RNF-06/10) | `GET/PATCH /profile/taste`, `GET/PUT /profile/subscriptions`, `GET/DELETE /profile/mood-history` |
+| Sandbox (RF-19/22) | `GET /sandbox/fixtures`, `POST /sandbox/fixtures/:id/run`, `GET /sandbox/evals` (404 sem `SANDBOX_ENABLED`) |
+
+Decisões: o desfazer guarda um snapshot em `bulk_undo` (uso único, 10 min); desfazer uma remoção devolve títulos e listas, mas não os sinais de gosto apagados em cascata. O merge move listas, sinais, feedback e decisões para o destino e preenche os campos vazios dele. O sandbox roda a fixture num usuário efêmero, apagado no fim, para o resultado não depender da biblioteca de quem pediu.

@@ -135,6 +135,8 @@ export const recommendations = pgTable(
     index('recommendations_share_idx').on(t.shareId),
     index('recommendations_user_status_idx').on(t.userId, t.status),
     uniqueIndex('recommendations_user_dedup_key').on(t.userId, t.dedupKey),
+    // RF-24: filtros do catálogo web (decisão + prioridade + ordem estável)
+    index('recommendations_user_decision_priority_idx').on(t.userId, t.decision, t.priority, t.createdAt),
   ],
 );
 
@@ -312,3 +314,64 @@ export const recommendationFeedback = pgTable(
 export type ShareRow = typeof shares.$inferSelect;
 export type RecommendationRow = typeof recommendations.$inferSelect;
 export type ListRow = typeof lists.$inferSelect;
+
+/** RF-27/28: trilha das correções e decisões de revisão feitas pelo usuário. */
+export const reviewActions = pgTable(
+  'review_actions',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** null quando o título foi rejeitado/mesclado (a linha deixou de existir) */
+    recommendationId: uuid('recommendation_id').references(() => recommendations.id, { onDelete: 'set null' }),
+    action: text('action', { enum: ['approve', 'reject', 'rematch', 'correct', 'merge'] }).notNull(),
+    before: jsonb('before').$type<Record<string, unknown>>().notNull(),
+    after: jsonb('after').$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('review_actions_user_idx').on(t.userId, t.createdAt)],
+);
+
+/** RF-29/RNF-10: correções manuais do perfil de gosto (excluir ou fixar um gênero). */
+export const tasteOverrides = pgTable(
+  'taste_overrides',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    genre: text('genre').notNull(),
+    mode: text('mode', { enum: ['pin', 'exclude'] }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.genre] })],
+);
+
+/** RF-38 (declaração): serviços que o usuário diz assinar. Nenhuma integração com as plataformas. */
+export const userSubscriptions = pgTable(
+  'user_subscriptions',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.provider] })],
+);
+
+/** RF-25: estado anterior de uma edição em massa, para desfazer (uso único, validade curta). */
+export const bulkUndo = pgTable(
+  'bulk_undo',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    operation: text('operation').notNull(),
+    snapshot: jsonb('snapshot').$type<Record<string, unknown>>().notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('bulk_undo_user_idx').on(t.userId, t.expiresAt)],
+);

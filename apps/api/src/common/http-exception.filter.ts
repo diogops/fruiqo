@@ -29,7 +29,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
       // 409 de PATCH /library/:id (TitleConflictError): único campo extra repassado
       const conflictWith = typeof response === 'object' ? (response as { conflictWith?: unknown }).conflictWith : undefined;
       if (status === HttpStatus.CONFLICT && typeof conflictWith === 'string') {
-        res.status(status).json({ error: 'conflict', message, conflictWith });
+        // RF-27: correção que colide sugere mesclar
+        const suggestion = (response as { suggestion?: unknown }).suggestion === 'merge' ? { suggestion: 'merge' as const } : {};
+        res.status(status).json({ error: 'conflict', message, conflictWith, ...suggestion });
         return;
       }
       const body: ApiError = { error: HttpStatus[status] ?? 'ERROR', message };
