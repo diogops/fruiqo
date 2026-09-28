@@ -43,3 +43,9 @@ pnpm --filter @fruiqo/web build
 ```
 
 Cobertura: fluxo de sessão do cliente (cabeçalho, cookie, renovação única, sessão perdida, validação pelo contrato), fila de revisão inteira só pelo teclado e ação em massa com desfazer no catálogo.
+
+## Produção
+
+- URL: https://fruiqo-web.vercel.app (Vercel, D-19). Build com `VITE_API_URL=/api`: o `vercel.json` reescreve `/api/*` para a API no Railway.
+- O Sandbox só aparece em dev ou com `VITE_SHOW_DEV_TOOLS=true`; no build de produção a página sai do bundle.
+- Passo a passo do deploy e decisões de cookie/proxy: `infra/railway/README.md` (seção "Sistema web").

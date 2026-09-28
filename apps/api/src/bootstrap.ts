@@ -29,7 +29,8 @@ export async function createApp(env: Env): Promise<NestExpressApplication> {
   // e CSP padrão; o sistema web define a própria CSP.
   // Limite de body: text 5000 + url 2048 + até 10 prints × 8000 caracteres (até 3 bytes cada em UTF-8)
   app.useBodyParser('json', { limit: '256kb' });
-  app.set('trust proxy', 1);
+  // IP real para rate limit/lockout: só os proxies declarados (TRUST_PROXY_HOPS; ver env.ts).
+  app.set('trust proxy', env.TRUST_PROXY_HOPS);
   app.disable('x-powered-by');
   app.enableShutdownHooks();
   return app;

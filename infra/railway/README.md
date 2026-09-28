@@ -63,3 +63,28 @@ curl https://api-production-b3adf.up.railway.app/health
 - O `worker` não tem healthcheck HTTP (o `railway.toml` é compartilhado); a saúde dele aparece nos logs (`worker iniciado`, `retenção aplicada`).
 - A `api` recebe `DATABASE_URL_ADMIN` como variável do serviço (necessário para o bootstrap); o processo HTTP não a herda, mas quem tem acesso ao serviço no Railway a vê.
 - Região us-east4 é a mais próxima do Brasil disponível; dados ficam nos EUA (transferência internacional — PEND-10).
+
+## Sistema web (Vercel, D-19)
+
+- Produção: **https://fruiqo-web.vercel.app** (projeto `fruiqo-web`, escopo pessoal `diogo-daniel-pires-hitacarambis-projects`).
+- O navegador fala só com o domínio da Vercel: `apps/web/vercel.json` reescreve `/api/*` para `https://api-production-b3adf.up.railway.app/*`. Assim o cookie de refresh é first-party (`SameSite=Strict`) e o `Path` é `/api/auth`.
+- Variáveis da `api` ligadas a isso: `WEB_ORIGIN=https://fruiqo-web.vercel.app` (só https em produção, SEC-CTRL-49), `WEB_COOKIE_PATH=/api/auth`, `TRUST_PROXY_HOPS=1`.
+- `TRUST_PROXY_HOPS=1` confia só no edge do Railway. Não some a Vercel: a API também é acessível direto pelo domínio do Railway (app mobile), e um 2º salto deixaria o cliente forjar o IP pelo `X-Forwarded-For`. Consequência: pelo web, o rate limit por IP enxerga o IP de saída da Vercel (o lockout por conta continua valendo).
+- Cabeçalhos de segurança do web (CSP com hash do script de tema, `frame-ancestors 'none'`, HSTS, etc.) ficam no `vercel.json` (SEC-CTRL-48).
+
+### Publicar o web
+
+Deploy estático do build local (nada além do `dist` sobe para a Vercel):
+
+```bash
+cd apps/web
+VITE_API_URL=/api pnpm build
+# pasta temporária com dist + vercel.json (sem .env*, sem .vercel de outro projeto)
+mkdir -p /tmp/fruiqo-web && cp -r dist/. /tmp/fruiqo-web/ && cp vercel.json /tmp/fruiqo-web/
+cd /tmp/fruiqo-web
+vercel link --yes --project fruiqo-web --scope diogo-daniel-pires-hitacarambis-projects
+rm -f .env.local   # o link cria um token OIDC; nunca publicar
+vercel deploy --prod --yes
+```
+
+Se o script inline do `index.html` mudar, recalcule o hash SHA-256 e atualize o `script-src` do `vercel.json`, senão o tema não é aplicado antes da primeira pintura.

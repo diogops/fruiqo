@@ -92,7 +92,7 @@ export class AuthController {
       try {
         return this.respond(await this.auth.refresh(token), res, origin);
       } catch (err) {
-        clearRefreshCookie(res, origin);
+        clearRefreshCookie(res, origin, this.env.WEB_COOKIE_PATH);
         throw err;
       }
     }
@@ -109,7 +109,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<void> {
     await this.auth.logout(auth.userId, auth.sessionId);
-    if (isWebClient(req)) clearRefreshCookie(res, assertWebOrigin(req, this.env));
+    if (isWebClient(req)) clearRefreshCookie(res, assertWebOrigin(req, this.env), this.env.WEB_COOKIE_PATH);
   }
 
   @Get('sessions')
@@ -129,7 +129,7 @@ export class AuthController {
   /** Web: o refresh vai só no cookie httpOnly; o corpo leva apenas o access token. */
   private respond(pair: TokenPair, res: Response, webOrigin: string | undefined): TokenPair | WebSessionResponse {
     if (!webOrigin) return pair;
-    setRefreshCookie(res, pair.refreshToken, webOrigin);
+    setRefreshCookie(res, pair.refreshToken, webOrigin, this.env.WEB_COOKIE_PATH);
     return { accessToken: pair.accessToken, expiresIn: pair.expiresIn };
   }
 }

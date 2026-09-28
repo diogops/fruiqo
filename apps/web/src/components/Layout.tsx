@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { useAuth } from '../auth/AuthContext';
+import { SHOW_DEV_TOOLS } from '../devTools';
 import { BrandMark, Icon, Menu, MQ, ThemeToggle, useFocusTrap, useMediaQuery, type IconName } from './ui';
 
 const NAV: { to: string; label: string; icon: IconName }[] = [
@@ -9,7 +10,7 @@ const NAV: { to: string; label: string; icon: IconName }[] = [
   { to: '/revisao', label: 'Revisão', icon: 'review' },
   { to: '/atividade', label: 'Atividade', icon: 'activity' },
   { to: '/perfil', label: 'Perfil', icon: 'user' },
-  { to: '/sandbox', label: 'Sandbox', icon: 'flask' },
+  ...(SHOW_DEV_TOOLS ? [{ to: '/sandbox', label: 'Sandbox', icon: 'flask' as IconName }] : []),
 ];
 
 const COLLAPSE_KEY = 'fruiqo-sidebar-collapsed';

@@ -3,7 +3,7 @@ import { WEB_CLIENT_VALUE, WEB_REFRESH_COOKIE } from '@fruiqo/contracts';
 import type { Request, Response } from 'express';
 import type { Env } from '../config/env.js';
 
-// RF-30: o sistema web guarda o refresh token só num cookie httpOnly (Path=/auth, SameSite=Strict).
+// RF-30: o sistema web guarda o refresh token só num cookie httpOnly (Path=WEB_COOKIE_PATH, SameSite=Strict).
 // O cabeçalho X-Fruiqo-Client: web força preflight de CORS (só WEB_ORIGIN passa) e, junto com a
 // checagem de Origin, impede que outro site use o cookie (CSRF). O app mobile não muda: bearer + corpo.
 
@@ -37,21 +37,21 @@ export function readRefreshCookie(req: Request): string | undefined {
   return undefined;
 }
 
-export function setRefreshCookie(res: Response, token: string, origin: string): void {
+export function setRefreshCookie(res: Response, token: string, origin: string, path = '/auth'): void {
   res.cookie(WEB_REFRESH_COOKIE, token, {
     httpOnly: true,
     sameSite: 'strict',
-    path: '/auth',
+    path,
     secure: origin.startsWith('https:'),
     maxAge: REFRESH_COOKIE_MAX_AGE_MS,
   });
 }
 
-export function clearRefreshCookie(res: Response, origin?: string): void {
+export function clearRefreshCookie(res: Response, origin?: string, path = '/auth'): void {
   res.clearCookie(WEB_REFRESH_COOKIE, {
     httpOnly: true,
     sameSite: 'strict',
-    path: '/auth',
+    path,
     secure: Boolean(origin?.startsWith('https:')),
   });
 }

@@ -83,6 +83,17 @@ const EnvSchema = z.object({
         .filter(Boolean),
     )
     .pipe(z.array(z.url({ protocol: /^https?$/ }))),
+  /**
+   * RF-30/D-19: caminho do cookie de refresh do web. Local = /auth (API direta). Em produção o
+   * navegador vê a API sob /api do domínio da Vercel (rewrite), então o cookie precisa de /api/auth.
+   */
+  WEB_COOKIE_PATH: z.string().regex(/^\/[A-Za-z0-9/_-]*$/, 'caminho absoluto').default('/auth'),
+  /**
+   * Quantos proxies à frente da API são confiáveis para o X-Forwarded-For (0 = nenhum, dev local).
+   * Railway = 1 (edge do Railway). Não some a Vercel: a API também é acessível direto pelo domínio do
+   * Railway (app mobile), e confiar num 2º salto deixaria o cliente forjar o IP pelo X-Forwarded-For.
+   */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
   /** RNF-09: preço por milhão de tokens do modelo em uso (0 = desconhecido; custo estimado fica 0) */
   LLM_PRICE_IN_PER_MTOK: z.coerce.number().min(0).default(0),
   LLM_PRICE_OUT_PER_MTOK: z.coerce.number().min(0).default(0),
@@ -90,6 +101,10 @@ const EnvSchema = z.object({
   // Fail-closed: gravação e respostas simuladas não existem em produção (RF-20).
   if (env.NODE_ENV === 'production' && env.PIPELINE_MODE !== 'live') {
     ctx.addIssue({ code: 'custom', path: ['PIPELINE_MODE'], message: 'só live em produção' });
+  }
+  // SEC-CTRL-49: em produção o sistema web só pode vir de origem https (cookie Secure).
+  if (env.NODE_ENV === 'production' && env.WEB_ORIGIN.some((o) => !o.startsWith('https://'))) {
+    ctx.addIssue({ code: 'custom', path: ['WEB_ORIGIN'], message: 'só origens https em produção' });
   }
   if (env.NODE_ENV === 'production' && env.SANDBOX_ENABLED) {
     ctx.addIssue({ code: 'custom', path: ['SANDBOX_ENABLED'], message: 'sandbox desligado em produção' });

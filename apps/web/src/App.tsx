@@ -11,6 +11,7 @@ import { Login } from './pages/Login';
 import { Profile } from './pages/Profile';
 import { Review } from './pages/Review';
 import { Sandbox } from './pages/Sandbox';
+import { SHOW_DEV_TOOLS } from './devTools';
 
 function Gate() {
   const { state } = useAuth();
@@ -27,7 +28,7 @@ function Gate() {
         <Route path="atividade" element={<Activity />} />
         <Route path="atividade/:shareId" element={<ActivityDetail />} />
         <Route path="perfil" element={<Profile />} />
-        <Route path="sandbox" element={<Sandbox />} />
+        {SHOW_DEV_TOOLS && <Route path="sandbox" element={<Sandbox />} />}
         <Route path="*" element={<Navigate to="/catalogo" replace />} />
       </Route>
     </Routes>
