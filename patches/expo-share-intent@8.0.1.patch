@@ -1,0 +1,52 @@
+diff --git a/android/src/main/java/expo/modules/shareintent/ExpoShareIntentModule.kt b/android/src/main/java/expo/modules/shareintent/ExpoShareIntentModule.kt
+index ff5b1001e7bb3443482727cec48c22579465c73b..124945bb33c4a1f3224ee30138399709d512994e 100644
+--- a/android/src/main/java/expo/modules/shareintent/ExpoShareIntentModule.kt
++++ b/android/src/main/java/expo/modules/shareintent/ExpoShareIntentModule.kt
+@@ -66,13 +66,24 @@ class ExpoShareIntentModule : Module() {
+                     "filePath" to instance?.getAbsolutePath(uri),
+                 )
+             }
+-            val queryResult: Cursor = resolver.query(uri, null, null, null, null)!!
+-            queryResult.moveToFirst()
+-            val fileName = queryResult.getString(queryResult.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+-            val fileSize = queryResult.getString(queryResult.getColumnIndex(OpenableColumns.SIZE))
++            // Fruiqo F-01: o provider do app de origem pode devolver cursor nulo/vazio; reporta erro em vez de derrubar o app.
++            val queryResult: Cursor? = try {
++                resolver.query(uri, null, null, null, null)
++            } catch (e: Exception) {
++                null
++            }
++            if (queryResult == null || !queryResult.moveToFirst()) {
++                queryResult?.close()
++                notifyError("Cannot read shared file metadata (getFileInfo)")
++                return mapOf("contentUri" to uri.toString())
++            }
++            val nameIndex = queryResult.getColumnIndex(OpenableColumns.DISPLAY_NAME)
++            val sizeIndex = queryResult.getColumnIndex(OpenableColumns.SIZE)
++            val fileName = if (nameIndex >= 0) queryResult.getString(nameIndex) else null
++            val fileSize = if (sizeIndex >= 0) queryResult.getString(sizeIndex) else null
+             queryResult.close()
+ 
+-            val mimeType = resolver.getType(uri)!!
++            val mimeType = resolver.getType(uri) ?: "application/octet-stream"
+ 
+             var mediaWidth: String? = null;
+             var mediaHeight: String? = null;
+diff --git a/build/utils.js b/build/utils.js
+index 3d343c633b4bb267a1ee994352516997f8e058b3..6490be7186801a5f1648c2a0fb379d429e749ff5 100644
+--- a/build/utils.js
++++ b/build/utils.js
+@@ -97,9 +97,11 @@ export const parseShareIntent = (value, options) => {
+                     return [
+                         ...acc,
+                         {
+-                            path: file.path ||
++                            // Fruiqo F-02: no Android a content:// é a URI com permissão concedida pelo app de origem;
++                            // o caminho absoluto (filePath) dá EACCES sem permissão de armazenamento.
++                            path: file.contentUri ||
++                                file.path ||
+                                 (file.filePath ? `file://${file.filePath}` : null) ||
+-                                file.contentUri ||
+                                 null,
+                             mimeType: file.mimeType || null,
+                             fileName: file.fileName || null,

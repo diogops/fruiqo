@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "expo-share-extension",
+    "slug": "expo-share-extension",
+    "version": "1.0.0",
+    "scheme": "expo-share-ext-spike",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.fruiqo.spike.exposhareext"
+    },
+    "android": {
+      "package": "com.fruiqo.spike.exposhareext",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-share-extension",
+        {
+          "activationRules": [
+            { "type": "url", "max": 1 },
+            { "type": "text" },
+            { "type": "image", "max": 2 },
+            { "type": "video", "max": 1 },
+            { "type": "file", "max": 3 }
+          ],
+          "height": 500
+        }
+      ]
+    ]
+  }
+}

@@ -1,0 +1,40 @@
+import Constants from 'expo-constants';
+import { ScrollView, Text } from 'react-native';
+
+import { Link } from '../src/ui/components';
+import { ui } from '../src/ui/theme';
+
+// Atribuições exigidas (TOS-REQ-01, TOS-REQ-10) e avisos de licença OSS (TOS-REQ-34).
+export default function About() {
+  return (
+    <ScrollView style={ui.screen} contentContainerStyle={ui.pad}>
+      <Text style={ui.h1}>Fruiqo</Text>
+      <Text style={ui.muted}>Versão {Constants.expoConfig?.version ?? '0.1.0'}</Text>
+
+      <Text style={ui.h2}>Dados de catálogo</Text>
+      <Text style={ui.body}>This product uses the TMDB API but is not endorsed or certified by TMDB.</Text>
+      <Link title="themoviedb.org" url="https://www.themoviedb.org/" />
+      <Text style={ui.body}>
+        Metadados de música fornecidos pelo Spotify. Cada item exibido tem um link de volta para o Spotify.
+      </Text>
+      <Link title="spotify.com" url="https://www.spotify.com/" />
+
+      <Text style={ui.h2}>Licenças de código aberto</Text>
+      <Text style={ui.body}>
+        expo-share-intent — Copyright (c) 2023 Evan Bacon. Licença MIT.
+      </Text>
+      <Text style={ui.body}>
+        expo-text-extractor — Copyright (c) Petr Chalupa (pchalupa). Licença MIT. Usa o Google ML Kit (Android) e o Apple Vision
+        (iOS) para ler o texto dos prints no próprio aparelho.
+      </Text>
+      <Text style={ui.body}>
+        Expo, React Native, React e demais bibliotecas incluídas são distribuídas sob suas próprias licenças de código
+        aberto (majoritariamente MIT).
+      </Text>
+      <Text style={ui.muted}>
+        A licença MIT permite uso, cópia, modificação e distribuição, desde que o aviso de copyright e a permissão sejam
+        mantidos em todas as cópias.
+      </Text>
+    </ScrollView>
+  );
+}

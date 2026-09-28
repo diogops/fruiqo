@@ -1,0 +1,28 @@
+# Infra local de desenvolvimento. Portas presas a 127.0.0.1 (SEC-REQ-18: Redis nunca exposto).
+name: fruiqo
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: fruiqo_owner
+      POSTGRES_PASSWORD: dev_owner_password
+      POSTGRES_DB: fruiqo
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fruiqo_owner -d fruiqo"]
+      interval: 5s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "dev_redis_password", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redisdata:/data
+volumes:
+  pgdata:
+  redisdata:

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+build/
+.expo/
+*.log
+.env
+.env.*
+!.env.example
+coverage/
+.turbo/
+# nativos gerados pelo prebuild do app (managed workflow)
+apps/mobile/android/
+apps/mobile/ios/
+# spikes: dependências e nativos gerados
+docs/phase0/spikes/**/node_modules/
+docs/phase0/spikes/**/ios/
