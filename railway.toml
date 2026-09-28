@@ -1,0 +1,11 @@
+# Config de build/deploy do Railway para os serviços "api" e "worker" (mesma imagem).
+# O worker usa FRUIQO_PROCESS=worker e não tem domínio público; o healthcheck HTTP vale só para a api.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "apps/api/Dockerfile"
+watchPatterns = ["apps/api/**", "packages/contracts/**", "packages/taxonomy/**", "pnpm-lock.yaml", "patches/**"]
+
+[deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+drainingSeconds = 30
