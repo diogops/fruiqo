@@ -4,7 +4,7 @@
 
 Regras gerais:
 - **Vocabulário próprio**: as chaves são nossas. Os IDs do TMDB são só o mapeamento de entrada, usado no enriquecimento e no ranking local. **Nada desta taxonomia com origem no TMDB vai para o LLM** (ARB-REQ-02). O LLM recebe só a lista de chaves próprias (enums) para classificar.
-- **IDs do TMDB**: são os da lista pública de gêneros. Na implementação, conferir por `GET /genre/movie/list` e `/genre/tv/list` (modo `record`). Divergência → a taxonomia vence e o mapeamento é corrigido.
+- **IDs do TMDB**: são os da lista pública de gêneros. Na implementação, conferir por `GET /genre/movie/list` e `/genre/tv/list` (modo `record`). Divergência → a taxonomia vence e o mapeamento é corrigido. **Conferido em 2026-09-28** (listas pt-BR): todos batem; ficam sem chave própria 10770 (filme para TV), 10763 (News), 10766 (Soap) e 10767 (Talk).
 - **Keywords do TMDB**: são referenciadas por **nome**. O ID é resolvido na implementação via `/search/keyword` e fixado em `packages/taxonomy`. O uso de keywords em recomendação é `DEPENDE DA FASE 0` (ToS TMDB não auditado para esse uso).
 
 ## 1. Gêneros base

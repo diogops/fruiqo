@@ -32,7 +32,9 @@ import {
 } from './library/catalog.controller.js';
 import { CatalogService } from './library/catalog.service.js';
 import { SandboxService } from './sandbox/sandbox.service.js';
+import { createTitleLookup, EnrichmentService, TITLE_LOOKUP } from './library/enrichment.service.js';
 import { LibraryService } from './library/library.service.js';
+import { createMoodInterpreter, MOOD_INTERPRETER } from './library/mood-interpreter.js';
 import { SharesController } from './shares/shares.controller.js';
 import { SharesService } from './shares/shares.service.js';
 
@@ -109,6 +111,9 @@ export class AppModule {
         SharesService,
         LibraryService,
         CatalogService,
+        EnrichmentService,
+        { provide: TITLE_LOOKUP, useFactory: () => createTitleLookup(env) },
+        { provide: MOOD_INTERPRETER, useFactory: () => createMoodInterpreter(env) },
         SandboxService,
         { provide: APP_GUARD, useClass: ThrottlerGuard },
         { provide: APP_GUARD, useClass: AuthGuard },

@@ -165,7 +165,7 @@ describe('pickContinue', () => {
         ],
       },
     ]);
-    expect(res).toEqual({ listId: 'marathon', nextId: 'm3', done: 2, total: 4 });
+    expect(res).toEqual({ listId: 'marathon', nextId: 'm3', done: 2, total: 4, available: false });
   });
 
   it('item em andamento vem antes do próximo "para ver"; fixada vence a mais recente', () => {

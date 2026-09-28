@@ -22,6 +22,8 @@ export interface RankItem {
   attributes: string[];
   runtimeMin: number | null;
   createdAt: Date;
+  /** RF-38: chaves próprias dos serviços de assinatura onde o título está (TMDB watch providers BR) */
+  providerKeys?: string[];
 }
 
 export type RankRequest =
@@ -36,6 +38,24 @@ export interface RankContext {
   /** títulos pulados recentemente (não voltam para o topo logo em seguida) */
   recentlySkipped: ReadonlySet<string>;
   kinds?: DiscoverKind[];
+  /** RF-38: serviços que o usuário declarou assinar (sem assinatura, sem boost) */
+  subscriptions?: ReadonlySet<string>;
+  providerLabel?: ReadonlyMap<string, string>;
+}
+
+/** Boost de disponibilidade: pesa menos que a aderência à intenção, mais que a prioridade. */
+export const AVAILABILITY_BOOST = 0.15;
+
+/** Serviços assinados em que o título está disponível, na ordem da lista de provedores. */
+export function availableOn(providerKeys: readonly string[] | undefined, subscriptions: ReadonlySet<string> | undefined): string[] {
+  if (!providerKeys?.length || !subscriptions?.size) return [];
+  return [...new Set(providerKeys.filter((k) => subscriptions.has(k)))];
+}
+
+export function availabilityPhrase(keys: string[], label: ReadonlyMap<string, string> | undefined): string | undefined {
+  if (keys.length === 0) return undefined;
+  const names = keys.slice(0, 2).map((k) => label?.get(k) ?? k);
+  return `disponível ${names.length > 1 ? `na ${names[0]} e na ${names[1]}` : `na ${names[0]}`}, que você assina`;
 }
 
 export interface Ranked {
@@ -171,9 +191,18 @@ function scoreItem(item: RankItem, req: RankRequest, ctx: RankContext): Scored {
   if (taste.top && taste.value > 0.2) factors.push({ weight: taste.value * 0.3, text: `você curte ${GENRE_LABEL.get(taste.top)!.toLowerCase()}` });
   if (item.status === 'watching') factors.push({ weight: 0.05, text: 'você já começou' });
   if (item.priority >= 2) factors.push({ weight: 0.04, text: 'está com prioridade alta na sua lista' });
+  const onServices = availableOn(item.providerKeys, ctx.subscriptions);
+  const availability = availabilityPhrase(onServices, ctx.providerLabel);
+  if (availability) factors.push({ weight: 0.12, text: availability });
 
   const skipped = ctx.recentlySkipped.has(item.id);
-  const score = fit + taste.value * 0.3 + (item.priority - 1) * 0.08 + (item.status === 'watching' ? 0.05 : 0) - (skipped ? 0.4 : 0);
+  const score =
+    fit +
+    taste.value * 0.3 +
+    (item.priority - 1) * 0.08 +
+    (item.status === 'watching' ? 0.05 : 0) +
+    (onServices.length > 0 ? AVAILABILITY_BOOST : 0) -
+    (skipped ? 0.4 : 0);
 
   let reason: string;
   if (unknownGenre) {
@@ -228,16 +257,29 @@ const SIGNAL_WEIGHT: Record<SignalRow['signal'], (value: number) => number> = {
   skipped: () => -0.3,
 };
 
-/** Afinidade por gênero em [-1, 1]: soma ponderada dos sinais, suavizada por tanh. */
-export function tasteFromSignals(signals: SignalRow[]): Partial<Record<GenreKey, number>> {
-  const sum: Partial<Record<GenreKey, number>> = {};
+/** Somas brutas por gênero: o estado incremental do perfil (RF-34). */
+export type TasteSums = Partial<Record<GenreKey, number>>;
+
+/** Aplica sinais novos às somas (puro: devolve um objeto novo). Incremental ≡ rebuild. */
+export function accumulateTaste(sums: TasteSums, signals: Iterable<SignalRow>): TasteSums {
+  const out: TasteSums = { ...sums };
   for (const s of signals) {
     const w = SIGNAL_WEIGHT[s.signal](s.value);
-    for (const g of s.genres) sum[g] = (sum[g] ?? 0) + w;
+    for (const g of s.genres) out[g] = (out[g] ?? 0) + w;
   }
-  const out: Partial<Record<GenreKey, number>> = {};
-  for (const [g, v] of Object.entries(sum) as [GenreKey, number][]) out[g] = round(Math.tanh(v / 3));
   return out;
+}
+
+/** Afinidade por gênero em [-1, 1] a partir das somas, suavizada por tanh. */
+export function tasteFromSums(sums: TasteSums): Partial<Record<GenreKey, number>> {
+  const out: Partial<Record<GenreKey, number>> = {};
+  for (const [g, v] of Object.entries(sums) as [GenreKey, number][]) out[g] = round(Math.tanh(v / 3));
+  return out;
+}
+
+/** Rebuild: afinidade a partir de todos os sinais. */
+export function tasteFromSignals(signals: SignalRow[]): Partial<Record<GenreKey, number>> {
+  return tasteFromSums(accumulateTaste({}, signals));
 }
 
 // ---------- "Continuar" (RF-31) ----------
@@ -246,7 +288,7 @@ export interface ContinueList {
   id: string;
   pinned: boolean;
   lastActivity: Date;
-  items: { id: string; status: RankItem['status']; position: number }[];
+  items: { id: string; status: RankItem['status']; position: number; available?: boolean }[];
 }
 
 /**
@@ -254,22 +296,28 @@ export interface ContinueList {
  * e ainda sobra algo. Fixadas primeiro, depois a de atividade mais recente. Próximo item: o que está
  * em andamento; senão o primeiro "para ver" na ordem da lista (a ordem é a priorização do usuário).
  */
-export function pickContinue(listsIn: ContinueList[]): { listId: string; nextId: string; done: number; total: number } | null {
+export function pickContinue(
+  listsIn: ContinueList[],
+): { listId: string; nextId: string; done: number; total: number; available: boolean } | null {
   const candidates = listsIn
     .map((l) => {
       const sorted = [...l.items].sort((a, b) => a.position - b.position);
       const done = sorted.filter((i) => i.status === 'watched' || i.status === 'dropped').length;
       const started = done > 0 || sorted.some((i) => i.status === 'watching');
       const next = sorted.find((i) => i.status === 'watching') ?? sorted.find((i) => i.status === 'to_watch');
-      return { l, done, total: sorted.length, started, next };
+      return { l, done, total: sorted.length, started, next, available: Boolean(next?.available) };
     })
     .filter((c) => c.started && c.next)
     .sort(
       (a, b) =>
-        Number(b.l.pinned) - Number(a.l.pinned) || b.l.lastActivity.getTime() - a.l.lastActivity.getTime() || a.l.id.localeCompare(b.l.id),
+        Number(b.l.pinned) - Number(a.l.pinned) ||
+        // RF-38: entre listas em andamento, a que tem o próximo item num serviço assinado vem antes
+        Number(b.available) - Number(a.available) ||
+        b.l.lastActivity.getTime() - a.l.lastActivity.getTime() ||
+        a.l.id.localeCompare(b.l.id),
     );
   const best = candidates[0];
-  return best ? { listId: best.l.id, nextId: best.next!.id, done: best.done, total: best.total } : null;
+  return best ? { listId: best.l.id, nextId: best.next!.id, done: best.done, total: best.total, available: best.available } : null;
 }
 
 function capitalize(s: string): string {

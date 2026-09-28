@@ -3,6 +3,7 @@
 // navegador manda sozinho com `credentials: 'include'`. O cabeçalho X-Fruiqo-Client identifica o
 // web e protege o refresh por cookie contra CSRF.
 import {
+  EnrichResponseSchema,
   ActivityResponseSchema,
   BulkResponseSchema,
   BulkUndoResponseSchema,
@@ -163,6 +164,7 @@ export const api = {
   updateTitle: (id: string, body: UpdateTitleRequest) => request(TitleSchema, `/library/${id}`, 'PATCH', body),
   correctTitle: (id: string, body: CorrectTitleRequest) => request(TitleSchema, `/library/${id}/correct`, 'POST', body),
   mergeTitle: (id: string, intoId: string) => request(TitleSchema, `/library/${id}/merge`, 'POST', { intoId }),
+  enrichTitle: (id: string) => request(EnrichResponseSchema, `/library/${id}/enrich`, 'POST', {}),
   bulk: (body: BulkRequest) => request(BulkResponseSchema, '/library/bulk', 'POST', body),
   undoBulk: (undoToken: string) => request(BulkUndoResponseSchema, '/library/bulk/undo', 'POST', { undoToken }),
 

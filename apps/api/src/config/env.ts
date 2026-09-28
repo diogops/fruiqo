@@ -41,8 +41,18 @@ const EnvSchema = z.object({
   LLM_DAILY_QUOTA: z.coerce.number().int().min(0).default(50),
   LLM_MAX_INPUT_CHARS: z.coerce.number().int().min(200).max(20_000).default(4000),
   ANTHROPIC_API_KEY: optionalSecret,
-  /** D-06: interpretador do "Como estou". `rules` é local (padrão); `anthropic` ainda cai em `rules` (2d); `off` desliga o modo */
+  /**
+   * D-06: interpretador do "Como estou". `rules` é local (padrão); `anthropic` usa o LLM só com
+   * ANTHROPIC_API_KEY (sem chave, continua nas regras); `off` desliga o modo.
+   */
   AI_MODE: z.enum(['off', 'rules', 'anthropic']).default('rules'),
+  /** RNF-09: modelo pequeno para interpretar o humor (a extração de conteúdo usa LLM_MODEL) */
+  AI_MODEL: z.string().default('claude-haiku-4-5'),
+  AI_MAX_INPUT_CHARS: z.coerce.number().int().min(50).max(4000).default(1000),
+  AI_DAILY_QUOTA: z.coerce.number().int().min(0).default(100),
+  /** preço por milhão de tokens do AI_MODEL (padrão: Haiku 4.5, US$ 1 / US$ 5) */
+  AI_PRICE_IN_PER_MTOK: z.coerce.number().min(0).default(1),
+  AI_PRICE_OUT_PER_MTOK: z.coerce.number().min(0).default(5),
 
   TMDB_API_KEY: optionalSecret,
   SPOTIFY_CLIENT_ID: optionalSecret,

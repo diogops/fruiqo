@@ -40,6 +40,7 @@ import {
 import { dedupKey } from '../pipeline/dedup.js';
 import { LibraryService } from './library.service.js';
 import { NEED_LABEL, tasteFromSignals } from './ranking.js';
+import { STREAMING_PROVIDERS } from './providers.js';
 
 // Fase 2c (sistema web): catálogo em massa, correção/merge, fila de revisão, activity log e perfil.
 // Tudo passa por withUser (RLS); nenhum texto de terceiros ou de humor é logado.
@@ -50,22 +51,7 @@ const UNDO_TTL_MS = 10 * 60 * 1000;
 const ACTIVITY_PAGE = 30;
 const STATUS_ORDER = { to_watch: 0, watching: 1, watched: 2, dropped: 2 } as const;
 
-/** RF-38: serviços que o usuário pode declarar (sem integração; D-05 e matriz da Fase 0). */
-export const STREAMING_PROVIDERS = [
-  { key: 'netflix', label: 'Netflix', category: 'video' },
-  { key: 'prime_video', label: 'Prime Video', category: 'video' },
-  { key: 'disney_plus', label: 'Disney+', category: 'video' },
-  { key: 'max', label: 'Max', category: 'video' },
-  { key: 'globoplay', label: 'Globoplay', category: 'video' },
-  { key: 'apple_tv_plus', label: 'Apple TV+', category: 'video' },
-  { key: 'paramount_plus', label: 'Paramount+', category: 'video' },
-  { key: 'mubi', label: 'MUBI', category: 'video' },
-  { key: 'crunchyroll', label: 'Crunchyroll', category: 'video' },
-  { key: 'spotify', label: 'Spotify', category: 'music' },
-  { key: 'apple_music', label: 'Apple Music', category: 'music' },
-  { key: 'deezer', label: 'Deezer', category: 'music' },
-  { key: 'youtube_music', label: 'YouTube Music', category: 'music' },
-] as const satisfies readonly { key: string; label: string; category: 'video' | 'music' }[];
+export { STREAMING_PROVIDERS } from './providers.js';
 const PROVIDER_SET = new Set<string>(STREAMING_PROVIDERS.map((p) => p.key));
 
 type Kind = RecommendationRow['kind'];

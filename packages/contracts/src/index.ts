@@ -88,8 +88,35 @@ export const ResolutionSchema = z.object({
   year: z.number().int().optional(),
   /** nomes dos provedores de streaming no Brasil (TMDB watch providers, RF-06) */
   watchProvidersBR: z.array(z.string()).optional(),
+  // ---- enriquecimento TMDB (2d). Dados do TMDB: TTL de 180 dias (TOS-REQ-02); nunca vão ao LLM (ARB-REQ-02) ----
+  tmdbId: z.number().int().optional(),
+  mediaType: z.enum(['movie', 'tv']).optional(),
+  /** só guardado (link do IMDb ainda não é exibido: pendência do usuário) */
+  imdbId: z.string().max(20).optional(),
+  overview: z.string().max(4000).optional(),
+  runtimeMin: z.number().int().optional(),
+  /** IDs de gênero do TMDB, convertidos para a taxonomia própria no servidor */
+  genreIds: z.array(z.number().int()).optional(),
+  /** disponibilidade BR detalhada (fonte: TMDB, dados da JustWatch) */
+  providers: z.array(z.lazy(() => WatchProviderSchema)).optional(),
+  /** página pública "onde assistir" do TMDB (sem deep link para os apps de streaming, TOS-REQ-17) */
+  watchUrl: z.url().optional(),
 });
 export type Resolution = z.infer<typeof ResolutionSchema>;
+
+export const WatchProviderTypeSchema = z.enum(['flatrate', 'rent', 'buy']);
+export const WatchProviderSchema = z.object({
+  name: z.string(),
+  /** chave própria quando o serviço está na lista de assinaturas (RF-38) */
+  key: z.string().optional(),
+  logoUrl: z.url().optional(),
+  type: WatchProviderTypeSchema,
+});
+export type WatchProvider = z.infer<typeof WatchProviderSchema>;
+
+/** Atribuições exigidas onde houver dado do TMDB (TOS-REQ-01) e de disponibilidade (JustWatch via TMDB). */
+export const TMDB_ATTRIBUTION = 'This product uses the TMDB API but is not endorsed or certified by TMDB.';
+export const JUSTWATCH_ATTRIBUTION = 'Dados de disponibilidade: JustWatch';
 
 export const RecommendationSchema = z.object({
   id: z.uuid(),
@@ -243,6 +270,11 @@ export const TitleSchema = z.object({
   subgenres: z.array(TaxonomyTagSchema),
   runtimeMin: z.number().int().optional(),
   enrichment: EnrichmentSchema,
+  /** 2d: dados do TMDB para exibir (derivados de `resolution`) */
+  posterUrl: z.url().optional(),
+  overview: z.string().optional(),
+  watchProvidersBR: z.array(WatchProviderSchema).optional(),
+  watchUrl: z.url().optional(),
   decision: z.enum(['cataloged', 'review_queue']),
   confidence: z.number().min(0).max(1),
   extractor: z.enum(['llm', 'heuristic']),
@@ -254,6 +286,13 @@ export const TitleSchema = z.object({
   updatedAt: z.iso.datetime(),
 });
 export type Title = z.infer<typeof TitleSchema>;
+
+/** POST /library/:id/enrich (2d): resultado do enriquecimento TMDB sob demanda. */
+export const EnrichResponseSchema = z.object({
+  status: z.enum(['enriched', 'no_match', 'unsupported', 'unavailable']),
+  title: TitleSchema,
+});
+export type EnrichResponse = z.infer<typeof EnrichResponseSchema>;
 
 export const LibrarySortSchema = z.enum(['priority', 'recent', 'title']);
 
@@ -341,6 +380,8 @@ export const HomeContinueSchema = z.object({
   list: ListSummarySchema,
   next: TitleSchema,
   progress: z.object({ done: z.number().int().min(0), total: z.number().int().min(1) }),
+  /** RF-38: ex. "Disponível na Netflix, que você assina" */
+  availability: z.string().optional(),
 });
 export type HomeContinue = z.infer<typeof HomeContinueSchema>;
 
@@ -441,6 +482,8 @@ export const DiscoverResponseSchema = z.object({
   suggestions: z.array(SuggestionSchema),
   /** frase curta de abertura do resultado */
   message: z.string().optional(),
+  /** quem interpretou o "Como estou" nesta execução (anthropic cai para rules em qualquer falha) */
+  interpreter: z.enum(['rules', 'anthropic']).optional(),
 });
 export type DiscoverResponse = z.infer<typeof DiscoverResponseSchema>;
 

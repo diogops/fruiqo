@@ -9,6 +9,7 @@ import { listNameFromOcr } from '../library/list-name.js';
 import { LlmUnavailableError } from './extractors/anthropic.js';
 import { GatewayError } from './gateway.js';
 import { MAX_LIST_ITEMS } from './extractors/list.js';
+import { columnsFromResolution } from '../library/tmdb-enrichment.js';
 import type { ExtractedItem, ExtractionInput, Extractor } from './extractors/types.js';
 import { normalizeSource } from './normalize.js';
 import type { SourceMetadata } from './oembed.js';
@@ -497,11 +498,12 @@ export class ShareProcessor {
           kind: item.kind,
           title: item.title,
           creator: item.creator ?? null,
-          year: item.year ?? null,
           confidence: item.confidence,
           extractor: result.extractor ?? 'heuristic',
           resolution,
           resolvedAt: resolution ? now : null,
+          // 2d: gêneros/duração vindos do TMDB (TTL de 180 dias pela purga; TOS-REQ-02)
+          ...tmdbInsertColumns(resolution, item.year ?? null),
           dedupKey: key,
           decision: decision as 'cataloged' | 'review_queue',
           decisionReason: reason,
@@ -511,6 +513,17 @@ export class ShareProcessor {
       .returning({ id: recommendations.id, key: recommendations.dedupKey });
     return { inserted: rows.length, idByKey: new Map(rows.map((r) => [r.key, r.id])) };
   }
+}
+
+function tmdbInsertColumns(resolution: Resolution | null, year: number | null) {
+  const cols = columnsFromResolution(resolution);
+  if (!cols) return { year };
+  return {
+    year: year ?? cols.year,
+    ...(cols.genres.length > 0 ? { genres: cols.genres } : {}),
+    runtimeMin: cols.runtimeMin,
+    enrichment: 'tmdb' as const,
+  };
 }
 
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {

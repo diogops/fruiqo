@@ -1,0 +1,56 @@
+{
+  "synthetic": true,
+  "recorded_at": "2026-09-28T00:00:00.000Z",
+  "request": {
+    "method": "GET",
+    "url": "https://api.themoviedb.org/3/movie/9900001?language=pt-BR&append_to_response=external_ids%2Cwatch%2Fproviders"
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "id": 9900001,
+      "title": "O Farol de Papel",
+      "release_date": "2021-05-01",
+      "runtime": 104,
+      "overview": "Sinopse fictícia escrita pelo time Fruiqo.",
+      "poster_path": null,
+      "genres": [
+        {
+          "id": 18,
+          "name": "gênero fictício"
+        },
+        {
+          "id": 10749,
+          "name": "gênero fictício"
+        }
+      ],
+      "external_ids": {
+        "imdb_id": "tt9900001"
+      },
+      "watch/providers": {
+        "results": {
+          "BR": {
+            "link": "https://www.themoviedb.org/movie/9900001/watch?locale=BR",
+            "flatrate": [
+              {
+                "provider_name": "Netflix",
+                "display_priority": 0
+              },
+              {
+                "provider_name": "Streaming Fictício",
+                "display_priority": 1
+              }
+            ],
+            "rent": [
+              {
+                "provider_name": "Locadora Fictícia",
+                "display_priority": 0
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

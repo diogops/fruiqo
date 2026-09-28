@@ -283,6 +283,11 @@ export const recommendationRuns = pgTable(
     intent: jsonb('intent').$type<Record<string, unknown>>(),
     riskShown: boolean('risk_shown').notNull().default(false),
     candidateCount: integer('candidate_count').notNull().default(0),
+    /** 2d (RNF-09): quem interpretou o "Como estou" e o custo estimado; nunca o texto */
+    interpreter: text('interpreter', { enum: ['rules', 'anthropic'] }),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    costUsd: real('cost_usd').notNull().default(0),
     /** ranking completo (id, score, motivo) para "outra coisa" sem recalcular */
     ranked: jsonb('ranked').$type<{ id: string; score: number; reason: string }[]>().notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

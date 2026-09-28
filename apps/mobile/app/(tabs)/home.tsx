@@ -134,11 +134,12 @@ export default function Home() {
               onPress={() => router.push({ pathname: '/title/[id]', params: { id: cont.next.id } })}
               style={{ flexDirection: 'row', gap: 12, marginTop: 6 }}
             >
-              <Poster url={cont.next.resolution?.imageUrl} title={cont.next.title} />
+              <Poster url={cont.next.posterUrl ?? cont.next.resolution?.imageUrl} title={cont.next.title} />
               <View style={{ flex: 1, gap: 4, justifyContent: 'center' }}>
                 <Text style={ui.muted}>Próximo</Text>
                 <Text style={ui.h2}>{cont.next.title}</Text>
                 <Text style={ui.muted}>{titleMeta(cont.next)}</Text>
+                {cont.availability ? <Text style={{ fontSize: 13, color: colors.primary }}>{cont.availability}</Text> : null}
               </View>
             </Pressable>
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>

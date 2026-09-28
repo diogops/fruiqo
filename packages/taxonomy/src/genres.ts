@@ -30,7 +30,10 @@ export type GenreKey = (typeof GENRE_KEYS)[number];
 export interface GenreDef {
   key: GenreKey;
   label: string;
-  /** IDs de gênero do TMDB (conferir com /genre/movie/list e /genre/tv/list antes de usar dados reais) */
+  /**
+   * IDs de gênero do TMDB, conferidos com /genre/movie/list e /genre/tv/list em 2026-09-28.
+   * Sem chave própria de propósito: 10770 (filme para TV), 10763 (News), 10766 (Soap), 10767 (Talk).
+   */
   tmdbMovie: number[];
   tmdbTv: number[];
 }

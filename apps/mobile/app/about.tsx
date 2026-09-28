@@ -15,6 +15,11 @@ export default function About() {
       <Text style={ui.body}>This product uses the TMDB API but is not endorsed or certified by TMDB.</Text>
       <Link title="themoviedb.org" url="https://www.themoviedb.org/" />
       <Text style={ui.body}>
+        Gêneros, sinopses, pôsteres e duração vêm do TMDB. "Onde assistir" no Brasil: dados de disponibilidade da JustWatch,
+        fornecidos pelo TMDB. O botão abre a página pública do TMDB; o Fruiqo não abre os apps de streaming diretamente.
+      </Text>
+      <Link title="justwatch.com" url="https://www.justwatch.com/" />
+      <Text style={ui.body}>
         Metadados de música fornecidos pelo Spotify. Cada item exibido tem um link de volta para o Spotify.
       </Text>
       <Link title="spotify.com" url="https://www.spotify.com/" />

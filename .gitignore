@@ -19,3 +19,8 @@ docs/phase0/spikes/**/ios/
 fixtures-private/
 # relatórios do pnpm eval
 reports/
+
+# credenciais locais: nunca versionar
+*credenciais*
+*credentials*
+*.secret

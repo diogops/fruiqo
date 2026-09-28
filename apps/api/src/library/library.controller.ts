@@ -5,6 +5,7 @@ import {
   type DiscoverRequest,
   DiscoverRequestSchema,
   type DiscoverResponse,
+  type EnrichResponse,
   type FeedbackRequest,
   FeedbackRequestSchema,
   type FeedbackResponse,
@@ -23,11 +24,15 @@ import {
 import { CurrentAuth } from '../auth/auth.guard.js';
 import type { AccessClaims } from '../auth/tokens.js';
 import { ZodPipe } from '../common/zod-pipe.js';
+import { EnrichmentService } from './enrichment.service.js';
 import { LibraryService } from './library.service.js';
 
 @Controller('library')
 export class LibraryController {
-  constructor(private readonly library: LibraryService) {}
+  constructor(
+    private readonly library: LibraryService,
+    private readonly enrichment: EnrichmentService,
+  ) {}
 
   @Get()
   list(@CurrentAuth() auth: AccessClaims, @Query(new ZodPipe(LibraryQuerySchema)) q: LibraryQuery): Promise<LibraryResponse> {
@@ -47,6 +52,14 @@ export class LibraryController {
     @Body(new ZodPipe(UpdateTitleRequestSchema)) body: UpdateTitleRequest,
   ): Promise<Title> {
     return this.library.update(auth.userId, id, body);
+  }
+
+  /** 2d: enriquece o título no TMDB agora (gêneros, sinopse, pôster, onde assistir no BR). */
+  @Post(':id/enrich')
+  @HttpCode(200)
+  async enrich(@CurrentAuth() auth: AccessClaims, @Param('id', new ParseUUIDPipe()) id: string): Promise<EnrichResponse> {
+    const status = await this.enrichment.enrichOne(auth.userId, id);
+    return { status, title: await this.library.get(auth.userId, id) };
   }
 }
 

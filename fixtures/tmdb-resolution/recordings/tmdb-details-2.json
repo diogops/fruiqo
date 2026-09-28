@@ -1,0 +1,43 @@
+{
+  "synthetic": true,
+  "recorded_at": "2026-09-28T00:00:00.000Z",
+  "request": {
+    "method": "GET",
+    "url": "https://api.themoviedb.org/3/movie/9900002?language=pt-BR&append_to_response=external_ids%2Cwatch%2Fproviders"
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "id": 9900002,
+      "title": "Noites de Vidro",
+      "release_date": "2019-09-10",
+      "runtime": 97,
+      "overview": "Outra sinopse fictícia do time Fruiqo.",
+      "poster_path": null,
+      "genres": [
+        {
+          "id": 35,
+          "name": "gênero fictício"
+        }
+      ],
+      "external_ids": {
+        "imdb_id": "tt9900002"
+      },
+      "watch/providers": {
+        "results": {
+          "BR": {
+            "link": "https://www.themoviedb.org/movie/9900002/watch?locale=BR",
+            "flatrate": [
+              {
+                "provider_name": "Globoplay",
+                "display_priority": 0
+              }
+            ],
+            "rent": []
+          }
+        }
+      }
+    }
+  }
+}

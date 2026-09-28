@@ -132,3 +132,12 @@ A migração `0002` faz o backfill da `dedup_key` em SQL, aproximando a normaliz
 | Sandbox (RF-19/22) | `GET /sandbox/fixtures`, `POST /sandbox/fixtures/:id/run`, `GET /sandbox/evals` (404 sem `SANDBOX_ENABLED`) |
 
 Decisões: o desfazer guarda um snapshot em `bulk_undo` (uso único, 10 min); desfazer uma remoção devolve títulos e listas, mas não os sinais de gosto apagados em cascata. O merge move listas, sinais, feedback e decisões para o destino e preenche os campos vazios dele. O sandbox roda a fixture num usuário efêmero, apagado no fim, para o resultado não depender da biblioteca de quem pediu.
+
+## TMDB e recomendação inteligente (Fase 2d)
+
+- **Enriquecimento TMDB**: ao catalogar um filme/série, o pipeline busca no TMDB (`search/multi` + detalhes com `external_ids,watch/providers` numa chamada) e grava gêneros (mapeados para a taxonomia própria), sinopse, pôster, duração, `imdbId` (só guardado) e onde assistir no BR (assinatura/aluguel/compra, com o link público "onde assistir" do TMDB). Gêneros marcados à mão (`manual`) nunca são sobrescritos. A purga de 180 dias (TOS-REQ-02) zera também o que foi derivado do TMDB.
+- **Sob demanda**: `POST /library/:id/enrich` → `{ status: enriched | no_match | unsupported | unavailable, title }`.
+- **Backfill**: `pnpm --filter @fruiqo/api enrich:backfill -- --email <e> [--include-demo] [--limit N] [--concurrency 2] [--delay-ms 250]`. Usa o `PIPELINE_MODE` do ambiente (`mock` roda com as gravações sintéticas de `fixtures/`).
+- **Ligar o TMDB**: coloque `TMDB_API_KEY` no `apps/api/.env` (chave v3 de 32 caracteres ou token v4/Bearer; o resolver detecta), `PIPELINE_MODE=live`, reinicie API e worker e rode o backfill. A chave fica só no servidor.
+- **Disponibilidade (RF-38)**: títulos disponíveis por assinatura nos serviços declarados em `/profile/subscriptions` ganham boost no `/discover` e preferência no "Continuar", com o motivo explícito ("disponível na Netflix, que você assina"). Sem assinatura cadastrada, sem boost.
+- **`AI_MODE`** (D-06): `rules` (padrão, local), `anthropic` (usa `AI_MODEL`, padrão `claude-haiku-4-5`, só com `ANTHROPIC_API_KEY`; sem chave continua nas regras) ou `off`. O LLM recebe só o texto digitado pelo usuário (`LlmSafeInput`), sem tools; a saída é validada pelo `MoodIntentSchema` e qualquer erro, recusa ou quota esgotada (`AI_DAILY_QUOTA`) cai para as regras. O detector de risco roda antes e, com risco, o LLM nunca é chamado. Cada execução grava intérprete, tokens e custo estimado (`AI_PRICE_*_PER_MTOK`) em `recommendation_runs`, nunca o texto.

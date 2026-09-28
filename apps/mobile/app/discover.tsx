@@ -7,7 +7,7 @@ import { Alert, Linking, Modal, Pressable, ScrollView, Text, View } from 'react-
 import { discover, sendFeedback, updateTitle } from '../src/api/client';
 import { applyFeedback, buildFeedback, buildMoodRequest, capitalizeFirst } from '../src/discover/logic';
 import { forgetResult, getResult, putResult, takeRiskText } from '../src/discover/store';
-import { Button, Chip, Poster, openExternal } from '../src/ui/components';
+import { Button, Chip, Poster, WatchProviders, openExternal } from '../src/ui/components';
 import { REASON_OPTIONS, titleMeta } from '../src/ui/labels';
 import { colors, ui } from '../src/ui/theme';
 
@@ -121,13 +121,14 @@ export default function DiscoverResult() {
               onPress={() => router.push({ pathname: '/title/[id]', params: { id: s.title.id } })}
               style={{ flexDirection: 'row', gap: 12 }}
             >
-              <Poster url={s.title.resolution?.imageUrl} title={s.title.title} />
+              <Poster url={s.title.posterUrl ?? s.title.resolution?.imageUrl} title={s.title.title} />
               <View style={{ flex: 1, gap: 4 }}>
                 <Text style={ui.h2}>{s.title.title}</Text>
                 <Text style={ui.muted}>{titleMeta(s.title)}</Text>
                 <View style={{ flexDirection: 'row' }}>
                   <Text style={{ fontSize: 12, fontWeight: '600', color: colors.primary }}>da sua lista</Text>
                 </View>
+                <WatchProviders title={s.title} compact />
               </View>
             </Pressable>
             <Text style={ui.body}>

@@ -43,6 +43,13 @@
       "when": 1790616982267,
       "tag": "0005_web_catalog",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790619670875,
+      "tag": "0006_tmdb_enrichment_ai",
+      "breakpoints": true
     }
   ]
 }

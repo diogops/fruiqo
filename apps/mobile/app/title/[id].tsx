@@ -6,7 +6,7 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'rea
 
 import { ApiError, getLibrary, getTaxonomy, getTitle, updateTitle } from '../../src/api/client';
 import { collectGenreOptions, toggleGenre } from '../../src/discover/logic';
-import { Button, Chip, Link, Poster } from '../../src/ui/components';
+import { Button, Chip, Link, Poster, TmdbAttribution, WatchProviders } from '../../src/ui/components';
 import { PRIORITY_LABEL, TITLE_STATUS_LABEL, titleMeta } from '../../src/ui/labels';
 import { colors, ui } from '../../src/ui/theme';
 
@@ -97,7 +97,7 @@ export default function TitleDetail() {
     <ScrollView style={ui.screen} contentContainerStyle={[ui.pad, { paddingBottom: 32 }]}>
       <Stack.Screen options={{ title: title.title }} />
       <View style={{ flexDirection: 'row', gap: 12 }}>
-        <Poster url={r?.imageUrl} title={title.title} />
+        <Poster url={title.posterUrl ?? r?.imageUrl} title={title.title} />
         <View style={{ flex: 1, gap: 4 }}>
           <Text style={ui.h1}>{title.title}</Text>
           {title.creator ? <Text style={ui.body}>{title.creator}</Text> : null}
@@ -105,10 +105,15 @@ export default function TitleDetail() {
           {title.subgenres.length > 0 && <Text style={ui.muted}>{title.subgenres.map((s) => s.label).join(' · ')}</Text>}
         </View>
       </View>
-      {r?.watchProvidersBR && r.watchProvidersBR.length > 0 && (
-        <Text style={ui.muted}>Disponível no Brasil em: {r.watchProvidersBR.join(', ')}</Text>
-      )}
+      {title.overview ? <Text style={ui.body}>{title.overview}</Text> : null}
+      {title.watchProvidersBR || title.watchUrl ? (
+        <>
+          <Text style={ui.h2}>Onde assistir no Brasil</Text>
+          <WatchProviders title={title} />
+        </>
+      ) : null}
       {r && <Link title={`Ver no ${r.provider === 'tmdb' ? 'TMDB' : 'Spotify'}`} url={r.url} />}
+      {r?.provider === 'tmdb' && <TmdbAttribution />}
 
       <Text style={ui.h2}>Status</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>

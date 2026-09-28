@@ -1,9 +1,11 @@
-import type { Resolution } from '@fruiqo/contracts';
+import type { Resolution, WatchProvider } from '@fruiqo/contracts';
 import { z } from 'zod';
+import { providerKeyFromTmdbName } from '../../library/providers.js';
 import type { ExtractedItem } from '../extractors/types.js';
 import { safeFetchJson, type SafeFetchOptions } from '../safe-fetch.js';
 
 const API = 'https://api.themoviedb.org/3';
+const IMG = 'https://image.tmdb.org/t/p';
 
 const SearchSchema = z.object({
   results: z.array(
@@ -19,14 +21,44 @@ const SearchSchema = z.object({
   ),
 });
 
-const ProvidersSchema = z.object({
-  results: z.record(
-    z.string(),
-    z.object({ flatrate: z.array(z.object({ provider_name: z.string() })).optional() }),
-  ),
+const ProviderEntry = z.object({
+  provider_name: z.string(),
+  logo_path: z.string().nullable().optional(),
+  display_priority: z.number().optional(),
+});
+const ProvidersRegion = z.object({
+  link: z.string().optional(),
+  flatrate: z.array(ProviderEntry).optional(),
+  rent: z.array(ProviderEntry).optional(),
+  buy: z.array(ProviderEntry).optional(),
 });
 
-/** Resolução de filmes/séries + onde assistir no Brasil (RF-05/RF-06, TOS-REQ-01/02). */
+/** GET /{movie|tv}/{id}?append_to_response=external_ids,watch/providers (uma chamada só). */
+const DetailsSchema = z.object({
+  id: z.number().int(),
+  title: z.string().optional(),
+  name: z.string().optional(),
+  overview: z.string().nullable().optional(),
+  poster_path: z.string().nullable().optional(),
+  release_date: z.string().optional(),
+  first_air_date: z.string().optional(),
+  runtime: z.number().int().nullable().optional(),
+  episode_run_time: z.array(z.number().int()).optional(),
+  genres: z.array(z.object({ id: z.number().int() })).optional(),
+  external_ids: z.object({ imdb_id: z.string().nullable().optional() }).optional(),
+  'watch/providers': z.object({ results: z.record(z.string(), ProvidersRegion) }).optional(),
+});
+
+export interface TmdbQuery {
+  title: string;
+  kind: 'movie' | 'series';
+  year?: number;
+}
+
+/**
+ * Resolução de filmes/séries + enriquecimento (RF-05/06/38; TOS-REQ-01/02). Tudo passa pelo
+ * `fetchImpl` do PipelineGateway (mock/live/record). Os dados daqui nunca vão para o LLM (ARB-REQ-02).
+ */
 export class TmdbResolver {
   constructor(
     private readonly apiKey: string,
@@ -37,38 +69,48 @@ export class TmdbResolver {
     return item.kind === 'movie' || item.kind === 'series';
   }
 
-  async resolve(item: ExtractedItem): Promise<Resolution | null> {
-    const params = new URLSearchParams({ query: item.title, language: 'pt-BR', include_adult: 'false' });
+  resolve(item: ExtractedItem): Promise<Resolution | null> {
+    return this.lookup({ title: item.title, kind: item.kind as TmdbQuery['kind'], ...(item.year ? { year: item.year } : {}) });
+  }
+
+  async lookup(q: TmdbQuery): Promise<Resolution | null> {
+    const params = new URLSearchParams({ query: q.title, language: 'pt-BR', include_adult: 'false' });
     const search = SearchSchema.parse(await this.get(`/search/multi?${params}`));
 
-    const wanted = item.kind === 'series' ? 'tv' : 'movie';
+    const wanted = q.kind === 'series' ? 'tv' : 'movie';
+    const media = search.results.filter((r) => r.media_type === 'movie' || r.media_type === 'tv');
+    const yearOf = (r: (typeof media)[number]) => {
+      const d = r.release_date || r.first_air_date;
+      return d ? Number(d.slice(0, 4)) : undefined;
+    };
+    // mesmo tipo e mesmo ano > mesmo tipo > qualquer filme/série (ordem de relevância do TMDB)
     const hit =
-      search.results.find((r) => r.media_type === wanted) ??
-      search.results.find((r) => r.media_type === 'movie' || r.media_type === 'tv');
+      (q.year ? media.find((r) => r.media_type === wanted && yearOf(r) === q.year) : undefined) ??
+      media.find((r) => r.media_type === wanted) ??
+      media[0];
     if (!hit) return null;
 
-    const media = hit.media_type === 'tv' ? 'tv' : 'movie';
-    const date = hit.release_date || hit.first_air_date;
-    const year = date ? Number(date.slice(0, 4)) : undefined;
-
-    let watchProvidersBR: string[] | undefined;
-    try {
-      const providers = ProvidersSchema.parse(await this.get(`/${media}/${hit.id}/watch/providers`));
-      const br = providers.results.BR?.flatrate?.map((p) => p.provider_name);
-      if (br && br.length > 0) watchProvidersBR = br;
-    } catch {
-      // disponibilidade é opcional; a resolução continua válida sem ela
-    }
-
-    return {
+    const mediaType = hit.media_type === 'tv' ? 'tv' : 'movie';
+    const year = yearOf(hit);
+    const base: Resolution = {
       provider: 'tmdb',
-      externalId: `${media}:${hit.id}`,
-      title: hit.title ?? hit.name ?? item.title,
-      url: `https://www.themoviedb.org/${media}/${hit.id}`,
-      ...(hit.poster_path ? { imageUrl: `https://image.tmdb.org/t/p/w342${hit.poster_path}` } : {}),
+      externalId: `${mediaType}:${hit.id}`,
+      title: hit.title ?? hit.name ?? q.title,
+      url: `https://www.themoviedb.org/${mediaType}/${hit.id}`,
+      tmdbId: hit.id,
+      mediaType,
+      ...(hit.poster_path ? { imageUrl: `${IMG}/w342${hit.poster_path}` } : {}),
       ...(year && Number.isInteger(year) ? { year } : {}),
-      ...(watchProvidersBR ? { watchProvidersBR } : {}),
     };
+
+    try {
+      const detailParams = new URLSearchParams({ language: 'pt-BR', append_to_response: 'external_ids,watch/providers' });
+      const d = DetailsSchema.parse(await this.get(`/${mediaType}/${hit.id}?${detailParams}`));
+      return { ...base, ...detailFields(d) };
+    } catch {
+      // detalhes são opcionais: a correspondência continua válida sem eles
+      return base;
+    }
   }
 
   private get(path: string) {
@@ -80,4 +122,42 @@ export class TmdbResolver {
       fetchImpl: this.fetchImpl,
     });
   }
+}
+
+function detailFields(d: z.infer<typeof DetailsSchema>): Partial<Resolution> {
+  const out: Partial<Resolution> = {};
+  if (d.overview) out.overview = d.overview.slice(0, 4000);
+  if (d.poster_path) out.imageUrl = `${IMG}/w342${d.poster_path}`;
+  const runtime = d.runtime ?? d.episode_run_time?.[0];
+  if (runtime && runtime > 0) out.runtimeMin = runtime;
+  if (d.genres?.length) out.genreIds = d.genres.map((g) => g.id);
+  if (d.external_ids?.imdb_id) out.imdbId = d.external_ids.imdb_id;
+
+  const br = d['watch/providers']?.results.BR;
+  if (br) {
+    const providers: WatchProvider[] = [];
+    for (const type of ['flatrate', 'rent', 'buy'] as const) {
+      const seen = new Set<string>();
+      for (const p of [...(br[type] ?? [])].sort((a, b) => (a.display_priority ?? 99) - (b.display_priority ?? 99))) {
+        if (seen.has(p.provider_name)) continue;
+        seen.add(p.provider_name);
+        // chave de assinatura (RF-38) só na linha de assinatura; aluguel/compra não contam como "você assina"
+        const key = type === 'flatrate' ? providerKeyFromTmdbName(p.provider_name) : undefined;
+        providers.push({
+          name: p.provider_name,
+          type,
+          ...(key ? { key } : {}),
+          ...(p.logo_path ? { logoUrl: `${IMG}/w92${p.logo_path}` } : {}),
+        });
+      }
+    }
+    if (providers.length > 0) {
+      out.providers = providers;
+      const flat = providers.filter((p) => p.type === 'flatrate').map((p) => p.name);
+      if (flat.length > 0) out.watchProvidersBR = flat;
+    }
+    // só aceitamos o link público do próprio TMDB (nada de deep link para os apps, TOS-REQ-17)
+    if (br.link?.startsWith('https://www.themoviedb.org/')) out.watchUrl = br.link;
+  }
+  return out;
 }

@@ -165,3 +165,13 @@ textarea { width: 100%; }
   .sidebar nav { flex-direction: row; flex-wrap: wrap; }
   .content { padding: 1rem; overflow-x: auto; }
 }
+
+/* 2d: dados do TMDB no detalhe do título */
+.title-head { display: flex; gap: 1rem; align-items: flex-start; }
+.poster { border-radius: 8px; object-fit: cover; flex-shrink: 0; background: var(--surface); }
+.overview { margin: 0 0 0.5rem; line-height: 1.45; }
+.providers { display: flex; flex-direction: column; gap: 0.4rem; }
+.provider-row { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.provider-row > .small:first-child { min-width: 6rem; }
+.provider-logo { border-radius: 6px; }
+.provider-name { font-size: 0.85rem; border: 1px solid var(--border); border-radius: 6px; padding: 0.1rem 0.4rem; }

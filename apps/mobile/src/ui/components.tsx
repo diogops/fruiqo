@@ -1,4 +1,4 @@
-import type { ShareStatus } from '@fruiqo/contracts';
+import { JUSTWATCH_ATTRIBUTION, type ShareStatus, TMDB_ATTRIBUTION, type Title, type WatchProvider } from '@fruiqo/contracts';
 import { ActivityIndicator, Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors } from './theme';
@@ -126,7 +126,58 @@ export function Poster({ url, title, size = 'md' }: { url?: string; title: strin
   );
 }
 
+const PROVIDER_GROUP: Record<WatchProvider['type'], string> = { flatrate: 'Assinatura', rent: 'Aluguel', buy: 'Compra' };
+
+/** Um logo por serviço e tipo (o TMDB repete variantes como "com anúncios"). */
+export function groupProviders(providers: WatchProvider[]): [WatchProvider['type'], WatchProvider[]][] {
+  const out: [WatchProvider['type'], WatchProvider[]][] = [];
+  for (const type of ['flatrate', 'rent', 'buy'] as const) {
+    const seen = new Set<string>();
+    const list = providers.filter((p) => p.type === type && !seen.has(p.key ?? p.name) && seen.add(p.key ?? p.name));
+    if (list.length > 0) out.push([type, list]);
+  }
+  return out;
+}
+
+/**
+ * RF-38 / TOS-REQ-01: onde assistir no Brasil (dados do TMDB, fonte JustWatch). O botão abre a
+ * página pública do TMDB, nunca um deep link para o app de streaming (TOS-REQ-17).
+ */
+export function WatchProviders({ title, compact }: { title: Pick<Title, 'watchProvidersBR' | 'watchUrl' | 'resolution'>; compact?: boolean }) {
+  const providers = title.watchProvidersBR ?? [];
+  if (providers.length === 0 && !title.watchUrl) return null;
+  const groups = groupProviders(providers);
+  return (
+    <View style={{ gap: 6 }}>
+      {groups.map(([type, list]) => (
+        <View key={type} style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+          {!compact && <Text style={styles.providerGroup}>{PROVIDER_GROUP[type]}</Text>}
+          {list.slice(0, compact ? 4 : 8).map((p) =>
+            p.logoUrl?.startsWith('https://') ? (
+              <Image key={p.name} source={{ uri: p.logoUrl }} style={styles.providerLogo} accessibilityLabel={p.name} />
+            ) : (
+              <Text key={p.name} style={styles.providerName}>{p.name}</Text>
+            ),
+          )}
+          {compact && <Text style={styles.providerGroup}>{PROVIDER_GROUP[type].toLowerCase()}</Text>}
+        </View>
+      ))}
+      {!compact && <Link title="Onde assistir" url={title.watchUrl ?? title.resolution?.url} />}
+      <Text style={styles.attribution}>{JUSTWATCH_ATTRIBUTION}</Text>
+    </View>
+  );
+}
+
+/** Crédito obrigatório onde aparece dado do TMDB (TOS-REQ-01). */
+export function TmdbAttribution() {
+  return <Text style={styles.attribution}>Dados de filmes e séries: TMDB. {TMDB_ATTRIBUTION}</Text>;
+}
+
 const styles = StyleSheet.create({
+  providerLogo: { width: 28, height: 28, borderRadius: 6 },
+  providerName: { fontSize: 13, color: colors.text, borderWidth: 1, borderColor: colors.border, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  providerGroup: { fontSize: 12, color: colors.muted, minWidth: 70 },
+  attribution: { fontSize: 11, color: colors.muted },
   chip: {
     borderWidth: 1,
     borderColor: colors.border,

@@ -1,4 +1,4 @@
-import type { BulkOperation, RecommendationKind, Title, TitleStatus } from '@fruiqo/contracts';
+import { type BulkOperation, JUSTWATCH_ATTRIBUTION, type RecommendationKind, TMDB_ATTRIBUTION, type Title, type TitleStatus, type WatchProvider } from '@fruiqo/contracts';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
@@ -391,6 +391,43 @@ function BulkBar({
   );
 }
 
+const ENRICH_MSG: Record<'enriched' | 'no_match' | 'unsupported' | 'unavailable', string> = {
+  enriched: 'Dados atualizados.',
+  no_match: 'Nada encontrado no TMDB com este título. Corrija o título ou o ano e tente de novo.',
+  unsupported: 'Só filmes e séries são buscados no TMDB.',
+  unavailable: 'TMDB indisponível agora.',
+};
+
+const PROVIDER_TYPE: Record<WatchProvider['type'], string> = { flatrate: 'Assinatura', rent: 'Aluguel', buy: 'Compra' };
+
+/** Um logo por serviço e tipo (o TMDB repete variantes como "com anúncios"). */
+export function ProviderLogos({ providers }: { providers: WatchProvider[] }) {
+  const groups = (['flatrate', 'rent', 'buy'] as const)
+    .map((type) => {
+      const seen = new Set<string>();
+      return [type, providers.filter((p) => p.type === type && !seen.has(p.key ?? p.name) && seen.add(p.key ?? p.name))] as const;
+    })
+    .filter(([, list]) => list.length > 0);
+  return (
+    <div className="providers">
+      {groups.map(([type, list]) => (
+        <div key={type} className="provider-row">
+          <span className="muted small">{PROVIDER_TYPE[type]}</span>
+          {list.map((p) =>
+            p.logoUrl ? (
+              <img key={p.name} src={p.logoUrl} alt={p.name} title={p.name} width={32} height={32} className="provider-logo" />
+            ) : (
+              <span key={p.name} className="provider-name">
+                {p.name}
+              </span>
+            ),
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function TitleDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const title = useQuery({ queryKey: ['title', id], queryFn: () => api.title(id) });
   const taxonomy = useTaxonomy();
@@ -420,11 +457,52 @@ function TitleDetail({ id, onClose }: { id: string; onClose: () => void }) {
     }
   }
 
+  const [enrichMsg, setEnrichMsg] = useState<string | null>(null);
+  async function enrich() {
+    if (!t) return;
+    try {
+      const res = await api.enrichTitle(t.id);
+      setEnrichMsg(ENRICH_MSG[res.status]);
+      await qc.invalidateQueries();
+    } catch (err) {
+      setError(err);
+    }
+  }
+
   return (
     <Modal title={t ? t.title : 'Título'} onClose={onClose}>
       <ErrorNote error={title.error ?? error} />
       {t && (
         <>
+          <div className="title-head">
+            {t.posterUrl && <img className="poster" src={t.posterUrl} alt="" width={92} height={138} />}
+            <div>
+              {t.overview && <p className="overview">{t.overview}</p>}
+              {(t.kind === 'movie' || t.kind === 'series') && (
+                <p className="small">
+                  <button type="button" className="btn" onClick={() => void enrich()}>
+                    {t.enrichment === 'tmdb' ? 'Atualizar dados do TMDB' : 'Buscar no TMDB'}
+                  </button>{' '}
+                  {enrichMsg && <span className="muted">{enrichMsg}</span>}
+                </p>
+              )}
+            </div>
+          </div>
+          {(t.watchProvidersBR?.length || t.watchUrl) && (
+            <>
+              <h3>Onde assistir no Brasil</h3>
+              <ProviderLogos providers={t.watchProvidersBR ?? []} />
+              {t.watchUrl && (
+                <p>
+                  <a href={t.watchUrl} target="_blank" rel="noopener noreferrer">
+                    Onde assistir (TMDB)
+                  </a>
+                </p>
+              )}
+              <p className="muted small">{JUSTWATCH_ATTRIBUTION}</p>
+            </>
+          )}
+          {t.resolution?.provider === 'tmdb' && <p className="muted small">Dados de filmes e séries: TMDB. {TMDB_ATTRIBUTION}</p>}
           <h3>Corrigir</h3>
           <CorrectTitleForm title={t} submit={(body) => api.correctTitle(t.id, body)} onDone={onClose} />
           <h3>Gêneros</h3>

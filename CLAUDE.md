@@ -52,6 +52,7 @@ O app usa módulo nativo (`expo-share-intent`), então **não roda no Expo Go**:
 
 ## Arquitetura
 
+- **TMDB (2d)**: enriquecimento no pipeline, sob demanda (`POST /library/:id/enrich`) e por backfill (`pnpm --filter @fruiqo/api enrich:backfill -- --email <e> [--include-demo]`). A chave (`TMDB_API_KEY`) fica só no `apps/api/.env`. Respostas reais do TMDB nunca vão para `fixtures/` (só `fixtures-private/`). O app e o web mostram onde assistir com o crédito JustWatch/TMDB e abrem só a página pública do TMDB (sem deep link para streaming, TOS-REQ-17).
 - `packages/taxonomy`: taxonomia v1 versionada (gêneros próprios ↔ IDs do TMDB, subgêneros, intenção de humor `MoodIntent`, pesos), o detector de risco local (RNF-07, resposta com CVV 188) e o `interpretMood` por regras (modo `rules`). Puro, sem I/O. Nada com origem no TMDB vai para o LLM.
 - `packages/contracts`: schemas zod v4 do contrato HTTP (auth, shares, recomendações, etapas do pipeline) e da saída do LLM. É a fonte única dos formatos: a API valida as entradas com eles e o app valida as respostas. Mudou o contrato → rebuild do pacote e ajuste nos dois lados.
 - `apps/api` (NestJS 12, ESM, Drizzle + pg, BullMQ): dois entrypoints do mesmo código, `src/main.ts` (HTTP) e `src/worker.ts` (fila). O `POST /shares` só persiste e enfileira; o worker roda o pipeline, nesta ordem (ARB-REQ-02):

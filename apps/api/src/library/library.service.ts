@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import type {
   CreateListRequest,
   DiscoverRequest,
@@ -39,6 +39,7 @@ import {
   recommendationRuns,
   recommendations,
   tasteSignals,
+  userSubscriptions,
   type ListRow,
   type RecommendationRow,
 } from '../db/schema.js';
@@ -49,11 +50,20 @@ import {
   type RankItem,
   type RankRequest,
   type SignalRow,
+  availabilityPhrase,
+  availableOn,
   pickContinue,
   rankTitles,
   tasteFromSignals,
 } from './ranking.js';
+import { PROVIDER_LABEL } from './providers.js';
+import { type InterpretResult, llmSafeInput, MOOD_INTERPRETER, type MoodInterpreter, RulesInterpreter } from './mood-interpreter.js';
 import { toTitle } from './title-mapper.js';
+
+/** RF-38: serviços de assinatura onde o título está (flatrate do TMDB, já mapeado para chave própria). */
+export function subscriptionProviderKeys(t: Pick<RecommendationRow, 'resolution'>): string[] {
+  return (t.resolution?.providers ?? []).filter((p) => p.type === 'flatrate' && p.key).map((p) => p.key!);
+}
 
 const SUGGESTIONS_SHOWN = 5;
 const RANKED_KEPT = 30;
@@ -69,7 +79,12 @@ export class LibraryService {
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(ENV) private readonly env: Env,
-  ) {}
+    @Optional() @Inject(MOOD_INTERPRETER) interpreter?: MoodInterpreter,
+  ) {
+    this.interpreter = interpreter ?? new RulesInterpreter();
+  }
+
+  private readonly interpreter: MoodInterpreter;
 
   // ---------- catálogo ----------
 
@@ -232,6 +247,7 @@ export class LibraryService {
       const titles = await tx.select().from(recommendations).where(eq(recommendations.decision, 'cataloged'));
       const byId = new Map(titles.map((t) => [t.id, t]));
       const listRows = await tx.select().from(lists);
+      const subs = new Set((await tx.select().from(userSubscriptions)).map((r) => r.provider));
       const items = listRows.length
         ? await tx.select().from(listItems).where(inArray(listItems.listId, listRows.map((l) => l.id)))
         : [];
@@ -244,7 +260,12 @@ export class LibraryService {
             id: l.id,
             pinned: l.pinned,
             lastActivity: new Date(Math.max(l.updatedAt.getTime(), lastItem)),
-            items: mine.map((i) => ({ id: i.recommendationId, status: byId.get(i.recommendationId)!.status, position: i.position })),
+            items: mine.map((i) => ({
+              id: i.recommendationId,
+              status: byId.get(i.recommendationId)!.status,
+              position: i.position,
+              available: availableOn(subscriptionProviderKeys(byId.get(i.recommendationId)!), subs).length > 0,
+            })),
           };
         }),
       );
@@ -252,7 +273,13 @@ export class LibraryService {
       if (pick) {
         const [summary] = await this.summaries(tx, listRows.filter((l) => l.id === pick.listId));
         const [next] = await this.withLists(tx, [byId.get(pick.nextId)!]);
-        cont = { list: summary!, next: next!, progress: { done: pick.done, total: pick.total } };
+        const availability = availabilityPhrase(availableOn(subscriptionProviderKeys(byId.get(pick.nextId)!), subs), PROVIDER_LABEL);
+        cont = {
+          list: summary!,
+          next: next!,
+          progress: { done: pick.done, total: pick.total },
+          ...(availability ? { availability: availability.charAt(0).toUpperCase() + availability.slice(1) } : {}),
+        };
       }
 
       const open = titles.filter((t) => t.status === 'to_watch' || t.status === 'watching');
@@ -290,6 +317,7 @@ export class LibraryService {
     let intent: MoodIntent | null = null;
     let surprise: DiscoverResponse['surprise'] = null;
     let riskShown = false;
+    let interpreted: InterpretResult | null = null;
 
     if (req.mode === 'surprise') {
       if (req.subgenre && !SUBGENRE_SET.has(req.subgenre)) throw new BadRequestException('Entrada inválida: subgenre');
@@ -304,8 +332,17 @@ export class LibraryService {
       }
     } else {
       if (this.env.AI_MODE === 'off') throw new BadRequestException('O modo "Como estou" está desligado');
-      riskShown = !req.continueAfterRisk && detectRisk(req.text).risk;
-      intent = interpretMood(req.text); // AI_MODE=anthropic ainda usa as regras locais (2d)
+      // RNF-07: o detector roda ANTES de qualquer LLM. Com risco, o texto nunca sai do servidor:
+      // mesmo quando o usuário escolhe continuar, a interpretação é local (regras).
+      const riskDetected = detectRisk(req.text).risk;
+      riskShown = !req.continueAfterRisk && riskDetected;
+      if (riskShown) {
+        intent = interpretMood(req.text);
+      } else {
+        const interpreter = riskDetected ? new RulesInterpreter() : this.interpreter;
+        interpreted = await interpreter.interpret(llmSafeInput(req.text), userId);
+        intent = interpreted.intent;
+      }
       rankReq = { mode: 'mood', intent };
     }
 
@@ -323,6 +360,10 @@ export class LibraryService {
           intent: riskShown ? null : storedIntent,
           riskShown,
           candidateCount: ranked.length,
+          interpreter: interpreted?.interpreter ?? null,
+          inputTokens: interpreted?.usage?.inputTokens ?? 0,
+          outputTokens: interpreted?.usage?.outputTokens ?? 0,
+          costUsd: interpreted?.costUsd ?? 0,
           ranked: ranked.slice(0, RANKED_KEPT),
         })
         .returning({ id: recommendationRuns.id });
@@ -336,6 +377,7 @@ export class LibraryService {
         surprise,
         risk: riskShown ? { ...RISK_SUPPORT } : null,
         suggestions,
+        ...(interpreted ? { interpreter: interpreted.interpreter } : {}),
         ...(riskShown
           ? {}
           : { message: intent?.message ?? (surprise ? `${surprise.label} da sua lista` : undefined) }),
@@ -409,8 +451,12 @@ export class LibraryService {
       attributes: t.attributes,
       runtimeMin: t.runtimeMin,
       createdAt: t.createdAt,
+      providerKeys: subscriptionProviderKeys(t),
     }));
+    const subscriptions = new Set((await tx.select().from(userSubscriptions)).map((r) => r.provider));
     return rankTitles(items, req, {
+      subscriptions,
+      providerLabel: PROVIDER_LABEL,
       taste,
       recentlySkipped: new Set(skipped.map((s) => s.id).filter((id): id is string => Boolean(id))),
       ...(kinds && kinds.length > 0 ? { kinds } : {}),
