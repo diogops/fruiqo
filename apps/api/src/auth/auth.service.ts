@@ -11,7 +11,9 @@ import {
 import type { LoginRequest, RegisterRequest, Session, TokenPair } from '@fruiqo/contracts';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { ENV, type Env } from '../config/env.js';
+import type { Queue } from 'bullmq';
 import { DB, type Db, type Tx, withUser } from '../db/client.js';
+import { SHARE_QUEUE_TOKEN, type ShareJob } from '../queue/queue.js';
 import { sessions, users } from '../db/schema.js';
 import { getDummyHash, hashPassword, verifyPassword } from './password.js';
 import {
@@ -36,6 +38,7 @@ export class AuthService {
     @Inject(DB) private readonly db: Db,
     @Inject(ENV) private readonly env: Env,
     private readonly tokens: TokenService,
+    @Inject(SHARE_QUEUE_TOKEN) private readonly queue: Queue<ShareJob>,
   ) {}
 
   async register(input: RegisterRequest): Promise<TokenPair> {
@@ -174,6 +177,39 @@ export class AuthService {
         .returning({ id: sessions.id }),
     );
     if (updated.length === 0) throw new NotFoundException('Sessão não encontrada');
+  }
+
+  /**
+   * Exclusão definitiva da conta (LGPD art. 18, VI; App Store 5.1.1(v)).
+   * Reautentica com a senha atual; apagar o usuário remove em cascata todas as tabelas
+   * com `user_id` (FK ON DELETE CASCADE; as ações de integridade referencial não passam
+   * pelo RLS). A própria linha em `users` sai pela policy `users_self` (app.user_id).
+   */
+  async deleteAccount(userId: string, password: string): Promise<void> {
+    await withUser(this.db, userId, async (tx) => {
+      const [me] = await tx
+        .select({ passwordHash: users.passwordHash })
+        .from(users)
+        .where(eq(users.id, userId))
+        .for('update');
+      if (!me) throw new UnauthorizedException('Sessão inválida');
+      const ok = await verifyPassword(me.passwordHash, password);
+      if (!ok) throw new UnauthorizedException('Senha incorreta');
+      const deleted = await tx.delete(users).where(eq(users.id, userId)).returning({ id: users.id });
+      if (deleted.length !== 1) throw new UnauthorizedException('Sessão inválida');
+    });
+    await this.dropQueuedJobs(userId);
+    this.logger.log({ userId }, 'conta excluída');
+  }
+
+  /** Melhor esforço: jobs pendentes do usuário sairiam como "share não encontrado"; tira da fila. */
+  private async dropQueuedJobs(userId: string): Promise<void> {
+    try {
+      const jobs = await this.queue.getJobs(['waiting', 'delayed', 'prioritized'], 0, 999);
+      await Promise.all(jobs.filter((j) => j?.data?.userId === userId).map((j) => j.remove().catch(() => undefined)));
+    } catch (err) {
+      this.logger.warn({ err: (err as Error).name }, 'não foi possível limpar a fila após excluir a conta');
+    }
   }
 
   /** Usado pelo guard: a sessão do access token ainda está ativa? */

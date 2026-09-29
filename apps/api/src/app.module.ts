@@ -12,6 +12,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import type { Queue } from 'bullmq';
 import { LoggerModule } from 'nestjs-pino';
 import type pg from 'pg';
+import { AccountController } from './auth/account.controller.js';
 import { AuthController } from './auth/auth.controller.js';
 import { AuthGuard, Public } from './auth/auth.guard.js';
 import { AuthService } from './auth/auth.service.js';
@@ -103,6 +104,7 @@ export class AppModule {
       controllers: [
         HealthController,
         AuthController,
+        AccountController,
         SharesController,
         // CatalogController antes do LibraryController: rotas estáticas de /library (bulk) vêm primeiro
         CatalogController,

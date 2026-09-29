@@ -173,6 +173,12 @@ export default function Settings() {
         <Button title="Simulador de share (dev)" variant="secondary" onPress={() => router.push('/dev/share' as never)} />
       ) : null}
       <Button title="Sair" icon="log-out-outline" variant="danger" onPress={() => void signOut()} />
+      <Button
+        title="Excluir minha conta"
+        icon="trash-outline"
+        variant="secondary"
+        onPress={() => router.push('/delete-account' as never)}
+      />
       <Text style={ui.muted}>Servidor: {API_URL}</Text>
     </ScrollView>
   );

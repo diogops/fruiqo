@@ -66,6 +66,7 @@ function Root() {
         <Stack.Screen name="priority-draft" options={{ title: 'Priorizar a fila' }} />
         <Stack.Screen name="share/[id]" options={{ title: 'Compartilhamento' }} />
         <Stack.Screen name="about" options={{ title: 'Sobre' }} />
+        <Stack.Screen name="delete-account" options={{ title: 'Excluir conta' }} />
         {devToolsEnabled ? <Stack.Screen name="dev/share" options={{ title: 'Simulador de share' }} /> : null}
       </Stack>
       <Gate />

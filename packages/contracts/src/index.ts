@@ -17,6 +17,17 @@ export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
 export const LoginRequestSchema = RegisterRequestSchema;
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 
+/**
+ * Exclusão definitiva da conta (LGPD art. 18, VI; App Store 5.1.1(v)).
+ * Exige reautenticação com a senha atual e confirmação digitada.
+ */
+export const DELETE_ACCOUNT_CONFIRMATION = 'EXCLUIR';
+export const DeleteAccountRequestSchema = z.object({
+  password: z.string().min(1).max(128),
+  confirm: z.literal(DELETE_ACCOUNT_CONFIRMATION),
+});
+export type DeleteAccountRequest = z.infer<typeof DeleteAccountRequestSchema>;
+
 export const RefreshRequestSchema = z.object({
   refreshToken: z.string().min(32).max(256),
 });

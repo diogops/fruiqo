@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { login as apiLogin, logout as apiLogout, onSessionLost, refreshSession, register as apiRegister } from '../api/client';
+import { deleteAccount as apiDeleteAccount, login as apiLogin, logout as apiLogout, onSessionLost, refreshSession, register as apiRegister } from '../api/client';
 
 type AuthState = 'checking' | 'signed_out' | 'signed_in';
 
@@ -9,6 +9,8 @@ interface AuthValue {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  /** exclusão definitiva da conta; em caso de sucesso volta para o login */
+  deleteAccount: (password: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthValue | null>(null);
@@ -67,7 +69,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState('signed_out');
   }, []);
 
-  const value = useMemo(() => ({ state, email, signIn, signUp, signOut }), [state, email, signIn, signUp, signOut]);
+  const deleteAccount = useCallback(async (password: string) => {
+    await apiDeleteAccount(password);
+    writeEmail(null);
+    setEmail(null);
+    setState('signed_out');
+  }, []);
+
+  const value = useMemo(
+    () => ({ state, email, signIn, signUp, signOut, deleteAccount }),
+    [state, email, signIn, signUp, signOut, deleteAccount],
+  );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

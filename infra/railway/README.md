@@ -64,7 +64,9 @@ curl https://api-production-b3adf.up.railway.app/health
 
 ### Apagar uma conta
 
-Não há endpoint de exclusão de conta, e o `fruiqo_owner` não enxerga `users` para DELETE (RLS FORCE sem policy para ele). Use o mesmo caminho da app: dentro do container (`railway ssh --service api`), `node` com `pg` em `DATABASE_URL` (`fruiqo_app`), e na mesma transação `select set_config('app.user_id', '<id>', true)` seguido de `delete from users where id = '<id>'` (os dados do usuário saem em cascata). O `<id>` é o `sub` do access token da conta.
+Pela própria conta: no web, Perfil → "Excluir minha conta"; no app, Ajustes → "Excluir minha conta". Ou direto na API: `DELETE /account` autenticado com o corpo `{"password": "<senha atual>", "confirm": "EXCLUIR"}` → 204 (senha errada 401, sem confirmação 400; rate limit de `AUTH_RATE_LIMIT_PER_MIN`). Na mesma transação apaga o usuário, e as FKs `ON DELETE CASCADE` levam todas as tabelas com `user_id` (sessões incluídas); jobs pendentes dele saem da fila `share-processing` e, no web, o cookie de refresh é limpo. Depois disso o login falha e, com o e-mail fora do `ALLOWED_EMAILS`, um novo cadastro é recusado (403).
+
+Sem a senha da conta não há caminho pela API: o `fruiqo_owner` não enxerga `users` para DELETE (RLS FORCE sem policy para ele). Nesse caso, dentro do container (`railway ssh --service api`), `node` com `pg` em `DATABASE_URL` (`fruiqo_app`) e, na mesma transação, `select set_config('app.user_id', '<id>', true)` seguido de `delete from users where id = '<id>'`.
 
 ## Ligar a IA
 

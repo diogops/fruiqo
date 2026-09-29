@@ -3,6 +3,7 @@
 // navegador manda sozinho com `credentials: 'include'`. O cabeçalho X-Fruiqo-Client identifica o
 // web e protege o refresh por cookie contra CSRF.
 import {
+  DELETE_ACCOUNT_CONFIRMATION,
   EnrichResponseSchema,
   ActivityResponseSchema,
   ApplyPriorityDraftResponseSchema,
@@ -176,6 +177,17 @@ export async function logout(): Promise<void> {
   } finally {
     accessToken = null;
   }
+}
+
+/**
+ * Exclusão definitiva da conta (LGPD; App Store 5.1.1(v)). Renova a sessão antes e chama
+ * uma vez só: aqui um 401 significa senha errada, e não pode derrubar a sessão.
+ */
+export async function deleteAccount(password: string): Promise<void> {
+  await refreshSession();
+  const res = await send('/account', 'DELETE', { password, confirm: DELETE_ACCOUNT_CONFIRMATION }, true);
+  if (!res.ok) throw await toError(res);
+  accessToken = null;
 }
 
 // ---------- catálogo ----------

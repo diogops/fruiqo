@@ -5,6 +5,7 @@ import { ErrorNote } from '../components/shared';
 import { useToast } from '../components/Toast';
 import { formatDateTime } from '../labels';
 import { DeclaredTasteSection } from './DeclaredTaste';
+import { DeleteAccountSection } from './DeleteAccount';
 
 const SOURCE_LABEL = { signals: 'pelo que você assistiu/avaliou', pinned: 'fixado por você', excluded: 'excluído por você' } as const;
 
@@ -242,6 +243,8 @@ export function Profile() {
           </button>
         </>
       )}
+
+      <DeleteAccountSection />
     </section>
   );
 }

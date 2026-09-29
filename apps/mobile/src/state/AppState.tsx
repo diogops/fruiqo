@@ -19,6 +19,8 @@ type AppState = {
   acceptConsent: () => Promise<void>;
   signIn: (mode: 'login' | 'register', email: string, password: string, deviceName: string) => Promise<void>;
   signOut: () => Promise<void>;
+  /** exclusão definitiva da conta; no sucesso volta para o login */
+  deleteAccount: (password: string) => Promise<void>;
   setPendingShare: (share: CreateShareRequest | null) => void;
 };
 
@@ -62,6 +64,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     setAuthStatus('signedOut');
   }, []);
 
+  const deleteAccount = useCallback(async (password: string) => {
+    await api.deleteAccount(password);
+    setAuthStatus('signedOut');
+  }, []);
+
   const value = useMemo<AppState>(
     () => ({
       ready: consented !== null && authStatus !== 'loading',
@@ -71,9 +78,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       acceptConsent,
       signIn,
       signOut,
+      deleteAccount,
       setPendingShare,
     }),
-    [consented, authStatus, pendingShare, acceptConsent, signIn, signOut],
+    [consented, authStatus, pendingShare, acceptConsent, signIn, signOut, deleteAccount],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

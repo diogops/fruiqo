@@ -1,6 +1,7 @@
 // Cliente HTTP da API do Fruiqo. Valida toda resposta com os schemas de @fruiqo/contracts.
 // Access token fica só em memória; refresh token fica no Keychain/Keystore via expo-secure-store (SEC-REQ-08).
 import {
+  DELETE_ACCOUNT_CONFIRMATION,
   type ApplyPriorityDraftRequest,
   ApplyPriorityDraftResponseSchema,
   type ApplyPriorityDraftResponse,
@@ -196,6 +197,21 @@ export async function logout() {
   } finally {
     await clearTokens();
   }
+}
+
+/**
+ * Exclusão definitiva da conta (LGPD; App Store 5.1.1(v)). Chamada única: aqui um 401
+ * significa senha errada e não pode derrubar a sessão; no sucesso apaga os tokens.
+ */
+export async function deleteAccount(password: string): Promise<void> {
+  if (!accessToken) await refreshSession();
+  const res = await rawFetch('/account', {
+    method: 'DELETE',
+    body: JSON.stringify({ password, confirm: DELETE_ACCOUNT_CONFIRMATION }),
+    auth: true,
+  });
+  if (!res.ok) throw await toApiError(res);
+  await clearTokens();
 }
 
 // A API pode devolver a lista direto ou embrulhada em { items }.
