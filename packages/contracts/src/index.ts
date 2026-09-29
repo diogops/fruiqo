@@ -197,6 +197,38 @@ export function streamingLinkKey(name: string): StreamingLinkKey | undefined {
   return serviceOf(name)?.key;
 }
 
+/** Página pública da obra no TMDB (para o usuário conferir se é mesmo o título certo). */
+export function tmdbPageUrl(mediaType: 'movie' | 'tv', tmdbId: number): string {
+  return `https://www.themoviedb.org/${mediaType}/${Math.trunc(tmdbId)}`;
+}
+
+/** Página do título no IMDb, só com ID no formato oficial (tt + dígitos). */
+export function imdbPageUrl(imdbId: string | null | undefined): string | undefined {
+  return imdbId && /^tt\d{5,10}$/.test(imdbId) ? `https://www.imdb.com/title/${imdbId}/` : undefined;
+}
+
+/** Página da obra na Open Library. */
+export function openLibraryWorkUrl(olWorkId: string): string | undefined {
+  return /^OL\d{1,12}W$/.test(olWorkId) ? `https://openlibrary.org/works/${olWorkId}` : undefined;
+}
+
+/**
+ * Onde conferir a obra que o título casou: página no TMDB (filme/série) ou na Open Library (livro),
+ * mais o IMDb quando o ID já veio no enriquecimento. Só URLs montadas aqui, de hosts fixos.
+ */
+export function workPages(res: Resolution | null | undefined): { url: string; label: string; imdbUrl?: string } | undefined {
+  if (!res) return undefined;
+  if (res.provider === 'tmdb' && res.tmdbId && res.mediaType) {
+    const imdbUrl = imdbPageUrl(res.imdbId);
+    return { url: tmdbPageUrl(res.mediaType, res.tmdbId), label: 'TMDB', ...(imdbUrl ? { imdbUrl } : {}) };
+  }
+  if (res.provider === 'openlibrary' && res.olWorkId) {
+    const url = openLibraryWorkUrl(res.olWorkId);
+    return url ? { url, label: 'Open Library' } : undefined;
+  }
+  return undefined;
+}
+
 /**
  * Melhor link para abrir o título no serviço: direto (`title`), busca com o nome (`search`) ou a
  * página inicial (`home`). Serviço desconhecido: undefined (quem chama cai para a página do TMDB).

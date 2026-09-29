@@ -1,13 +1,13 @@
 // RF-46: incluir título por busca inteligente. Campo único (nome, nome + ano, ator/diretor, gênero/década
 // ou descrição) → candidatos com pôster para marcar → revisão (RF-42) ou "aprovar já".
 // A aba "Manual" cobre o que a busca não resolve (músicas, livros, títulos fora do TMDB).
-import { TMDB_ATTRIBUTION, type RecommendationKind, type TitleSearchResponse } from '@fruiqo/contracts';
+import { TMDB_ATTRIBUTION, tmdbPageUrl, type RecommendationKind, type TitleSearchResponse } from '@fruiqo/contracts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../api/client';
 import { ErrorNote, Modal } from '../components/shared';
 import { useToast } from '../components/Toast';
-import { Icon, Thumb } from '../components/ui';
+import { Icon, Thumb, WorkLink } from '../components/ui';
 import { kindLabel, KINDS } from '../labels';
 
 const SEARCH_DEBOUNCE_MS = 400;
@@ -44,6 +44,8 @@ export interface SearchPick {
   overview?: string;
   inLibrary: { rank: number | null; decision: 'cataloged' | 'review_queue' } | null;
   ref: { tmdbId: number; mediaType: 'movie' | 'tv' } | { olWorkId: string };
+  /** página da obra para conferir antes de incluir (TMDB ou Open Library), em aba nova */
+  page?: { url: string; label: string };
 }
 
 export function searchPicks(data: TitleSearchResponse | undefined): SearchPick[] {
@@ -59,6 +61,7 @@ export function searchPicks(data: TitleSearchResponse | undefined): SearchPick[]
     overview: r.overview,
     inLibrary: r.inLibrary,
     ref: { tmdbId: r.tmdbId, mediaType: r.mediaType },
+    page: { url: tmdbPageUrl(r.mediaType, r.tmdbId), label: 'TMDB' },
   }));
   const books: SearchPick[] = (data.books ?? []).map((b) => ({
     key: `ol:${b.olWorkId}`,
@@ -69,6 +72,7 @@ export function searchPicks(data: TitleSearchResponse | undefined): SearchPick[]
     people: b.authors,
     inLibrary: b.inLibrary,
     ref: { olWorkId: b.olWorkId },
+    page: { url: b.url, label: 'Open Library' },
   }));
   return [...media, ...books];
 }
@@ -169,9 +173,14 @@ export function TitleSearch({
           const checked = selected?.has(key) ?? false;
           return (
             <li key={key} className={checked ? 'search-card selected' : 'search-card'}>
-              <Thumb src={r.posterUrl} title={r.title} width={54} height={81} />
+              <WorkLink href={r.page?.url} label={`Ver ${r.title} no ${r.page?.label}`} className="work-link-thumb">
+                <Thumb src={r.posterUrl} title={r.title} width={54} height={81} />
+              </WorkLink>
               <div className="grow">
-                <strong>{r.title}</strong>
+                <WorkLink href={r.page?.url} label={`Ver ${r.title} no ${r.page?.label}`}>
+                  <strong>{r.title}</strong>
+                  {r.page && <Icon name="external" size={13} className="work-ext-icon" />}
+                </WorkLink>
                 <div className="muted small">
                   {[kindLabel(r.kind), r.year].filter(Boolean).join(' · ')}
                   {r.originalTitle && r.originalTitle !== r.title ? ` · ${r.originalTitle}` : ''}

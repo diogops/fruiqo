@@ -5,13 +5,13 @@
 import { DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import type { ApproveReviewRequest, RecommendationKind, ReviewBatchRequest, ReviewItem } from '@fruiqo/contracts';
+import { openLibraryWorkUrl, tmdbPageUrl, workPages, type ApproveReviewRequest, type RecommendationKind, type ReviewBatchRequest, type ReviewItem } from '@fruiqo/contracts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { api } from '../api/client';
 import { CorrectTitleForm, ErrorNote, Modal } from '../components/shared';
 import { useToast } from '../components/Toast';
-import { EmptyState, Icon, Thumb } from '../components/ui';
+import { EmptyState, Icon, Thumb, WorkLink } from '../components/ui';
 import { kindLabel, KINDS, PLATFORM_LABEL, percent } from '../labels';
 
 const SHORTCUTS: [string, string][] = [
@@ -55,6 +55,8 @@ type Alt = {
   subtitle?: string;
   overview?: string;
   score: number;
+  /** página da alternativa para conferir (TMDB ou Open Library) */
+  page?: { url: string; label: string };
   body: Pick<ApproveReviewRequest, 'alternative' | 'alternativeBook'>;
 };
 
@@ -66,6 +68,7 @@ function alternativesOf(it: ReviewItem): Alt[] {
     posterUrl: a.posterUrl,
     overview: a.overview,
     score: a.score,
+    page: { url: tmdbPageUrl(a.mediaType, a.tmdbId), label: 'TMDB' },
     body: { alternative: { tmdbId: a.tmdbId, mediaType: a.mediaType } },
   }));
   const books: Alt[] = (it.bookAlternatives ?? []).map((a) => ({
@@ -75,6 +78,7 @@ function alternativesOf(it: ReviewItem): Alt[] {
     posterUrl: a.coverUrl,
     subtitle: a.authors?.join(', '),
     score: a.score,
+    ...(openLibraryWorkUrl(a.olWorkId) ? { page: { url: openLibraryWorkUrl(a.olWorkId)!, label: 'Open Library' } } : {}),
     body: { alternativeBook: { olWorkId: a.olWorkId } },
   }));
   return [...media, ...books].slice(0, 3);
@@ -328,6 +332,10 @@ export function Review() {
           const t = it.title;
           const alt = chosenAlt[t.id];
           const alts = alternativesOf(it);
+          // conferir a obra: a alternativa escolhida ou o match atual
+          const matched = workPages(t.resolution);
+          const page = alt ? alt.page : matched;
+          const imdbUrl = alt ? undefined : matched?.imdbUrl;
           const overview = alt ? alt.overview : t.overview;
           return (
             <SortableCard
@@ -350,14 +358,24 @@ export function Review() {
                   aria-label={`Marcar ${t.title}`}
                 />
               </label>
-              <Thumb src={alt?.posterUrl ?? t.posterUrl} title={alt?.title ?? t.title} width={60} height={90} />
+              <WorkLink href={page?.url} label={`Ver ${alt?.title ?? t.title} no ${page?.label}`} className="work-link-thumb">
+                <Thumb src={alt?.posterUrl ?? t.posterUrl} title={alt?.title ?? t.title} width={60} height={90} />
+              </WorkLink>
               <div className="grow review-body">
                 <div>
-                  <strong>{alt?.title ?? t.title}</strong>
+                  <WorkLink href={page?.url} label={`Ver ${alt?.title ?? t.title} no ${page?.label}`}>
+                    <strong>{alt?.title ?? t.title}</strong>
+                    {page && <Icon name="external" size={13} className="work-ext-icon" />}
+                  </WorkLink>
                   {!alt && t.creator && <span className="review-creator"> — {t.creator}</span>}
                   <span className="muted small"> {[kindLabel(t.kind), alt?.year ?? t.year].filter(Boolean).join(' · ')}</span>
                   {t.matchScore !== undefined && !alt && <span className="badge"> match {percent(t.matchScore)}</span>}
                   {alt && <span className="badge badge-ai">alternativa escolhida</span>}
+                  {imdbUrl && (
+                    <a className="work-ext" href={imdbUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} aria-label={`Ver ${t.title} no IMDb (abre em nova aba)`}>
+                      IMDb <Icon name="external" size={12} />
+                    </a>
+                  )}
                 </div>
                 {overview && <p className={i === idx ? 'overview review-overview' : 'overview review-overview clamp'}>{overview}</p>}
                 {it.candidate && (
@@ -394,7 +412,7 @@ export function Review() {
                     <span className="muted small">Não é esse? </span>
                     {alts.map((a) => {
                       const on = alt?.key === a.key;
-                      return (
+                      return [
                         <button
                           key={a.key}
                           type="button"
@@ -409,8 +427,22 @@ export function Review() {
                           {a.title}
                           {a.year ? ` (${a.year})` : ''}
                           {a.subtitle ? ` · ${a.subtitle}` : ''} · {percent(a.score)}
-                        </button>
-                      );
+                        </button>,
+                        a.page && (
+                          <a
+                            key={`${a.key}-page`}
+                            className="alt-link"
+                            href={a.page.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            aria-label={`Ver ${a.title}${a.year ? ` (${a.year})` : ''} no ${a.page.label} (abre em nova aba)`}
+                            title={`Ver no ${a.page.label} (abre em nova aba)`}
+                          >
+                            <Icon name="external" size={14} />
+                          </a>
+                        ),
+                      ];
                     })}
                   </div>
                 )}

@@ -25,6 +25,27 @@ function response(over: Partial<TitleSearchResponse['interpreted']> = {}): Title
   } as TitleSearchResponse;
 }
 
+describe('conferir a obra antes de incluir', () => {
+  it('capa e título abrem a página da obra (TMDB ou Open Library) em aba nova', async () => {
+    __setAccessToken('tok');
+    mockApi({ 'GET /search/titles': response(), 'GET /lists': [] });
+    const user = userEvent.setup();
+    renderWithProviders(<AddTitle onClose={vi.fn()} />);
+    await user.type(screen.getByRole('searchbox', { name: 'Buscar filme, série ou livro' }), 'duna');
+    await screen.findByText('com Timothée Chalamet, Zendaya');
+    const results = screen.getByRole('list', { name: 'Resultados da busca' });
+    const serie = within(results).getAllByRole('link', { name: 'Ver Duna: A Profecia no TMDB (abre em nova aba)' });
+    expect(serie).toHaveLength(2); // capa e título
+    for (const a of serie) {
+      expect(a.getAttribute('href')).toBe('https://www.themoviedb.org/tv/90228');
+      expect(a.getAttribute('target')).toBe('_blank');
+      expect(a.getAttribute('rel')).toContain('noopener');
+    }
+    const livro = within(results).getAllByRole('link', { name: 'Ver Duna no Open Library (abre em nova aba)' });
+    expect(livro[0]!.getAttribute('href')).toBe('https://openlibrary.org/works/OL893415W');
+  });
+});
+
 describe('adicionar título por busca (RF-46)', () => {
   it('foca o campo, mostra cards com elenco e "já está na sua lista", e envia os marcados para a revisão', async () => {
     __setAccessToken('tok');

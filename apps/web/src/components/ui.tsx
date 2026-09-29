@@ -108,6 +108,7 @@ const PATHS = {
   sidebar: 'M3 3h18v18H3zM9 3v18',
   check: 'M20 6L9 17l-5-5',
   refresh: 'M21 12a9 9 0 1 1-2.64-6.36L21 8M21 3v5h-5',
+  external: 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3',
 } as const;
 
 export type IconName = keyof typeof PATHS;
@@ -390,5 +391,39 @@ export function StarRating({
     >
       {stars}
     </span>
+  );
+}
+
+// ---------------------------------------------------------- link para conferir a obra
+
+/**
+ * Envolve capa/título num link para a página da obra (TMDB, IMDb, Open Library) em aba nova.
+ * Sem `href`, só renderiza o conteúdo.
+ */
+export function WorkLink({
+  href,
+  label,
+  className,
+  children,
+}: {
+  href?: string;
+  /** texto acessível, ex.: "Ver Chernobyl no TMDB" */
+  label: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  if (!href) return <>{children}</>;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={className ? `work-link ${className}` : 'work-link'}
+      title={`${label} (abre em nova aba)`}
+      aria-label={`${label} (abre em nova aba)`}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {children}
+    </a>
   );
 }

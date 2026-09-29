@@ -964,3 +964,15 @@ details[open] > summary { margin-bottom: 0.6rem; }
 .cand-others summary { cursor: pointer; min-height: 2.25rem; display: flex; align-items: center; color: var(--text-2); }
 .cand-others-list { list-style: none; margin: 0.25rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.15rem; }
 .cand-others-list .btn-link { text-align: left; display: inline-flex; gap: 0.35rem; align-items: center; white-space: normal; }
+
+/* links para conferir a obra (TMDB/IMDb/Open Library) em aba nova */
+.work-link { color: inherit; text-decoration: none; border-radius: 6px; }
+.work-link:hover strong, .work-link:focus-visible strong { text-decoration: underline; text-underline-offset: 3px; }
+.work-link:focus-visible { outline: 2px solid var(--primary-2, #60a5fa); outline-offset: 2px; }
+.work-link-thumb { display: inline-block; flex-shrink: 0; line-height: 0; }
+.work-link-thumb:hover { filter: brightness(1.12); }
+.work-ext { display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.78rem; font-weight: 600; color: var(--primary-2, #60a5fa); margin-left: 0.4rem; text-decoration: none; }
+.work-ext:hover { text-decoration: underline; }
+.alt-link { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin-left: -0.15rem; margin-right: 0.3rem; border-radius: 6px; color: var(--muted); vertical-align: middle; }
+.alt-link:hover, .alt-link:focus-visible { color: var(--text); background: var(--surface-3); }
+.work-ext-icon { margin-left: 0.3rem; vertical-align: -1px; color: var(--muted); }

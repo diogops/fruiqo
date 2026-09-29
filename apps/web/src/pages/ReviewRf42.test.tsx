@@ -27,6 +27,35 @@ function rich(): ReviewItem {
   };
 }
 
+describe('conferir a obra na revisão', () => {
+  it('título e capa abrem o TMDB, IMDb quando houver, e cada alternativa tem o próprio link', async () => {
+    __setAccessToken('tok');
+    const it1 = rich();
+    it1.title = {
+      ...it1.title,
+      resolution: { provider: 'tmdb', externalId: 'movie:438631', title: 'Duna', url: 'https://www.themoviedb.org/movie/438631', tmdbId: 438631, mediaType: 'movie', imdbId: 'tt1160419' },
+    };
+    mockApi({ 'GET /review': { items: [it1] } });
+    const user = userEvent.setup();
+    renderWithProviders(<Review />);
+    await screen.findByText('Entra em #3 de 10');
+    const tmdb = screen.getAllByRole('link', { name: 'Ver Duna no TMDB (abre em nova aba)' });
+    expect(tmdb).toHaveLength(2);
+    expect(tmdb[0]!.getAttribute('href')).toBe('https://www.themoviedb.org/movie/438631');
+    expect(tmdb[0]!.getAttribute('target')).toBe('_blank');
+    expect(screen.getByRole('link', { name: 'Ver Duna no IMDb (abre em nova aba)' }).getAttribute('href')).toBe('https://www.imdb.com/title/tt1160419/');
+
+    const alts = screen.getByRole('group', { name: 'Outras opções para Duna' });
+    expect(within(alts).getByRole('link', { name: 'Ver Duna: A Profecia (2024) no TMDB (abre em nova aba)' }).getAttribute('href')).toBe(
+      'https://www.themoviedb.org/tv/90228',
+    );
+    // escolhida a alternativa, o título passa a abrir a página dela (e o IMDb do match antigo some)
+    await user.click(within(alts).getByRole('button', { name: /1984/ }));
+    expect(screen.getAllByRole('link', { name: 'Ver Duna no TMDB (abre em nova aba)' })[0]!.getAttribute('href')).toBe('https://www.themoviedb.org/movie/841');
+    expect(screen.queryByRole('link', { name: /IMDb/ })).toBeNull();
+  });
+});
+
 describe('revisão com encaixe, alternativas e lote (RF-42)', () => {
   it('mostra encaixe sugerido, lista proposta e aprova com a alternativa escolhida e sem a lista', async () => {
     __setAccessToken('tok');
