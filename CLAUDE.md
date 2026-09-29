@@ -48,6 +48,8 @@ Preview do app no navegador: `pnpm --filter @fruiqo/mobile web` (API com `WEB_OR
 
 **Não rode `pnpm add`/`pnpm install` com o Metro ligado no Windows**: ele trava arquivos do `node_modules` e a instalação fica pela metade (pacotes somem). Pare o Metro antes.
 
+Iteração rápida de tela no emulador: app de desenvolvimento (`eas build --profile development`, pacote `com.fruiqo.app.dev`) + `pnpm --filter @fruiqo/mobile dev:prod` (Metro com a API de produção, sem API local; mudanças de JS aparecem na hora) ou `dev` (API local em :4000). Módulo nativo novo exige gerar o app de desenvolvimento de novo.
+
 O app usa módulo nativo (`expo-share-intent`), então **não roda no Expo Go**: precisa de build (EAS). O APK `preview-apk` aponta para `http://10.0.2.2:4000` (emulador → host); para celular físico, troque `EXPO_PUBLIC_API_URL` no `eas.json` pelo IP da máquina na rede.
 
 ## Arquitetura

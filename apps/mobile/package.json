@@ -11,6 +11,7 @@
     "test": "jest",
     "eas-build-post-install": "pnpm --filter @fruiqo/contracts build",
     "dev": "adb reverse tcp:8081 tcp:8081 && adb reverse tcp:4000 tcp:4000 && cross-env APP_VARIANT=development EXPO_PUBLIC_API_URL=http://10.0.2.2:4000 expo start --dev-client --port 8081",
+    "dev:prod": "adb reverse tcp:8081 tcp:8081 && cross-env APP_VARIANT=development EXPO_PUBLIC_API_URL=https://api-production-b3adf.up.railway.app expo start --dev-client --port 8081",
     "web": "cross-env APP_VARIANT=development EXPO_PUBLIC_API_URL=http://localhost:4000 expo start --web --port 8082",
     "check:prod-bundle": "node scripts/check-prod-bundle.mjs --control"
   },
