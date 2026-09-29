@@ -154,6 +154,31 @@ export type WatchProvider = z.infer<typeof WatchProviderSchema>;
 export const TMDB_ATTRIBUTION = 'This product uses the TMDB API but is not endorsed or certified by TMDB.';
 export const JUSTWATCH_ATTRIBUTION = 'Dados de disponibilidade: JustWatch';
 
+/**
+ * Página inicial pública de cada serviço de streaming, pelo nome que o TMDB devolve. TOS-REQ-17: só
+ * URL pública padrão, nunca deep link para o título. Serviço fora da lista: quem chama cai para a
+ * página "onde assistir" do TMDB.
+ */
+const PROVIDER_SITES: [RegExp, string][] = [
+  [/^netflix/i, 'https://www.netflix.com/br/'],
+  [/^(amazon )?prime video/i, 'https://www.primevideo.com/'],
+  [/^disney/i, 'https://www.disneyplus.com/pt-br'],
+  [/^(hbo )?max\b/i, 'https://www.max.com/br/pt'],
+  [/^globoplay/i, 'https://globoplay.globo.com/'],
+  [/^apple tv/i, 'https://tv.apple.com/br'],
+  [/^paramount/i, 'https://www.paramountplus.com/br/'],
+  [/^mubi/i, 'https://mubi.com/pt/br'],
+  [/^crunchyroll/i, 'https://www.crunchyroll.com/pt-br'],
+  [/^telecine/i, 'https://www.telecine.com.br/'],
+  [/^claro tv/i, 'https://www.clarotvmais.com.br/'],
+  [/^google play/i, 'https://play.google.com/store/movies'],
+  [/^youtube/i, 'https://www.youtube.com/'],
+];
+
+export function providerSiteUrl(name: string): string | undefined {
+  return PROVIDER_SITES.find(([re]) => re.test(name.trim()))?.[1];
+}
+
 export const RecommendationSchema = z.object({
   id: z.uuid(),
   kind: RecommendationKindSchema,
@@ -297,6 +322,9 @@ export type TaxonomyTag = z.infer<typeof TaxonomyTagSchema>;
 
 export const TitleListRefSchema = z.object({ id: z.uuid(), name: z.string() });
 
+/** Nota em estrelas: 0,5 a 5, de meia em meia. Alimenta o perfil de gosto e o encaixe na fila. */
+export const RatingSchema = z.number().min(0.5).max(5).multipleOf(0.5);
+
 /** Item do catálogo do usuário (é a recomendação catalogada, com o estado de consumo). */
 export const TitleSchema = z.object({
   id: z.uuid(),
@@ -306,7 +334,7 @@ export const TitleSchema = z.object({
   year: z.number().int().optional(),
   status: TitleStatusSchema,
   rank: TitleRankSchema.nullable(),
-  rating: z.number().int().min(1).max(5).optional(),
+  rating: RatingSchema.optional(),
   notes: z.string().optional(),
   genres: z.array(TaxonomyTagSchema),
   /** derivados dos gêneros pela regra R da taxonomia */
@@ -379,7 +407,7 @@ export const UpdateTitleRequestSchema = z
     year: z.number().int().min(1870).max(2100).nullable().optional(),
     creator: z.string().trim().max(200).nullable().optional(),
     status: TitleStatusSchema.optional(),
-    rating: z.number().int().min(1).max(5).nullable().optional(),
+    rating: RatingSchema.nullable().optional(),
     notes: z.string().max(500).nullable().optional(),
     /** gêneros manuais (chaves da taxonomia); marca `enrichment = manual` */
     genres: z.array(z.string().max(32)).max(6).optional(),
@@ -827,7 +855,7 @@ export const ReviewBatchRequestSchema = z
   .object({
     ids: z.array(z.uuid()).min(1).max(200),
     action: z.enum(['approve', 'reject']),
-    /** só para approve; padrão `suggested` */
+    /** só para approve; padrão `suggested`. `top`/`end` mantêm a ordem de `ids` (o 1º fica acima) */
     placement: ReviewPlacementSchema.optional(),
   })
   .strict();
@@ -970,7 +998,7 @@ export const FavoriteSchema = z.object({
   title: z.string(),
   kind: RecommendationKindSchema,
   year: z.number().int().optional(),
-  rating: z.number().int().min(1).max(5).optional(),
+  rating: RatingSchema.optional(),
   comment: z.string().optional(),
   genres: z.array(TaxonomyTagSchema),
   posterUrl: z.url().optional(),
@@ -987,7 +1015,7 @@ export const CreateFavoriteRequestSchema = z
     title: z.string().trim().min(1).max(200),
     kind: RecommendationKindSchema.optional(),
     year: z.number().int().min(1870).max(2100).optional(),
-    rating: z.number().int().min(1).max(5).optional(),
+    rating: RatingSchema.optional(),
     comment: z.string().trim().max(500).optional(),
     /** escolhido na busca (RF-46); sem isto o servidor procura pelo título/ano */
     tmdbId: z.number().int().optional(),

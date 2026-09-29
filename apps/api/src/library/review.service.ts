@@ -154,14 +154,23 @@ export class ReviewService {
     });
   }
 
-  /** Em lote: cada item na sua transação (um erro não desfaz os outros), na ordem enviada. */
+  /**
+   * Em lote: cada item na sua transação (um erro não desfaz os outros), na ordem enviada. Com `top`
+   * e `end` o bloco entra nessa mesma ordem (o 1º enviado fica acima): `top` vira #1, #2, #3…
+   */
   async batch(userId: string, req: ReviewBatchRequest): Promise<ReviewBatchResponse> {
     const approved: Title[] = [];
     const failed: ReviewBatchResponse['failed'] = [];
     let rejected = 0;
     for (const id of [...new Set(req.ids)]) {
       try {
-        if (req.action === 'approve') approved.push(await this.approve(userId, id, req.placement ? { placement: req.placement } : {}));
+        if (req.action === 'approve') approved.push(
+            await this.approve(
+              userId,
+              id,
+              req.placement === 'top' ? { position: approved.length + 1 } : req.placement ? { placement: req.placement } : {},
+            ),
+          );
         else {
           await this.reject(userId, id);
           rejected++;

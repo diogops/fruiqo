@@ -1,3 +1,4 @@
+import { JUSTWATCH_ATTRIBUTION, TMDB_ATTRIBUTION } from '@fruiqo/contracts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
@@ -245,6 +246,16 @@ export function Profile() {
       )}
 
       <DeleteAccountSection />
+
+      {/* TOS-REQ-01: atribuição do TMDB em Sobre/Créditos */}
+      <h2>Créditos</h2>
+      <p className="muted small credits">
+        Dados de filmes e séries: TMDB. {TMDB_ATTRIBUTION}
+        <br />
+        {JUSTWATCH_ATTRIBUTION}.
+        <br />
+        Dados de livros: Open Library.
+      </p>
     </section>
   );
 }

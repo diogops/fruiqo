@@ -110,7 +110,7 @@ describe('revisão com encaixe, alternativas e lote (RF-42)', () => {
     expect(screen.getByText('2 marcado(s)')).toBeTruthy();
     await user.click(approveBtn);
     await waitFor(() => expect(calls.some((q) => q.path === '/review/batch')).toBe(true));
-    expect(calls.find((q) => q.path === '/review/batch')?.body).toEqual({ ids: [a.title.id, b.title.id], action: 'approve' });
+    expect(calls.find((q) => q.path === '/review/batch')?.body).toEqual({ ids: [a.title.id, b.title.id], action: 'approve', placement: 'suggested' });
     await screen.findByText('2 título(s) aprovado(s).');
 
     await user.click(screen.getByRole('checkbox', { name: 'Marcar Gama' }));

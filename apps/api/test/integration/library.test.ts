@@ -4,7 +4,9 @@ import { pino } from 'pino';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { REDACT_PATHS } from '../../src/common/logger.js';
-import { createDb } from '../../src/db/client.js';
+import { and, eq } from 'drizzle-orm';
+import { createDb, withUser } from '../../src/db/client.js';
+import { tasteSignals } from '../../src/db/schema.js';
 import { seedDemo } from '../../src/library/demo-seed.js';
 import { HeuristicExtractor } from '../../src/pipeline/extractors/heuristic.js';
 import { ShareProcessor } from '../../src/pipeline/process-share.js';
@@ -76,6 +78,26 @@ describe('GET /home: Continuar (RF-31)', () => {
     const home = (await get(user, '/home').expect(200)).body;
     expect(home.continue.next.title).toBe('Intocáveis');
     expect(home.continue.progress.done).toBe(3);
+  });
+
+  it('nota de meia em meia estrela; a nota nova substitui a anterior no gosto', async () => {
+    const { user, ids } = await demoUser();
+    const id = ids.get('Intocáveis')!;
+    const rate = (rating: number | null) => ctx.http().patch(`/library/${id}`).set(...auth(user)).send({ rating });
+    await rate(3.7).expect(400);
+    await rate(0).expect(400);
+    expect((await rate(4.5).expect(200)).body.rating).toBe(4.5);
+    await rate(1.5).expect(200);
+    const rated = () =>
+      withUser(db, user.userId, (tx) =>
+        tx
+          .select({ value: tasteSignals.value })
+          .from(tasteSignals)
+          .where(and(eq(tasteSignals.recommendationId, id), eq(tasteSignals.signal, 'rated'))),
+      );
+    expect((await rated()).map((r) => r.value)).toEqual([1.5]);
+    await rate(null).expect(200);
+    expect(await rated()).toEqual([]);
   });
 
   it('usuário sem listas não tem "Continuar"', async () => {

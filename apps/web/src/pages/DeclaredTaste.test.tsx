@@ -35,7 +35,7 @@ describe('perfil declarado (RF-43)', () => {
     await waitFor(() => expect((box as HTMLTextAreaElement).value).toBe('Adoro suspense psicológico.'));
     expect(screen.getByText('27/2000')).toBeTruthy();
     expect(screen.getByText('Zodíaco')).toBeTruthy();
-    expect(screen.getByLabelText('nota 5 de 5')).toBeTruthy();
+    expect(screen.getByRole('img', { name: 'Nota: 5 de 5' })).toBeTruthy();
     expect(screen.getByText('favoritos + resumo')).toBeTruthy();
 
     await user.type(box, ' Nada de romance.');
@@ -71,7 +71,10 @@ describe('perfil declarado (RF-43)', () => {
     expect(document.activeElement).toBe(search);
     await user.type(search, 'zod');
     await user.click(await within(dialog).findByRole('button', { name: 'Escolher' }));
-    await user.click(within(dialog).getByRole('radio', { name: '4 de 5' }));
+    // meia estrela pelo teclado: End = 5, três ← = 3,5
+    within(dialog).getByRole('slider', { name: 'Nota' }).focus();
+    await user.keyboard('{End}{ArrowLeft}{ArrowLeft}{ArrowLeft}');
+    expect(within(dialog).getByRole('slider', { name: 'Nota' }).getAttribute('aria-valuenow')).toBe('3.5');
     await user.type(within(dialog).getByLabelText(/Comentário/), 'Tenso do início ao fim');
     await user.click(within(dialog).getByRole('button', { name: 'Adicionar aos favoritos' }));
     await waitFor(() => expect(calls.some((c) => c.path === '/profile/favorites')).toBe(true));
@@ -81,7 +84,7 @@ describe('perfil declarado (RF-43)', () => {
       year: 2007,
       tmdbId: 1949,
       mediaType: 'movie',
-      rating: 4,
+      rating: 3.5,
       comment: 'Tenso do início ao fim',
     });
   });

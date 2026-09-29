@@ -1,5 +1,5 @@
 import type { ReviewItem } from '@fruiqo/contracts';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { __setAccessToken } from '../api/client';
@@ -63,14 +63,14 @@ describe('fila de revisão (RF-28)', () => {
 
     // J vai para o segundo e A aprova
     await user.keyboard('j');
-    expect(screen.getByRole('option', { selected: true }).textContent).toContain('Segundo');
+    expect(within(screen.getByRole('listbox')).getByRole('option', { selected: true }).textContent).toContain('Segundo');
     await user.keyboard('a');
     await waitFor(() => expect(approved).toEqual(['Segundo']));
     await waitFor(() => expect(screen.queryByText('Segundo')).toBeNull());
 
     // K volta ao primeiro e R rejeita
     await user.keyboard('k');
-    expect(screen.getByRole('option', { selected: true }).textContent).toContain('Primeiro');
+    expect(within(screen.getByRole('listbox')).getByRole('option', { selected: true }).textContent).toContain('Primeiro');
     await user.keyboard('r');
     await waitFor(() => expect(rejected).toEqual(['Primeiro']));
     await waitFor(() => expect(screen.queryByText('Primeiro')).toBeNull());

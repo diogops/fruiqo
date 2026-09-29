@@ -1,9 +1,13 @@
 // RF-42: toda importação passa por aqui antes de entrar na fila. Cada item mostra o match (e até 3
 // alternativas), o encaixe sugerido na fila com os motivos, a lista proposta e possíveis duplicatas.
 // Atalhos: J/K navegam, A aprova, R rejeita, E corrige, X marca para o lote, ? ajuda.
-import type { ApproveReviewRequest, RecommendationKind, ReviewItem } from '@fruiqo/contracts';
+// A ordem da tela pode ser arrastada: aprovar marcados no topo/fim põe o bloco nessa ordem.
+import { DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import type { ApproveReviewRequest, RecommendationKind, ReviewBatchRequest, ReviewItem } from '@fruiqo/contracts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { api } from '../api/client';
 import { CorrectTitleForm, ErrorNote, Modal } from '../components/shared';
 import { useToast } from '../components/Toast';
@@ -21,7 +25,15 @@ const SHORTCUTS: [string, string][] = [
   ['Esc', 'fechar'],
 ];
 
-const MUSIC_KINDS = new Set<string>(['music_track', 'music_album', 'artist']);
+type ReviewPlacement = NonNullable<ReviewBatchRequest['placement']>;
+
+const BATCH_PLACEMENTS: [ReviewPlacement, string][] = [
+  ['suggested', 'no encaixe sugerido de cada um'],
+  ['top', 'no topo, nesta ordem'],
+  ['end', 'no fim da fila, nesta ordem'],
+];
+
+const MUSIC_KINDS =new Set<string>(['music_track', 'music_album', 'artist']);
 const ORIGIN_LABEL: Record<string, string> = { screenshot: 'prints', text_file: 'arquivo .txt', text: 'texto' };
 
 /** "de texto", "de arquivo .txt", "de prints"; link mostra a plataforma ("de YouTube") e, sem ela, "link". */
@@ -41,6 +53,7 @@ type Alt = {
   year?: number;
   posterUrl?: string;
   subtitle?: string;
+  overview?: string;
   score: number;
   body: Pick<ApproveReviewRequest, 'alternative' | 'alternativeBook'>;
 };
@@ -51,6 +64,7 @@ function alternativesOf(it: ReviewItem): Alt[] {
     title: a.title,
     year: a.year,
     posterUrl: a.posterUrl,
+    overview: a.overview,
     score: a.score,
     body: { alternative: { tmdbId: a.tmdbId, mediaType: a.mediaType } },
   }));
@@ -79,9 +93,39 @@ export function Review() {
   // escolhas por item antes de aprovar: alternativa de match e se entra na lista proposta
   const [chosenAlt, setChosenAlt] = useState<Record<string, Alt | undefined>>({});
   const [skipList, setSkipList] = useState<Record<string, boolean>>({});
+  // ordem arrastada na tela (ids); itens novos entram no fim, na ordem do servidor
+  const [order, setOrder] = useState<string[]>([]);
+  const [batchPlacement, setBatchPlacement] = useState<ReviewPlacement>('suggested');
   const rowRefs = useRef<(HTMLLIElement | null)[]>([]);
-  const items = review.data?.items ?? [];
+  const items = useMemo(() => {
+    const server = review.data?.items ?? [];
+    if (order.length === 0) return server;
+    const pos = new Map(order.map((id, i) => [id, i]));
+    return server
+      .map((it, i) => ({ it, k: pos.get(it.title.id) ?? order.length + i }))
+      .sort((a, b) => a.k - b.k)
+      .map((x) => x.it);
+  }, [review.data, order]);
   const current = items[Math.min(idx, items.length - 1)];
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    // no toque, segurar ~200ms pela alça inicia o arraste; mover antes disso é rolagem
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  function onDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const ids = items.map((i) => i.title.id);
+    const from = ids.indexOf(String(active.id));
+    const to = ids.indexOf(String(over.id));
+    if (from < 0 || to < 0) return;
+    setOrder(arrayMove(ids, from, to));
+    setIdx(to);
+    // quem arrasta quer essa ordem na fila: o lote passa a entrar no topo, nesta ordem
+    setBatchPlacement((p) => (p === 'suggested' ? 'top' : p));
+  }
 
   useEffect(() => {
     if (idx > 0 && idx >= items.length) setIdx(Math.max(0, items.length - 1));
@@ -129,11 +173,12 @@ export function Review() {
   );
 
   async function batch(action: 'approve' | 'reject') {
-    const ids = [...marked];
+    // na ordem da tela (a arrastada), não na ordem em que foram marcados
+    const ids = items.map((i) => i.title.id).filter((id) => marked.has(id));
     if (ids.length === 0) return;
     setBusy(true);
     try {
-      const res = await api.reviewBatch({ ids, action });
+      const res = await api.reviewBatch({ ids, action, ...(action === 'approve' ? { placement: batchPlacement } : {}) });
       const ok = action === 'approve' ? res.approved.length : res.rejected;
       toast.show(
         `${ok} título(s) ${action === 'approve' ? 'aprovado(s)' : 'rejeitado(s)'}${res.failed.length ? ` · ${res.failed.length} falhou/falharam` : ''}.`,
@@ -251,6 +296,16 @@ export function Review() {
           </label>
           <span className="grow" />
           {marked.size > 0 && <span className="muted small">{marked.size} marcado(s)</span>}
+          <label className="small batch-placement">
+            Aprovar{' '}
+            <select value={batchPlacement} onChange={(e) => setBatchPlacement(e.target.value as ReviewPlacement)} aria-label="Onde os marcados entram na fila">
+              {BATCH_PLACEMENTS.map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </label>
           <button type="button" className="btn" disabled={busy || marked.size === 0} onClick={() => void batch('reject')}>
             Rejeitar marcados
           </button>
@@ -260,22 +315,31 @@ export function Review() {
         </div>
       )}
 
+      {items.length > 1 && (
+        <p className="muted small review-hint">
+          Arraste pela alça <Icon name="grip" size={13} /> para definir a ordem: ao aprovar os marcados no topo ou no fim, eles entram nessa
+          ordem na fila.
+        </p>
+      )}
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <SortableContext items={items.map((i) => i.title.id)} strategy={verticalListSortingStrategy}>
       <ul className="review-list" role="listbox" aria-label="Fila de revisão" aria-multiselectable="false">
         {items.map((it, i) => {
           const t = it.title;
           const alt = chosenAlt[t.id];
           const alts = alternativesOf(it);
+          const overview = alt ? alt.overview : t.overview;
           return (
-            <li
+            <SortableCard
               key={t.id}
-              ref={(el) => {
+              id={t.id}
+              title={t.title}
+              order={i + 1}
+              setRef={(el) => {
                 rowRefs.current[i] = el;
               }}
-              role="option"
-              aria-selected={i === idx}
-              tabIndex={i === idx ? 0 : -1}
-              className={i === idx ? 'review-item review-card current' : 'review-item review-card'}
-              onClick={() => setIdx(i)}
+              selected={i === idx}
+              onSelect={() => setIdx(i)}
             >
               <label className="check review-mark" onClick={(e) => e.stopPropagation()}>
                 <input
@@ -295,6 +359,7 @@ export function Review() {
                   {t.matchScore !== undefined && !alt && <span className="badge"> match {percent(t.matchScore)}</span>}
                   {alt && <span className="badge badge-ai">alternativa escolhida</span>}
                 </div>
+                {overview && <p className={i === idx ? 'overview review-overview' : 'overview review-overview clamp'}>{overview}</p>}
                 {it.candidate && (
                   <div className="muted small">
                     lido como "{it.candidate.rawTitle}" · confiança {percent(it.candidate.confidenceScore)}
@@ -399,10 +464,12 @@ export function Review() {
                   Rejeitar
                 </button>
               </div>
-            </li>
+            </SortableCard>
           );
         })}
       </ul>
+        </SortableContext>
+      </DndContext>
       {!review.isLoading && items.length === 0 && <EmptyState title="Nada para revisar. 🎉">Importe prints, um .txt ou busque um título.</EmptyState>}
       {editing && (
         <Modal title={`Corrigir "${editing.title.title}"`} onClose={() => setEditing(null)}>
@@ -427,6 +494,50 @@ export function Review() {
         />
       )}
     </section>
+  );
+}
+
+/** Card da revisão arrastável pela alça (o resto do card segue clicável/selecionável). */
+function SortableCard({
+  id,
+  title,
+  order,
+  selected,
+  setRef,
+  onSelect,
+  children,
+}: {
+  id: string;
+  title: string;
+  order: number;
+  selected: boolean;
+  setRef: (el: HTMLLIElement | null) => void;
+  onSelect: () => void;
+  children: ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : undefined };
+  return (
+    <li
+      ref={(el) => {
+        setNodeRef(el);
+        setRef(el);
+      }}
+      style={style}
+      role="option"
+      aria-selected={selected}
+      tabIndex={selected ? 0 : -1}
+      className={selected ? 'review-item review-card current' : 'review-item review-card'}
+      onClick={onSelect}
+    >
+      <span className="review-order">
+        <button type="button" className="drag-handle" aria-label={`Arrastar ${title}`} {...attributes} {...listeners} onClick={(e) => e.stopPropagation()}>
+          <Icon name="grip" size={18} />
+        </button>
+        <span className="muted small">{order}º</span>
+      </span>
+      {children}
+    </li>
   );
 }
 

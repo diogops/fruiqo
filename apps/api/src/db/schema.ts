@@ -136,7 +136,7 @@ export const recommendations = pgTable(
      * catalogados; null na fila de revisão. Mantida por triggers + unicidade DEFERRABLE (0008_title_rank.sql).
      */
     rank: integer('rank'),
-    rating: integer('rating'),
+    rating: real('rating'),
     notes: text('notes'),
     /** chaves de gênero da taxonomia (@fruiqo/taxonomy) */
     genres: text('genres').array().notNull().default(sql`'{}'::text[]`),
@@ -274,7 +274,7 @@ export const tasteSignals = pgTable(
     signal: text('signal', {
       enum: ['watched', 'rated', 'dropped', 'added_to_list', 'accepted', 'skipped'],
     }).notNull(),
-    /** rating (1–5) para `rated`; 1 para os demais */
+    /** nota (0,5–5, de meia em meia) para `rated`; 1 para os demais */
     value: real('value').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -453,7 +453,7 @@ export const tasteFavorites = pgTable(
     title: text('title').notNull(),
     kind: text('kind', { enum: ['movie', 'series', 'music_track', 'music_album', 'artist', 'book', 'other'] }).notNull(),
     year: integer('year'),
-    rating: integer('rating'),
+    rating: real('rating'),
     comment: text('comment'),
     /** chaves da taxonomia (derivadas do TMDB quando resolvido) */
     genres: text('genres').array().notNull().default(sql`'{}'::text[]`),

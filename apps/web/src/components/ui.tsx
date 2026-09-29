@@ -1,5 +1,5 @@
 // Primitivas visuais do design system: ícones (SVG inline, sem dependência), tema, menu acessível e estado vazio.
-import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react';
 
 // ---------------------------------------------------------- responsividade
 
@@ -107,6 +107,7 @@ const PATHS = {
   filter: 'M22 3H2l8 9.46V19l4 2v-8.54z',
   sidebar: 'M3 3h18v18H3zM9 3v18',
   check: 'M20 6L9 17l-5-5',
+  refresh: 'M21 12a9 9 0 1 1-2.64-6.36L21 8M21 3v5h-5',
 } as const;
 
 export type IconName = keyof typeof PATHS;
@@ -306,6 +307,88 @@ export function Thumb({ src, title, width = 38, height = 57 }: { src?: string | 
   return (
     <span className="thumb thumb-fallback" style={{ width, height }} aria-hidden="true">
       {title.trim().charAt(0).toUpperCase() || '?'}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------- nota em estrelas
+
+/** "★★★½" para uma nota de 0,5 a 5 (meia em meia). */
+export function ratingText(v: number): string {
+  return '★'.repeat(Math.floor(v)) + (v % 1 ? '½' : '');
+}
+
+/**
+ * Nota de 0,5 a 5, de meia em meia. Só leitura sem `onChange`. Editável: metade esquerda de cada
+ * estrela vale n − 0,5 e a direita vale n; clicar na nota atual limpa. Teclado: ←/→ (±0,5), Home/End, Delete limpa.
+ */
+export function StarRating({
+  value,
+  onChange,
+  label = 'Nota',
+  size = 22,
+}: {
+  value?: number | null;
+  onChange?: (v: number | null) => void;
+  label?: string;
+  size?: number;
+}) {
+  const [hover, setHover] = useState<number | null>(null);
+  const shown = hover ?? value ?? 0;
+  const stars = [1, 2, 3, 4, 5].map((n) => (
+    <span key={n} className="star-cell" style={{ fontSize: size }} aria-hidden="true">
+      <span className="star-bg">★</span>
+      <span className="star-fg" style={{ width: shown >= n ? '100%' : shown >= n - 0.5 ? '50%' : '0%' }}>
+        ★
+      </span>
+      {onChange &&
+        [n - 0.5, n].map((v, i) => (
+          <span
+            key={v}
+            className={i === 0 ? 'star-hit star-hit-left' : 'star-hit star-hit-right'}
+            onMouseEnter={() => setHover(v)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onChange(value === v ? null : v);
+            }}
+          />
+        ))}
+    </span>
+  ));
+  if (!onChange) {
+    return value ? (
+      <span className="star-rating" role="img" aria-label={`${label}: ${String(value).replace('.', ',')} de 5`}>
+        {stars}
+      </span>
+    ) : null;
+  }
+  function onKey(e: ReactKeyboardEvent) {
+    const cur = value ?? 0;
+    let next: number | null | undefined;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowUp') next = Math.min(5, cur + 0.5);
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') next = cur <= 0.5 ? null : cur - 0.5;
+    else if (e.key === 'Home') next = 0.5;
+    else if (e.key === 'End') next = 5;
+    else if (e.key === 'Delete' || e.key === 'Backspace' || e.key === '0') next = null;
+    if (next === undefined) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onChange!(next);
+  }
+  return (
+    <span
+      className="star-rating editable"
+      role="slider"
+      tabIndex={0}
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={5}
+      aria-valuenow={value ?? 0}
+      aria-valuetext={value ? `${String(value).replace('.', ',')} de 5 estrelas` : 'sem nota'}
+      onKeyDown={onKey}
+      onMouseLeave={() => setHover(null)}
+    >
+      {stars}
     </span>
   );
 }

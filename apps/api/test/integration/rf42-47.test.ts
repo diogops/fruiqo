@@ -134,6 +134,18 @@ describe('RF-47 + RF-42: .txt vai inteiro para a revisão, com match, alternativ
     expect(rest[0]!.proposedList?.listId).toBe(list.id);
   });
 
+  it('lote com placement top mantém a ordem enviada (#1, #2, #3), acima da fila', async () => {
+    const user = await newUser();
+    const { items } = await importTxt(user);
+    const byTitle = (t: string) => items.find((i) => i.title.title === t)!.title.id;
+    await post(user, `/review/${byTitle('Mindcatcher')}/approve`, { placement: 'end' }).expect(200);
+    const ids = [byTitle('Monstra'), byTitle('Chernoville'), byTitle('Amor e Luto')];
+    await post(user, '/review/batch', { ids, action: 'approve', placement: 'top' }).expect(200);
+    const q = await queue(user);
+    expect(q.map((t) => t.title)).toEqual(['Monstra', 'Chernoville', 'Amor e Luto', 'Mindcatcher']);
+    expect(q.map((t) => t.rank)).toEqual([1, 2, 3, 4]);
+  });
+
   it('duplicado: o mesmo match no TMDB de um título já catalogado sugere mesclar', async () => {
     const user = await newUser();
     const first = await importTxt(user);

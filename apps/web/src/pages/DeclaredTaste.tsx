@@ -6,7 +6,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../api/client';
 import { ErrorNote, Modal } from '../components/shared';
 import { useToast } from '../components/Toast';
-import { Icon, Thumb } from '../components/ui';
+import { Icon, StarRating, Thumb } from '../components/ui';
 import { kindLabel } from '../labels';
 import { TitleSearch, type SearchPick } from './AddTitle';
 
@@ -17,16 +17,6 @@ const AFFINITY_SOURCE: Record<DeclaredAffinity['source'], string> = {
   summary: 'do resumo',
   both: 'favoritos + resumo',
 };
-
-function Stars({ value }: { value?: number }) {
-  if (!value) return null;
-  return (
-    <span className="stars" aria-label={`nota ${value} de 5`}>
-      {'★'.repeat(value)}
-      <span className="muted">{'★'.repeat(5 - value)}</span>
-    </span>
-  );
-}
 
 export function DeclaredTasteSection() {
   const declared = useQuery({ queryKey: DECLARED_KEY, queryFn: api.declared });
@@ -145,7 +135,7 @@ export function DeclaredTasteSection() {
                   <strong>{f.title}</strong>
                   <span className="muted small"> {[kindLabel(f.kind), f.year].filter(Boolean).join(' · ')}</span>
                   <div className="small">
-                    <Stars value={f.rating} />
+                    <StarRating value={f.rating} size={14} />
                     {f.genres.length > 0 && <span className="muted"> {f.genres.map((g) => g.label).join(', ')}</span>}
                   </div>
                   {f.comment && <div className="small favorite-comment">“{f.comment}”</div>}
@@ -317,21 +307,7 @@ function AddFavorite({ onClose, onAdded }: { onClose: () => void; onAdded: (titl
           </div>
           <fieldset>
             <legend>Nota (opcional)</legend>
-            <div className="rating-picker" role="radiogroup" aria-label="Nota">
-              {[1, 2, 3, 4, 5].map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  role="radio"
-                  aria-checked={rating === n}
-                  aria-label={`${n} de 5`}
-                  className={n <= rating ? 'star on' : 'star'}
-                  onClick={() => setRating(rating === n ? 0 : n)}
-                >
-                  ★
-                </button>
-              ))}
-            </div>
+            <StarRating value={rating || null} onChange={(v) => setRating(v ?? 0)} label="Nota" size={26} />
           </fieldset>
           <label>
             Comentário (opcional)

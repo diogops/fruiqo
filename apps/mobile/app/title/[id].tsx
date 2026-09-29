@@ -1,4 +1,5 @@
-// Detalhe do título do catálogo: status, prioridade, nota, gêneros e listas (RF-26, RF-34).
+// Detalhe do título do catálogo (RF-26, RF-34): por padrão capa, dados numa linha, nota, sinopse e onde
+// assistir; status, prioridade, gêneros e listas ficam em "Edição avançada".
 import type { MoveTitleRequest, TaxonomyTag, Title, TitleStatus, UpdateTitleRequest } from '@fruiqo/contracts';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
@@ -6,7 +7,7 @@ import { ActivityIndicator, Alert, ImageBackground, Pressable, ScrollView, Text,
 
 import { ApiError, getLibrary, getTaxonomy, getTitle, moveTitle, updateTitle } from '../../src/api/client';
 import { collectGenreOptions, toggleGenre } from '../../src/discover/logic';
-import { Button, Chip, Icon, Link, Poster, TmdbAttribution, WatchProviders } from '../../src/ui/components';
+import { Button, Chip, Icon, Link, Poster, StarRating, WatchProviders } from '../../src/ui/components';
 import { providerLabel, rankLabel, TITLE_STATUS_LABEL, titleMeta } from '../../src/ui/labels';
 import { colors, gradients, ui } from '../../src/ui/theme';
 import { useTheme } from '../../src/ui/ThemeProvider';
@@ -30,6 +31,8 @@ export default function TitleDetail() {
   const [genreOptions, setGenreOptions] = useState<TaxonomyTag[]>([]);
   const [editingGenres, setEditingGenres] = useState(false);
   const [draftGenres, setDraftGenres] = useState<string[]>([]);
+  const [advanced, setAdvanced] = useState(false);
+  const [fullOverview, setFullOverview] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -127,32 +130,49 @@ export default function TitleDetail() {
         <View style={{ flexDirection: 'row', gap: 14, padding: 16 }}>
         <Poster url={title.posterUrl ?? r?.imageUrl} title={title.title} size="lg" />
         <View style={{ flex: 1, gap: 6, justifyContent: 'flex-end' }}>
-          {title.rank != null ? (
-            <View style={ui.pill}>
-              <Text style={ui.pillText}>#{title.rank} na fila</Text>
-            </View>
-          ) : null}
           <Text style={ui.h1}>{title.title}</Text>
-          {title.creator ? <Text style={ui.body}>{title.creator}</Text> : null}
-          <Text style={ui.muted}>{titleMeta(title)}{title.pages ? ` · ${title.pages} págs.` : ''}</Text>
-          {title.subgenres.length > 0 && <Text style={ui.muted}>{title.subgenres.map((s) => s.label).join(' · ')}</Text>}
+          {title.creator ? <Text style={ui.body} numberOfLines={1}>{title.creator}</Text> : null}
+          <Text style={ui.muted} numberOfLines={1}>
+            {[titleMeta(title) + (title.pages ? ` · ${title.pages} págs.` : ''), title.rank != null ? `#${title.rank} na fila` : null, ...title.genres.map((g) => g.label)]
+              .filter(Boolean)
+              .join(' · ')}
+          </Text>
+          <StarRating value={title.rating} disabled={saving !== null} size={26} onChange={(rating) => void patch('rating', { rating })} />
         </View>
         </View>
       </View>
-      {title.overview ? <Text style={ui.body}>{title.overview}</Text> : null}
+      {title.overview ? (
+        <View>
+          <Text style={ui.body} numberOfLines={fullOverview ? undefined : 5}>
+            {title.overview}
+          </Text>
+          {title.overview.length > 220 ? (
+            <Text style={{ color: colors.primary, fontSize: 14, marginTop: 2 }} onPress={() => setFullOverview((f) => !f)}>
+              {fullOverview ? 'menos' : 'mais…'}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
       {title.watchProvidersBR || title.watchUrl ? (
         <>
           <Text style={ui.h2}>Onde assistir no Brasil</Text>
           <WatchProviders title={title} />
         </>
       ) : null}
-      {r && <Link title={`${r.provider === 'openlibrary' ? 'Ver na' : 'Ver no'} ${providerLabel(r.provider)}`} url={r.url} />}
+      {r && (r.provider !== 'tmdb' || !(title.watchProvidersBR || title.watchUrl)) && <Link title={`${r.provider === 'openlibrary' ? 'Ver na' : 'Ver no'} ${providerLabel(r.provider)}`} url={r.url} />}
       {!r && title.kind === 'book' && title.bookUrl ? <Link title="Ver na Open Library" url={title.bookUrl} /> : null}
-      {r?.provider === 'tmdb' && <TmdbAttribution />}
-      {title.kind === 'book' && (r?.provider === 'openlibrary' || title.enrichment === 'openlibrary') ? (
-        <Text style={ui.muted}>Dados de livros: Open Library.</Text>
-      ) : null}
 
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: advanced }}
+        onPress={() => setAdvanced((a) => !a)}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 10, marginTop: 8, borderTopWidth: 1, borderTopColor: colors.border }}
+      >
+        <Icon name={advanced ? 'chevron-down' : 'chevron-forward'} size={18} color={colors.muted} />
+        <Text style={{ color: colors.text2, fontSize: 15, fontWeight: '600' }}>Edição avançada</Text>
+      </Pressable>
+      {advanced ? (
+      <>
       <Text style={ui.h2}>Status</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {STATUSES.map((s) => (
@@ -177,23 +197,6 @@ export default function TitleDetail() {
             <Chip icon="push-outline" label="Topo" disabled={saving !== null || title.rank === 1} onPress={() => void move({ to: 'top' })} />
           </>
         )}
-      </View>
-
-      <Text style={ui.h2}>Sua nota</Text>
-      <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-        {[1, 2, 3, 4, 5].map((n) => (
-          <Pressable
-            key={n}
-            accessibilityRole="button"
-            accessibilityLabel={`${n} estrela${n > 1 ? 's' : ''}`}
-            disabled={saving !== null}
-            onPress={() => void patch('rating', { rating: title.rating === n ? null : n })}
-            hitSlop={6}
-          >
-            <Icon name={title.rating && n <= title.rating ? 'star' : 'star-outline'} size={30} color={title.rating && n <= title.rating ? colors.star : colors.muted} />
-          </Pressable>
-        ))}
-        {title.rating ? <Text style={ui.muted}>toque de novo para limpar</Text> : null}
       </View>
 
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -250,6 +253,8 @@ export default function TitleDetail() {
           <Text style={ui.muted}>Ver de onde veio este título</Text>
         </Pressable>
       )}
+      </>
+      ) : null}
     </ScrollView>
   );
 }

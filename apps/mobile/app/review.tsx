@@ -49,6 +49,8 @@ export default function Review() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
   const [adjusting, setAdjusting] = useState<ReviewItem | null>(null);
+  // ordem definida pelo usuário (▲▼): aprovar em lote no topo/fim põe o bloco nessa ordem
+  const [order, setOrder] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -117,11 +119,11 @@ export default function Review() {
     }
   }
 
-  async function batch(action: 'approve' | 'reject', ids: string[]) {
+  async function batch(action: 'approve' | 'reject', ids: string[], placement: 'suggested' | 'top' | 'end' = 'suggested') {
     if (ids.length === 0) return;
     setBatchBusy(true);
     try {
-      const res = await batchReview({ ids, action, ...(action === 'approve' ? { placement: 'suggested' as const } : {}) });
+      const res = await batchReview({ ids, action, ...(action === 'approve' ? { placement } : {}) });
       const failed = new Set(res.failed.map((f) => f.id));
       drop(ids.filter((id) => !failed.has(id)));
       const done = action === 'approve' ? res.approved.length : res.rejected;
@@ -135,8 +137,18 @@ export default function Review() {
     }
   }
 
-  const all = items ?? [];
-  const targetIds = selected.size > 0 ? [...selected] : all.map((i) => i.title.id);
+  const all = sortByOrder(items ?? [], order);
+  // na ordem da tela, não na ordem em que foram selecionados
+  const targetIds = all.map((i) => i.title.id).filter((id) => selected.size === 0 || selected.has(id));
+
+  function moveItem(id: string, delta: -1 | 1) {
+    const ids = all.map((i) => i.title.id);
+    const from = ids.indexOf(id);
+    const to = from + delta;
+    if (from < 0 || to < 0 || to >= ids.length) return;
+    [ids[from], ids[to]] = [ids[to]!, ids[from]!];
+    setOrder(ids);
+  }
   const scope = selected.size > 0 ? `${selected.size} selecionado(s)` : `todos (${all.length})`;
 
   return (
@@ -162,7 +174,7 @@ export default function Review() {
             </Text>
             {all.length > 1 && (
               <View style={{ gap: 8 }}>
-                <Text style={ui.muted}>Ações em lote: {scope}. Segure um item para selecionar.</Text>
+                <Text style={ui.muted}>Ações em lote: {scope}. Segure um item para selecionar; ▲▼ definem a ordem.</Text>
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                   <View style={{ flex: 1 }}>
                     <Button
@@ -171,10 +183,11 @@ export default function Review() {
                       compact
                       loading={batchBusy}
                       onPress={() =>
-                        Alert.alert('Aprovar em lote?', `${scope} entram na fila no encaixe sugerido.`, [
-                          { text: 'Cancelar', style: 'cancel' },
-                          { text: 'Aprovar', onPress: () => void batch('approve', targetIds) },
-                        ])
+                        Alert.alert('Aprovar em lote', `Onde ${scope} entram na fila?`, [
+                          { text: 'No topo, nesta ordem', onPress: () => void batch('approve', targetIds, 'top') },
+                          { text: 'No fim, nesta ordem', onPress: () => void batch('approve', targetIds, 'end') },
+                          { text: 'Encaixe sugerido', onPress: () => void batch('approve', targetIds, 'suggested') },
+                        ], { cancelable: true })
                       }
                     />
                   </View>
@@ -211,9 +224,12 @@ export default function Review() {
             </View>
           )
         }
-        renderItem={({ item }) => (
+        renderItem={({ item, index }) => (
           <ReviewCard
             item={item}
+            position={all.length > 1 ? index + 1 : undefined}
+            onUp={index > 0 ? () => moveItem(item.title.id, -1) : undefined}
+            onDown={index < all.length - 1 ? () => moveItem(item.title.id, 1) : undefined}
             busy={busyId === item.title.id}
             selected={selected.has(item.title.id)}
             onToggle={() => setSelected((s) => toggleSelected(s, item.title.id))}
@@ -238,8 +254,21 @@ export default function Review() {
   );
 }
 
+/** Ordem local por cima da do servidor; itens novos vão para o fim. */
+function sortByOrder(items: ReviewItem[], order: string[]): ReviewItem[] {
+  if (order.length === 0) return items;
+  const pos = new Map(order.map((id, i) => [id, i]));
+  return items
+    .map((it, i) => ({ it, k: pos.get(it.title.id) ?? order.length + i }))
+    .sort((a, b) => a.k - b.k)
+    .map((x) => x.it);
+}
+
 function ReviewCard({
   item,
+  position,
+  onUp,
+  onDown,
   busy,
   selected,
   onToggle,
@@ -249,6 +278,9 @@ function ReviewCard({
   onSwapMusic,
 }: {
   item: ReviewItem;
+  position?: number;
+  onUp?: () => void;
+  onDown?: () => void;
   busy: boolean;
   selected: boolean;
   onToggle: () => void;
@@ -275,6 +307,11 @@ function ReviewCard({
           <Text style={[ui.body, { fontWeight: '700', color: colors.text }]}>{t.title}</Text>
           {t.creator ? <Text style={ui.body}>{t.creator}</Text> : null}
           <Text style={ui.muted}>{[kindLabel(t.kind), t.year, match && `match ${match}`].filter(Boolean).join(' · ')}</Text>
+          {t.overview ? (
+            <Text style={ui.muted} numberOfLines={3}>
+              {t.overview}
+            </Text>
+          ) : null}
           {item.candidate && item.candidate.rawTitle !== t.title ? (
             <Text style={ui.muted} numberOfLines={2}>
               Lido como “{item.candidate.rawTitle}”
@@ -286,7 +323,20 @@ function ReviewCard({
             </Text>
           ) : null}
         </View>
-        {selected ? <Icon name="checkbox" size={22} color={colors.primary} /> : null}
+        <View style={{ alignItems: 'center', gap: 2 }}>
+          {selected ? <Icon name="checkbox" size={22} color={colors.primary} /> : null}
+          {position != null ? (
+            <>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Subir ${t.title}`} disabled={!onUp} onPress={onUp} hitSlop={6}>
+                <Icon name="chevron-up" size={22} color={onUp ? colors.text2 : colors.border} />
+              </Pressable>
+              <Text style={ui.muted}>{position}º</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Descer ${t.title}`} disabled={!onDown} onPress={onDown} hitSlop={6}>
+                <Icon name="chevron-down" size={22} color={onDown ? colors.text2 : colors.border} />
+              </Pressable>
+            </>
+          ) : null}
+        </View>
       </View>
 
       {fit ? (

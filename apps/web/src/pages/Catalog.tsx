@@ -1,9 +1,9 @@
 import { DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { type BulkOperation, JUSTWATCH_ATTRIBUTION, type MoveTitleRequest, TMDB_ATTRIBUTION, type Title, type TitleStatus, type WatchProvider } from '@fruiqo/contracts';
+import { type BulkOperation, type MoveTitleRequest, providerSiteUrl, type Title, type TitleStatus, type WatchProvider } from '@fruiqo/contracts';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { AddTitle } from './AddTitle';
 import { ImportTxt, isTextFile } from './ImportTxt';
@@ -11,7 +11,7 @@ import { DRAFT_KEY, PriorityDraftView } from './PriorityDraft';
 import { api, type LibraryFilters } from '../api/client';
 import { CorrectTitleForm, ErrorNote, Modal, useTaxonomy } from '../components/shared';
 import { useToast } from '../components/Toast';
-import { EmptyState, Icon, Menu, MQ, SkeletonRows, Thumb, useElementWidth, useMediaQuery } from '../components/ui';
+import { EmptyState, Icon, Menu, MQ, ratingText, SkeletonRows, StarRating, Thumb, useElementWidth, useMediaQuery } from '../components/ui';
 import { kindLabel, KINDS, STATUS_LABEL, STATUSES } from '../labels';
 import { shiftRanks, targetPosition } from '../rankQueue';
 
@@ -655,10 +655,13 @@ const ENRICH_MSG: Record<'enriched' | 'no_match' | 'unsupported' | 'unavailable'
   unavailable: 'TMDB indisponível agora.',
 };
 
+/** 0,5 a 5, de meia em meia */
+const RATINGS = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
+
 const PROVIDER_TYPE: Record<WatchProvider['type'], string> = { flatrate: 'Assinatura', rent: 'Aluguel', buy: 'Compra' };
 
-/** Um logo por serviço e tipo (o TMDB repete variantes como "com anúncios"). */
-export function ProviderLogos({ providers }: { providers: WatchProvider[] }) {
+/** Um logo por serviço e tipo (o TMDB repete variantes como "com anúncios"). Com `fallbackUrl`, cada logo vira link. */
+export function ProviderLogos({ providers, fallbackUrl }: { providers: WatchProvider[]; fallbackUrl?: string }) {
   const groups = (['flatrate', 'rent', 'buy'] as const)
     .map((type) => {
       const seen = new Set<string>();
@@ -670,17 +673,46 @@ export function ProviderLogos({ providers }: { providers: WatchProvider[] }) {
       {groups.map(([type, list]) => (
         <div key={type} className="provider-row">
           <span className="muted small">{PROVIDER_TYPE[type]}</span>
-          {list.map((p) =>
-            p.logoUrl ? (
-              <img key={p.name} src={p.logoUrl} alt={p.name} title={p.name} width={32} height={32} className="provider-logo" />
+          {list.map((p) => {
+            const content = p.logoUrl ? (
+              <img src={p.logoUrl} alt={p.name} title={p.name} width={32} height={32} className="provider-logo" />
             ) : (
-              <span key={p.name} className="provider-name">
-                {p.name}
-              </span>
-            ),
-          )}
+              <span className="provider-name">{p.name}</span>
+            );
+            const href = fallbackUrl !== undefined ? (providerSiteUrl(p.name) ?? (fallbackUrl || undefined)) : undefined;
+            return href ? (
+              <a key={p.name} href={href} target="_blank" rel="noopener noreferrer" className="provider-link" aria-label={`Abrir ${p.name}`}>
+                {content}
+              </a>
+            ) : (
+              <span key={p.name}>{content}</span>
+            );
+          })}
         </div>
       ))}
+    </div>
+  );
+}
+
+/** Texto cortado em poucas linhas (a altura da capa) com "mais…" quando não cabe. */
+function ClampText({ text }: { text: string }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [open, setOpen] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (el && !open) setOverflows(el.scrollHeight > el.clientHeight + 1);
+  }, [text, open]);
+  return (
+    <div className="clamp-text">
+      <p ref={ref} className={open ? 'overview' : 'overview clamped'}>
+        {text}
+      </p>
+      {(overflows || open) && (
+        <button type="button" className="btn btn-link small" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+          {open ? 'menos' : 'mais…'}
+        </button>
+      )}
     </div>
   );
 }
@@ -714,6 +746,26 @@ function TitleDetail({ id, onClose }: { id: string; onClose: () => void }) {
     }
   }
 
+  async function rate(rating: number | null) {
+    if (!t) return;
+    try {
+      await api.updateTitle(t.id, { rating });
+      await qc.invalidateQueries();
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  const canEnrich = t != null && (t.kind === 'movie' || t.kind === 'series' || t.kind === 'book');
+  const enrichLabel =
+    t?.kind === 'book'
+      ? t.enrichment === 'openlibrary'
+        ? 'Atualizar dados da Open Library'
+        : 'Buscar na Open Library'
+      : t?.enrichment === 'tmdb'
+        ? 'Atualizar dados do TMDB'
+        : 'Buscar no TMDB';
+
   const [enrichMsg, setEnrichMsg] = useState<string | null>(null);
   async function enrich() {
     if (!t) return;
@@ -735,55 +787,46 @@ function TitleDetail({ id, onClose }: { id: string; onClose: () => void }) {
             {t.posterUrl && <div className="title-hero-bg" style={{ backgroundImage: `url(${t.posterUrl})` }} aria-hidden="true" />}
           <div className="title-head">
             {t.posterUrl && <img className="poster" src={t.posterUrl} alt="" width={120} height={180} />}
-            <div>
-              <p className="muted small">
-                {[kindLabel(t.kind), t.year, t.creator, t.pages ? `${t.pages} págs.` : null].filter(Boolean).join(' · ')}
+            <div className="title-info">
+              <p className="title-meta muted small">
+                <span className="title-meta-text">
+                  {[kindLabel(t.kind), t.year, t.creator, t.pages ? `${t.pages} págs.` : null].filter(Boolean).join(' · ')}
+                </span>
                 {t.rank != null && <span className="badge badge-status-watching">#{t.rank} na fila</span>}
+                {t.genres.map((g) => (
+                  <span key={g.key} className="genre-chip">
+                    {g.label}
+                  </span>
+                ))}
+                {canEnrich && (
+                  <button type="button" className="btn btn-icon enrich-btn" title={enrichLabel} aria-label={enrichLabel} onClick={() => void enrich()}>
+                    <Icon name="refresh" size={14} />
+                  </button>
+                )}
               </p>
-              {t.genres.length > 0 && (
-                <p className="genre-chips">
-                  {t.genres.map((g) => (
-                    <span key={g.key} className="genre-chip">
-                      {g.label}
-                    </span>
-                  ))}
-                </p>
-              )}
-              {t.overview && <p className="overview">{t.overview}</p>}
-              {(t.kind === 'movie' || t.kind === 'series') && (
-                <p className="small">
-                  <button type="button" className="btn" onClick={() => void enrich()}>
-                    {t.enrichment === 'tmdb' ? 'Atualizar dados do TMDB' : 'Buscar no TMDB'}
-                  </button>{' '}
-                  {enrichMsg && <span className="muted">{enrichMsg}</span>}
-                </p>
-              )}
-              {t.kind === 'book' && (
-                <p className="small">
-                  <button type="button" className="btn" onClick={() => void enrich()}>
-                    {t.enrichment === 'openlibrary' ? 'Atualizar dados da Open Library' : 'Buscar na Open Library'}
-                  </button>{' '}
-                  {enrichMsg && <span className="muted">{enrichMsg}</span>}
-                </p>
-              )}
+              <StarRating value={t.rating} onChange={(v) => void rate(v)} label={`Sua nota para ${t.title}`} />
+              {enrichMsg && <p className="muted small">{enrichMsg}</p>}
+              {t.overview && <ClampText text={t.overview} />}
             </div>
           </div>
           </div>
           {(t.watchProvidersBR?.length || t.watchUrl) && (
             <>
-              <h3>Onde assistir no Brasil</h3>
-              <ProviderLogos providers={t.watchProvidersBR ?? []} />
+              <h3 className="watch-head">
+                Onde assistir no Brasil
+                {/* TOS-REQ-38: crédito à JustWatch em cada exibição de onde assistir */}
+                {(t.watchProvidersBR?.length ?? 0) > 0 && <span className="muted small watch-credit">via JustWatch</span>}
+              </h3>
+              <ProviderLogos providers={t.watchProvidersBR ?? []} fallbackUrl={t.watchUrl ?? ''} />
               {t.watchUrl && (
-                <p>
+                <p className="small">
                   <a href={t.watchUrl} target="_blank" rel="noopener noreferrer">
-                    Onde assistir (TMDB)
+                    Ver todas as opções no TMDB
                   </a>
                 </p>
               )}
-              <p className="muted small">{JUSTWATCH_ATTRIBUTION}</p>
             </>
           )}
-          {t.resolution?.provider === 'tmdb' && <p className="muted small">Dados de filmes e séries: TMDB. {TMDB_ATTRIBUTION}</p>}
           {t.kind === 'book' && t.bookUrl && (
             <>
               <h3>Onde encontrar</h3>
@@ -794,7 +837,8 @@ function TitleDetail({ id, onClose }: { id: string; onClose: () => void }) {
               </p>
             </>
           )}
-          {t.enrichment === 'openlibrary' && <p className="muted small">Dados de livros: Open Library.</p>}
+          <details className="advanced">
+            <summary>Edição avançada</summary>
           <h3>Corrigir</h3>
           <CorrectTitleForm title={t} submit={(body) => api.correctTitle(t.id, body)} onDone={onClose} />
           <h3>Gêneros</h3>
@@ -814,6 +858,7 @@ function TitleDetail({ id, onClose }: { id: string; onClose: () => void }) {
             Confiança {Math.round(t.confidence * 100)}% · extração {t.extractor === 'llm' ? 'por IA' : 'heurística'} · dados{' '}
             {t.enrichment}
           </p>
+          </details>
         </>
       )}
     </Modal>
@@ -908,9 +953,9 @@ function CatalogRow({
           onChange={(e) => onPatch({ rating: e.target.value ? Number(e.target.value) : null })}
         >
           <option value="">—</option>
-          {[1, 2, 3, 4, 5].map((n) => (
+          {RATINGS.map((n) => (
             <option key={n} value={n}>
-              {'★'.repeat(n)}
+              {ratingText(n)}
             </option>
           ))}
         </select>
@@ -1010,9 +1055,9 @@ function CatalogCard({
           onChange={(e) => onPatch({ rating: e.target.value ? Number(e.target.value) : null })}
         >
           <option value="">—</option>
-          {[1, 2, 3, 4, 5].map((n) => (
+          {RATINGS.map((n) => (
             <option key={n} value={n}>
-              {'★'.repeat(n)}
+              {ratingText(n)}
             </option>
           ))}
         </select>

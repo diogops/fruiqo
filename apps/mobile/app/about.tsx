@@ -18,13 +18,16 @@ export default function About() {
       <Link title="themoviedb.org" url="https://www.themoviedb.org/" />
       <Text style={ui.body}>
         Gêneros, sinopses, pôsteres e duração vêm do TMDB. "Onde assistir" no Brasil: dados de disponibilidade da JustWatch,
-        fornecidos pelo TMDB. O botão abre a página pública do TMDB; o Fruiqo não abre os apps de streaming diretamente.
+        fornecidos pelo TMDB. Tocar no logo de um serviço abre a página inicial dele (ou a página pública do TMDB); o Fruiqo não
+        abre o título dentro dos apps de streaming.
       </Text>
       <Link title="justwatch.com" url="https://www.justwatch.com/" />
       <Text style={ui.body}>
         Metadados de música fornecidos pelo Spotify. Cada item exibido tem um link de volta para o Spotify.
       </Text>
       <Link title="spotify.com" url="https://www.spotify.com/" />
+      <Text style={ui.body}>Dados de livros: Open Library (capas de covers.openlibrary.org).</Text>
+      <Link title="openlibrary.org" url="https://openlibrary.org/" />
 
       <Text style={ui.h2}>Licenças de código aberto</Text>
       <Text style={ui.body}>

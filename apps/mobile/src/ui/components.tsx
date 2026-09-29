@@ -1,4 +1,4 @@
-import { JUSTWATCH_ATTRIBUTION, type ShareStatus, TMDB_ATTRIBUTION, type Title, type WatchProvider } from '@fruiqo/contracts';
+import { JUSTWATCH_ATTRIBUTION, providerSiteUrl, type ShareStatus, TMDB_ATTRIBUTION, type Title, type WatchProvider } from '@fruiqo/contracts';
 import { ActivityIndicator, Image, Linking, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -207,18 +207,77 @@ export function WatchProviders({ title, compact }: { title: Pick<Title, 'watchPr
       {groups.map(([type, list]) => (
         <View key={type} style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
           {!compact && <Text style={styles.providerGroup}>{PROVIDER_GROUP[type]}</Text>}
-          {list.slice(0, compact ? 4 : 8).map((p) =>
-            p.logoUrl?.startsWith('https://') ? (
-              <Image key={p.name} source={{ uri: p.logoUrl }} style={styles.providerLogo} accessibilityLabel={p.name} />
+          {list.slice(0, compact ? 4 : 8).map((p) => {
+            const logo = p.logoUrl?.startsWith('https://') ? (
+              <Image source={{ uri: p.logoUrl }} style={styles.providerLogo} accessibilityLabel={p.name} />
             ) : (
-              <Text key={p.name} style={styles.providerName}>{p.name}</Text>
-            ),
-          )}
+              <Text style={styles.providerName}>{p.name}</Text>
+            );
+            // toque no logo abre o site do serviço (URL pública, TOS-REQ-17); desconhecido → página do TMDB
+            const url = providerSiteUrl(p.name) ?? title.watchUrl;
+            return url ? (
+              <Pressable key={p.name} accessibilityRole="link" accessibilityLabel={`Abrir ${p.name}`} onPress={() => openExternal(url)} hitSlop={4}>
+                {logo}
+              </Pressable>
+            ) : (
+              <View key={p.name}>{logo}</View>
+            );
+          })}
           {compact && <Text style={styles.providerGroup}>{PROVIDER_GROUP[type].toLowerCase()}</Text>}
         </View>
       ))}
-      {!compact && <Link title="Onde assistir" url={title.watchUrl ?? title.resolution?.url} />}
-      <Text style={styles.attribution}>{JUSTWATCH_ATTRIBUTION}</Text>
+      {!compact && <Link title="Ver todas as opções no TMDB" url={title.watchUrl ?? title.resolution?.url} />}
+      {/* TOS-REQ-38: crédito à JustWatch em cada exibição de onde assistir */}
+      {providers.length > 0 && <Text style={styles.attribution}>{JUSTWATCH_ATTRIBUTION}</Text>}
+    </View>
+  );
+}
+
+/** "★★★½" para uma nota de 0,5 a 5 (meia em meia). */
+export function ratingText(v: number): string {
+  return '★'.repeat(Math.floor(v)) + (v % 1 ? '½' : '');
+}
+
+/** Próxima nota ao tocar na estrela n: cheia → meia → sem nota. */
+export function nextRating(current: number | null | undefined, n: number): number | null {
+  if (current === n) return n - 0.5;
+  if (current === n - 0.5) return null;
+  return n;
+}
+
+/** Nota de 0,5 a 5 em estrelas. Sem `onChange`, só leitura. */
+export function StarRating({
+  value,
+  onChange,
+  size = 30,
+  disabled,
+}: {
+  value?: number | null;
+  onChange?: (v: number | null) => void;
+  size?: number;
+  disabled?: boolean;
+}) {
+  const v = value ?? 0;
+  return (
+    <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }} accessibilityLabel={v ? `Nota ${String(v).replace('.', ',')} de 5` : 'Sem nota'}>
+      {[1, 2, 3, 4, 5].map((n) => {
+        const name: IconName = v >= n ? 'star' : v >= n - 0.5 ? 'star-half' : 'star-outline';
+        const icon = <Icon name={name} size={size} color={v >= n - 0.5 ? colors.star : colors.muted} />;
+        return onChange ? (
+          <Pressable
+            key={n}
+            accessibilityRole="button"
+            accessibilityLabel={`${n} estrela${n > 1 ? 's' : ''}`}
+            disabled={disabled}
+            onPress={() => onChange(nextRating(value, n))}
+            hitSlop={6}
+          >
+            {icon}
+          </Pressable>
+        ) : (
+          <View key={n}>{icon}</View>
+        );
+      })}
     </View>
   );
 }

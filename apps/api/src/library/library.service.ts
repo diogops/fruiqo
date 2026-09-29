@@ -193,7 +193,11 @@ export class LibraryService {
       const signals: { signal: Signal; value: number }[] = [];
       if (patch.status === 'watched' && row.status !== 'watched') signals.push({ signal: 'watched', value: 1 });
       if (patch.status === 'dropped' && row.status !== 'dropped') signals.push({ signal: 'dropped', value: 1 });
-      if (patch.rating != null && patch.rating !== row.rating) signals.push({ signal: 'rated', value: patch.rating });
+      if (patch.rating !== undefined && patch.rating !== row.rating) {
+        // vale só a nota mais recente: a anterior deixa de pesar no gosto (o perfil é refeito dos sinais)
+        await tx.delete(tasteSignals).where(and(eq(tasteSignals.recommendationId, id), eq(tasteSignals.signal, 'rated')));
+        if (patch.rating != null) signals.push({ signal: 'rated', value: patch.rating });
+      }
       if (signals.length > 0) {
         await tx.insert(tasteSignals).values(signals.map((s) => ({ userId, recommendationId: id, ...s })));
       }

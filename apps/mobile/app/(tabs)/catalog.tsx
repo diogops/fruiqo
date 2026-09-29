@@ -26,7 +26,7 @@ import {
 } from '../../src/catalog/logic';
 import { useReviewCount } from '../../src/catalog/reviewCount';
 import { ImportPrints } from '../../src/share/ImportPrints';
-import { Button, Chip, Icon, Poster } from '../../src/ui/components';
+import { Button, Chip, Icon, Poster, ratingText } from '../../src/ui/components';
 import { kindLabel, TITLE_STATUS_LABEL } from '../../src/ui/labels';
 import { Sheet, Snackbar, useSnackbar } from '../../src/ui/overlays';
 import { colors, ui } from '../../src/ui/theme';
@@ -494,7 +494,7 @@ function CatalogCard({
           </Pressable>
           {t.rating ? (
             <Text style={{ color: colors.star, fontSize: 13 }} accessibilityLabel={`Nota ${t.rating}`}>
-              {'★'.repeat(t.rating)}
+              {ratingText(t.rating)}
             </Text>
           ) : null}
         </View>

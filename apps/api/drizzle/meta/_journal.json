@@ -99,6 +99,13 @@
       "when": 1790653011042,
       "tag": "0013_favorites_ol_work",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790686814023,
+      "tag": "0014_half_star_ratings",
+      "breakpoints": true
     }
   ]
 }
