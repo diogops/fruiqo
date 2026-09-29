@@ -26,7 +26,7 @@ import {
 } from '../../src/catalog/logic';
 import { useReviewCount } from '../../src/catalog/reviewCount';
 import { ImportPrints } from '../../src/share/ImportPrints';
-import { Button, Chip, Icon, Poster, ratingText } from '../../src/ui/components';
+import { Button, Chip, Icon, IconButton, Poster, ratingText } from '../../src/ui/components';
 import { kindLabel, TITLE_STATUS_LABEL } from '../../src/ui/labels';
 import { Sheet, Snackbar, useSnackbar } from '../../src/ui/overlays';
 import { colors, ui } from '../../src/ui/theme';
@@ -179,7 +179,7 @@ export default function Catalog() {
       <FlatList
         data={items}
         keyExtractor={(t) => t.id}
-        contentContainerStyle={[ui.pad, { paddingBottom: selecting ? 150 : 96 }, items.length === 0 && { flexGrow: 1 }]}
+        contentContainerStyle={[ui.pad, { padding: 10, gap: 6, paddingBottom: selecting ? 150 : 88 }, items.length === 0 && { flexGrow: 1 }]}
         keyboardShouldPersistTaps="handled"
         onEndReachedThreshold={0.4}
         onEndReached={() => {
@@ -196,50 +196,41 @@ export default function Catalog() {
           />
         }
         ListHeaderComponent={
-          <View style={{ gap: 10, marginBottom: 4 }}>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              <View style={{ flex: 1 }}>
-                <Button title="Adicionar" icon="add" compact onPress={() => router.push('/add' as never)} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <ImportPrints compact />
-              </View>
+          <View style={{ gap: 8, marginBottom: 2 }}>
+            <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+              <TextInput
+                style={[ui.input, { flex: 1, paddingVertical: 8, fontSize: 15 }]}
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Buscar"
+                placeholderTextColor={colors.muted}
+                returnKeyType="search"
+                accessibilityLabel="Buscar no catálogo"
+                clearButtonMode="while-editing"
+              />
+              <IconButton icon="options-outline" label="Filtros" badge={filterCount ? String(filterCount) : undefined} onPress={() => void openFilters()} />
+              <ImportPrints iconOnly />
+              <IconButton icon="add" label="Adicionar título" primary onPress={() => router.push('/add' as never)} />
             </View>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
               <Chip
+                compact
                 icon="checkmark-done-outline"
                 label="Revisão"
                 hint={review.count > 0 ? String(review.count) : undefined}
                 selected={review.count > 0}
                 onPress={() => router.push('/review' as never)}
               />
-              <Chip icon="swap-vertical-outline" label="Priorizar" onPress={() => router.push('/priority-draft' as never)} />
+              <Chip compact icon="swap-vertical-outline" label="Priorizar" onPress={() => router.push('/priority-draft' as never)} />
               <Chip
+                compact
                 icon={filters.showWatched ? 'eye-outline' : 'eye-off-outline'}
-                label={filters.showWatched ? 'Mostrando assistidos' : 'Assistidos ocultos'}
-                selected={!filters.showWatched && !filters.status}
+                label={filters.showWatched ? 'Com assistidos' : 'Sem assistidos'}
                 disabled={Boolean(filters.status)}
                 onPress={() => setFilters((f) => ({ ...f, showWatched: !f.showWatched }))}
               />
             </View>
-            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-              <TextInput
-                style={[ui.input, { flex: 1 }]}
-                value={search}
-                onChangeText={setSearch}
-                placeholder="Buscar no catálogo"
-                placeholderTextColor={colors.muted}
-                returnKeyType="search"
-                accessibilityLabel="Buscar no catálogo"
-                clearButtonMode="while-editing"
-              />
-              <Chip icon="options-outline" label="Filtros" hint={filterCount ? String(filterCount) : undefined} selected={filterCount > 0} onPress={() => void openFilters()} />
-            </View>
-            <Text style={ui.muted}>
-              {selecting
-                ? `${selected.size} selecionado(s). Toque para marcar mais.`
-                : 'Use ▲/▼ ou o menu ⋯ para mudar a prioridade. #1 é o mais prioritário. Segure um título para selecionar vários.'}
-            </Text>
+            {selecting ? <Text style={ui.muted}>{selected.size} selecionado(s)</Text> : null}
             {error && <Text style={ui.error}>{error}</Text>}
           </View>
         }
@@ -454,8 +445,10 @@ function CatalogCard({
   onMenu: () => void;
   onStatus: () => void;
 }) {
-  const { shown, extra } = genreChips(t.genres);
+  const { shown } = genreChips(t.genres);
   const isTop = t.rank === 1;
+  // linha compacta: capa + posição e título + uma linha de dados + status/nota; ▲ ⋯ ▼ à direita
+  const meta = [kindLabel(t.kind), t.year, ...shown.map((g) => g.label)].filter(Boolean).join(' · ');
   return (
     <Pressable
       onPress={onPress}
@@ -466,56 +459,44 @@ function CatalogCard({
       accessibilityLabel={`${t.rank != null ? `Posição ${t.rank}. ` : ''}${t.title}`}
       style={({ pressed }) => [
         ui.card,
-        { flexDirection: 'row', gap: 12, padding: 12 },
+        { flexDirection: 'row', gap: 10, padding: 8, borderRadius: 12, alignItems: 'center' },
         selected && { borderColor: colors.primary, backgroundColor: colors.primarySoft },
         pressed && { opacity: 0.85 },
       ]}
     >
-      {selecting ? (
-        <View style={{ justifyContent: 'center' }}>
-          <Icon name={selected ? 'checkbox' : 'square-outline'} size={24} color={selected ? colors.primary : colors.muted} />
-        </View>
-      ) : null}
+      {selecting ? <Icon name={selected ? 'checkbox' : 'square-outline'} size={22} color={selected ? colors.primary : colors.muted} /> : null}
       <Poster url={t.posterUrl ?? t.resolution?.imageUrl} title={t.title} size="sm" />
-      <View style={{ flex: 1, gap: 4 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <View style={[ui.pill, isTop && { backgroundColor: colors.primary, borderColor: 'transparent' }]}>
-            <Text style={[ui.pillText, isTop && { color: colors.primaryText }]}>{t.rank != null ? `#${t.rank}` : '—'}</Text>
-          </View>
-          <Text style={ui.muted} numberOfLines={1}>
-            {[kindLabel(t.kind), t.year].filter(Boolean).join(' · ')}
-          </Text>
-        </View>
-        <Text style={[ui.body, { fontWeight: '700', color: colors.text }]} numberOfLines={2}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '700', color: colors.text }}>
+          {t.rank != null ? <Text style={{ color: isTop ? colors.primary : colors.primary2 }}>#{t.rank} </Text> : null}
           {t.title}
         </Text>
-        {shown.length > 0 && (
-          <Text style={ui.muted} numberOfLines={1}>
-            {shown.map((g) => g.label).join(' · ')}
-            {extra > 0 ? `  +${extra}` : ''}
+        {meta ? (
+          <Text style={{ fontSize: 12, color: colors.muted }} numberOfLines={1}>
+            {meta}
           </Text>
-        )}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Mudar status" onPress={onStatus} hitSlop={6} style={[ui.pill, { minHeight: 28, justifyContent: 'center' }]}>
-            <Text style={ui.pillText}>{TITLE_STATUS_LABEL[t.status]}</Text>
+        ) : null}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Status: ${TITLE_STATUS_LABEL[t.status]}. Mudar`} onPress={onStatus} hitSlop={8}>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: colors.primary2 }}>{TITLE_STATUS_LABEL[t.status]}</Text>
           </Pressable>
           {t.rating ? (
-            <Text style={{ color: colors.star, fontSize: 13 }} accessibilityLabel={`Nota ${t.rating}`}>
+            <Text style={{ color: colors.star, fontSize: 12 }} accessibilityLabel={`Nota ${t.rating}`}>
               {ratingText(t.rating)}
             </Text>
           ) : null}
         </View>
       </View>
       {!selecting && t.rank != null ? (
-        <View style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Subir" disabled={isTop} onPress={onUp} hitSlop={6} style={{ minWidth: 40, minHeight: 36, alignItems: 'center', justifyContent: 'center', opacity: isTop ? 0.3 : 1 }}>
-            <Icon name="chevron-up" size={22} color={colors.text2} />
+        <View style={{ alignItems: 'center' }}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Subir" disabled={isTop} onPress={onUp} hitSlop={6} style={{ width: 32, height: 24, alignItems: 'center', justifyContent: 'center', opacity: isTop ? 0.3 : 1 }}>
+            <Icon name="chevron-up" size={18} color={colors.text2} />
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="Mais opções" onPress={onMenu} hitSlop={6} style={{ minWidth: 40, minHeight: 32, alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="ellipsis-horizontal" size={20} color={colors.text2} />
+          <Pressable accessibilityRole="button" accessibilityLabel="Mais opções" onPress={onMenu} hitSlop={6} style={{ width: 32, height: 20, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="ellipsis-horizontal" size={16} color={colors.muted} />
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="Descer" onPress={onDown} hitSlop={6} style={{ minWidth: 40, minHeight: 36, alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="chevron-down" size={22} color={colors.text2} />
+          <Pressable accessibilityRole="button" accessibilityLabel="Descer" onPress={onDown} hitSlop={6} style={{ width: 32, height: 24, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="chevron-down" size={18} color={colors.text2} />
           </Pressable>
         </View>
       ) : null}

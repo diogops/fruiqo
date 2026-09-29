@@ -16,7 +16,7 @@ import { Alert, Modal, Pressable, Text, View } from 'react-native';
 
 import { buildTextFileRequest, isImageFile, isTextFile } from '../catalog/logic';
 import { useAppState } from '../state/AppState';
-import { Button } from '../ui/components';
+import { Button, IconButton } from '../ui/components';
 import { colors, ui } from '../ui/theme';
 import { readClipboard } from './clipboard';
 import { selectPickedImages, type PickerAsset } from './ingestImages';
@@ -53,7 +53,7 @@ function askAnother(count: number): Promise<boolean> {
   });
 }
 
-export function ImportPrints({ label = 'Importar', compact }: { label?: string; compact?: boolean } = {}) {
+export function ImportPrints({ label = 'Importar', compact, iconOnly }: { label?: string; compact?: boolean; iconOnly?: boolean } = {}) {
   const [open, setOpen] = useState(false);
   const [progress, setProgress] = useState<OcrProgress | null>(null);
   const { setPendingShare } = useAppState();
@@ -188,7 +188,11 @@ export function ImportPrints({ label = 'Importar', compact }: { label?: string; 
 
   return (
     <>
-      <Button title={label} icon="cloud-upload-outline" compact={compact} onPress={() => setOpen(true)} />
+      {iconOnly ? (
+        <IconButton icon="cloud-upload-outline" label={label} onPress={() => setOpen(true)} />
+      ) : (
+        <Button title={label} icon="cloud-upload-outline" compact={compact} onPress={() => setOpen(true)} />
+      )}
       <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
         <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' }} onPress={() => setOpen(false)} />
         <View style={[ui.pad, { backgroundColor: colors.bg, borderTopLeftRadius: 16, borderTopRightRadius: 16 }]}>

@@ -154,6 +154,7 @@ export function Chip({
   disabled,
   hint,
   icon,
+  compact,
 }: {
   label: string;
   onPress?: () => void;
@@ -162,6 +163,8 @@ export function Chip({
   icon?: IconName;
   /** texto pequeno ao lado do rótulo (ex.: quantos títulos combinam) */
   hint?: string;
+  /** versão baixa, para barras de atalho (a área de toque segue ampliada pelo hitSlop) */
+  compact?: boolean;
 }) {
   return (
     <Pressable
@@ -169,19 +172,58 @@ export function Chip({
       accessibilityState={{ selected: Boolean(selected), disabled: Boolean(disabled) }}
       onPress={onPress}
       disabled={disabled || !onPress}
+      hitSlop={compact ? 6 : undefined}
       style={({ pressed }) => [
         styles.chip,
+        compact && styles.chipCompact,
         selected && ({ backgroundColor: colors.primary, borderColor: 'transparent', experimental_backgroundImage: gradients.brand } as ViewStyle),
         { opacity: disabled ? 0.45 : pressed ? 0.75 : 1 },
       ]}
     >
       <View style={styles.buttonRow}>
-        {icon ? <Icon name={icon} size={16} color={selected ? colors.primaryText : colors.primary2} /> : null}
-        <Text style={[styles.chipText, selected && { color: colors.primaryText }]}>
+        {icon ? <Icon name={icon} size={compact ? 14 : 16} color={selected ? colors.primaryText : colors.primary2} /> : null}
+        <Text style={[styles.chipText, compact && styles.chipTextCompact, selected && { color: colors.primaryText }]}>
           {label}
           {hint ? <Text style={[styles.chipHint, selected && { color: colors.primaryText }]}> {hint}</Text> : null}
         </Text>
       </View>
+    </Pressable>
+  );
+}
+
+/** Botão só com ícone (barra do catálogo); `badge` mostra um número pequeno no canto. */
+export function IconButton({
+  icon,
+  label,
+  onPress,
+  primary,
+  badge,
+}: {
+  icon: IconName;
+  /** rótulo acessível */
+  label: string;
+  onPress: () => void;
+  primary?: boolean;
+  badge?: string;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={badge ? `${label} (${badge})` : label}
+      onPress={onPress}
+      hitSlop={4}
+      style={({ pressed }) => [
+        styles.iconButton,
+        primary && ({ backgroundColor: colors.primary, borderColor: 'transparent', experimental_backgroundImage: gradients.brand } as ViewStyle),
+        { opacity: pressed ? 0.75 : 1 },
+      ]}
+    >
+      <Icon name={icon} size={20} color={primary ? colors.primaryText : colors.text2} />
+      {badge ? (
+        <View style={styles.iconBadge}>
+          <Text style={styles.iconBadgeText}>{badge}</Text>
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -335,6 +377,20 @@ function buildStyles() {
       justifyContent: 'center',
     },
     chipText: { fontSize: 14, fontWeight: '600', color: colors.text2 },
+    chipCompact: { minHeight: 30, paddingVertical: 4, paddingHorizontal: 10 },
+    chipTextCompact: { fontSize: 12.5 },
+    iconButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface2,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    iconBadge: { position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8, paddingHorizontal: 3, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+    iconBadgeText: { fontSize: 10, fontWeight: '800', color: colors.primaryText },
     chipHint: { fontSize: 12, color: colors.muted },
     progressTrack: { height: 7, borderRadius: 4, backgroundColor: colors.surface3, overflow: 'hidden' },
     progressFill: { height: 7, borderRadius: 4, backgroundColor: colors.primary },

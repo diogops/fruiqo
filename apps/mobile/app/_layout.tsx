@@ -25,7 +25,7 @@ function Gate() {
     } else if (authStatus === 'signedOut') {
       if (current !== 'login' && current !== 'about') router.replace('/login');
     } else if (current === 'consent' || current === 'login' || current === undefined) {
-      router.replace('/home');
+      router.replace('/catalog');
     }
   }, [ready, consented, authStatus, current, router]);
 
