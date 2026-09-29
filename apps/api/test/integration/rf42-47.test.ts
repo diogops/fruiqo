@@ -328,6 +328,13 @@ describe('RF-46: busca e importação', () => {
     expect(withAi.items.map((i) => i.title)).toEqual(['Relógio Infinito']);
     // ARB-REQ-06: o LLM recebeu só o texto digitado
     expect(seen).toEqual([description]);
+
+    // pedido curto por critérios: sem IA vira gênero + recência; com "Buscar com IA", vai inteiro para a IA
+    const recentWestern = await search.search(user.userId, 'Filme recente de faroeste');
+    expect(recentWestern.interpreted).toMatchObject({ type: 'genre', genres: [{ key: 'western', label: 'Faroeste' }] });
+    const forced = await search.search(user.userId, 'Filme recente de faroeste', undefined, true);
+    expect(forced.interpreted).toMatchObject({ type: 'description', aiUsed: true });
+    expect(seen.at(-1)).toBe('Filme recente de faroeste');
   });
 
   it('sem liberação do TMDB para IA, o guesser nem existe; limite por usuário responde 429', async () => {

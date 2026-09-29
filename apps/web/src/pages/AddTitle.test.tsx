@@ -101,12 +101,27 @@ describe('adicionar título por busca (RF-46)', () => {
 
     ai = false;
     await user.type(input, 's');
-    expect(await screen.findByText(/IA indisponível: usando palavras-chave/)).toBeTruthy();
+    expect(await screen.findByText(/IA não usada: busca por palavras-chave/)).toBeTruthy();
 
     await user.click(screen.getByRole('checkbox', { name: 'Selecionar Duna (2021)' }));
     await user.click(screen.getByRole('button', { name: 'Aprovar já' }));
     await waitFor(() => expect(calls.some((c) => c.path === '/library/import')).toBe(true));
     expect(calls.find((c) => c.path === '/library/import')?.body).toEqual({ items: [{ tmdbId: 438631, mediaType: 'movie' }], approveNow: true });
+  });
+
+  it('"Buscar com IA" manda o pedido inteiro para a IA (ai=1); em "Só livros" fica desligado', async () => {
+    __setAccessToken('tok');
+    const { calls } = mockApi({ 'GET /search/titles': response({ type: 'description', aiUsed: true }), 'GET /lists': [] });
+    const user = userEvent.setup();
+    renderWithProviders(<AddTitle onClose={vi.fn()} />);
+    const ai = screen.getByRole('button', { name: /Buscar com IA/ });
+    await user.click(ai);
+    expect(ai.getAttribute('aria-pressed')).toBe('true');
+    await user.type(screen.getByRole('searchbox', { name: 'Buscar filme, série ou livro' }), 'filme recente de faroeste');
+    await waitFor(() => expect(calls.some((c) => c.path.includes('ai=1'))).toBe(true));
+    expect(calls.filter((c) => c.path.startsWith('/search/titles')).at(-1)?.path).toContain('q=filme+recente+de+faroeste');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Tipo da busca' }), 'book');
+    expect((screen.getByRole('button', { name: /Buscar com IA/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('a aba Manual mantém o cadastro direto, com "Livro" entre os tipos', async () => {

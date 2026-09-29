@@ -76,7 +76,7 @@ export class SearchService {
     @Optional() @Inject(OPENLIBRARY_CATALOG) private readonly books: OpenLibraryResolver | null = null,
   ) {}
 
-  async search(userId: string, q: string, kind?: 'movie' | 'series' | 'book'): Promise<TitleSearchResponse> {
+  async search(userId: string, q: string, kind?: 'movie' | 'series' | 'book', forceAi = false): Promise<TitleSearchResponse> {
     if (!this.searchLimiter.take(userId)) throw tooMany();
     // RF-48: livros só pela Open Library (sem TMDB, sem LLM)
     if (kind === 'book' || (!kind && !this.tmdb && this.books)) return this.searchBooksOnly(userId, q);
@@ -85,7 +85,7 @@ export class SearchService {
     // sem tipo: livros em paralelo (título/autor; gênero e descrição ficam no TMDB); a Open Library
     // lenta não segura a busca de filmes/séries: depois de BOOKS_IN_MIXED_SEARCH_MS, segue sem livros
     const booksPromise: Promise<BookHit[] | null> =
-      !kind && this.books && interp.type !== 'genre'
+      !kind && this.books && interp.type !== 'genre' && !forceAi
         ? Promise.race([
             this.books.searchBooks(interp.text, 6).catch(() => [] as BookHit[]),
             new Promise<BookHit[]>((r) => setTimeout(() => r([]), BOOKS_IN_MIXED_SEARCH_MS).unref()),
@@ -98,7 +98,14 @@ export class SearchService {
     let hits: { hit: TmdbHit; matchedBy: TitleSearchResult['matchedBy'] }[] = [];
 
     try {
-      if (interp.type === 'genre') {
+      if (forceAi) {
+        // "Buscar com IA": o pedido inteiro vai para a IA (com consentimento); sem ela, cai nas palavras-chave
+        type = 'description';
+        const described = await this.byDescription(tmdb, userId, q, interp);
+        aiUsed = described.aiUsed;
+        aiBooks = described.books;
+        hits = described.hits.map((hit) => ({ hit, matchedBy: 'description' as const }));
+      } else if (interp.type === 'genre') {
         hits = (await this.byGenre(tmdb, interp)).map((hit) => ({ hit, matchedBy: 'genre' as const }));
       } else {
         const multi = await tmdb.searchMulti(interp.text);
@@ -314,7 +321,9 @@ export class SearchService {
   /** Gênero/tema/década: /discover de filme e/ou série, mais populares primeiro. */
   private async byGenre(tmdb: TmdbResolver, interp: SearchInterpretation): Promise<TmdbHit[]> {
     const medias: ('movie' | 'tv')[] = interp.kind === 'series' ? ['tv'] : interp.kind === 'movie' ? ['movie'] : ['movie', 'tv'];
-    const from = interp.decade;
+    // "recente/lançamento": últimos 3 anos; década explícita vence
+    const recentFrom = interp.recent ? new Date().getFullYear() - 3 : undefined;
+    const from = interp.decade ?? recentFrom;
     const to = interp.decade ? interp.decade + 9 : undefined;
     const lists = await Promise.all(
       medias.map((m) => {

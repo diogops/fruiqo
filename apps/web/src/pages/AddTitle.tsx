@@ -4,6 +4,7 @@
 import { TMDB_ATTRIBUTION, tmdbPageUrl, type RecommendationKind, type TitleSearchResponse } from '@fruiqo/contracts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type FormEvent } from 'react';
+import { Link } from 'react-router';
 import { api } from '../api/client';
 import { ErrorNote, Modal } from '../components/shared';
 import { useToast } from '../components/Toast';
@@ -94,10 +95,13 @@ export function TitleSearch({
 }) {
   const [text, setText] = useState('');
   const [kind, setKind] = useState<KindFilter>('');
+  // "Buscar com IA": o pedido vai inteiro para a IA ("filme recente de faroeste"); livros seguem sem IA
+  const [useAi, setUseAi] = useState(false);
+  const aiParam = useAi && kind !== 'book' ? ('1' as const) : undefined;
   const q = useDebounced(text.trim());
   const search = useQuery({
-    queryKey: ['search-titles', q, kind],
-    queryFn: () => api.searchTitles({ q, kind: kind || undefined }),
+    queryKey: ['search-titles', q, kind, aiParam],
+    queryFn: () => api.searchTitles({ q, kind: kind || undefined, ...(aiParam ? { ai: aiParam } : {}) }),
     enabled: q.length >= 2,
     staleTime: 60_000,
   });
@@ -132,6 +136,16 @@ export function TitleSearch({
             <option value="book">Só livros</option>
           </select>
         </label>
+        <button
+          type="button"
+          className={useAi ? 'chip chip-on search-ai' : 'chip search-ai'}
+          aria-pressed={useAi}
+          disabled={kind === 'book'}
+          title="Pedido livre, interpretado pela IA (ex.: filme recente de faroeste)"
+          onClick={() => setUseAi((v) => !v)}
+        >
+          <Icon name="sparkles" size={14} /> Buscar com IA
+        </button>
       </div>
 
       {interpreted && (
@@ -147,7 +161,10 @@ export function TitleSearch({
                 <Icon name="sparkles" size={12} /> interpretado com IA
               </span>
             ) : (
-              <span className="note-inline"> · IA indisponível: usando palavras-chave</span>
+              <span className="note-inline">
+                {' '}
+                · IA não usada: busca por palavras-chave{useAi ? <> (ligue a IA em <Link to="/perfil">Perfil</Link>)</> : null}
+              </span>
             ))}
         </p>
       )}

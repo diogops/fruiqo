@@ -327,8 +327,9 @@ export const batchReview =(body: ReviewBatchRequest): Promise<ReviewBatchRespons
 
 // ---------- Busca inteligente e inclusão (RF-46) ----------
 
-export function searchTitles(q: string, kind?: 'movie' | 'series' | 'book'): Promise<TitleSearchResponse> {
-  const qs = `q=${encodeURIComponent(q)}${kind ? `&kind=${kind}` : ''}`;
+export function searchTitles(q: string, kind?: 'movie' | 'series' | 'book', ai?: boolean): Promise<TitleSearchResponse> {
+  // ai: "Buscar com IA" (pedido livre inteiro para a IA; o servidor exige o consentimento)
+  const qs = `q=${encodeURIComponent(q)}${kind ? `&kind=${kind}` : ''}${ai && kind !== 'book' ? '&ai=1' : ''}`;
   return request(`/search/titles?${qs}`, TitleSearchResponseSchema);
 }
 

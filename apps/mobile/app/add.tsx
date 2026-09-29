@@ -33,6 +33,7 @@ export default function AddTitle() {
   const review = useReviewCount();
   const [q, setQ] = useState('');
   const [kind, setKind] = useState<Kind>(undefined);
+  const [useAi, setUseAi] = useState(false);
   const [res, setRes] = useState<TitleSearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +52,7 @@ export default function AddTitle() {
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
-        const r = await searchTitles(term, kind);
+        const r = await searchTitles(term, kind, useAi);
         if (id === seq.current) {
           setRes(r);
           setError(null);
@@ -63,7 +64,7 @@ export default function AddTitle() {
       }
     }, 400);
     return () => clearTimeout(timer);
-  }, [q, kind]);
+  }, [q, kind, useAi]);
 
   const rows: Row[] = [
     ...(res?.items ?? []).map((m) => ({ key: movieKey(m), movie: m })),
@@ -125,6 +126,7 @@ export default function AddTitle() {
               {([undefined, 'movie', 'series', 'book'] as Kind[]).map((k) => (
                 <Chip key={k ?? 'all'} label={k ? kindLabel(k) : 'Tudo'} selected={kind === k} onPress={() => setKind(k)} />
               ))}
+              <Chip icon="sparkles-outline" label="Com IA" selected={useAi && kind !== 'book'} disabled={kind === 'book'} onPress={() => setUseAi((v) => !v)} />
             </View>
             {res && (
               <Text style={ui.muted}>

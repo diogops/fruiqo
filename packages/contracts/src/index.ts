@@ -1187,6 +1187,8 @@ export type ApplyPriorityDraftResponse = z.infer<typeof ApplyPriorityDraftRespon
 export const TitleSearchQuerySchema = z.object({
   q: z.string().trim().min(1).max(200),
   kind: z.enum(['movie', 'series', 'book']).optional(),
+  /** `1`: interpretar com IA (pedido livre: "filme recente de faroeste"); precisa do consentimento */
+  ai: z.enum(['1']).optional(),
 });
 export type TitleSearchQuery = z.infer<typeof TitleSearchQuerySchema>;
 
