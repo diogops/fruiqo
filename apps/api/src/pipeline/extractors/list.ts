@@ -100,7 +100,57 @@ function prepareLines(text: string): string[] {
       joined.push(line);
     }
   }
-  return joined.filter((l) => !isUiNoise(l));
+  return stripRepeatedMarker(joined.filter((l) => !isUiNoise(l)));
+}
+
+/**
+ * Marcador de lista que o OCR estragou: o emoji 🎬 no começo de cada linha vira "EB", "@", "©"…
+ * Um prefixo curto (até 3 caracteres, sem dígito) que abre 3+ linhas com cara de item vira "• ".
+ */
+function stripRepeatedMarker(lines: string[]): string[] {
+  const PREFIX = /^([^\s\d]{1,3})\s+(?=\S)/u;
+  const counts = new Map<string, number>();
+  for (const l of lines) {
+    const m = PREFIX.exec(l);
+    const rest = m ? l.slice(m[0].length) : '';
+    if (m?.[1] && (WATCH_LINE.test(rest) || YEAR_PARENS.test(rest))) counts.set(m[1], (counts.get(m[1]) ?? 0) + 1);
+  }
+  const markers = new Set([...counts].filter(([, n]) => n >= 3).map(([p]) => p));
+  if (markers.size === 0) return lines;
+  return lines.map((l) => {
+    const m = PREFIX.exec(l);
+    // só nas linhas de item: o mesmo emoji costuma abrir o título do post ("🎬 FILMES COM…")
+    const rest = m ? l.slice(m[0].length) : '';
+    return m?.[1] && markers.has(m[1]) && (WATCH_LINE.test(rest) || YEAR_PARENS.test(rest)) ? `• ${rest}` : l;
+  });
+}
+
+/**
+ * "Título: onde assistir" (formato comum dos posts de lista): à direita do último ": " vem um serviço
+ * de streaming ou a indisponibilidade. O título é o que vem antes ("Hush: A Morte Ouve: Plex").
+ */
+const WATCH_SERVICES =
+  `${PLATFORMS}|plex|telecine|universal\\s*\\+?|mgm\\s*\\+?|claro\\s*tv\\s*\\+?|looke|pluto\\s*tv|oldflix|lionsgate\\s*\\+?|` +
+  'google\\s*play|amazon(\\s*video)?|belas\\s*artes|filmicca|reserva\\s*imovision|indispon[ií]vel|n[aã]o\\s+(est[aá]\\s+)?dispon[ií]vel|' +
+  'nos?\\s+cinemas?|em\\s+cartaz|aluguel|streaming';
+// fim do nome do serviço: não seguido de letra/dígito (`\b` falha depois de "Disney+")
+const WATCH_LINE = new RegExp(`^(.{1,80}?):\\s+(?:${WATCH_SERVICES})(?![\\p{L}\\p{N}]).{0,60}$`, 'iu');
+const WATCH_START = new RegExp(`^(?:${WATCH_SERVICES})(?![\\p{L}\\p{N}])`, 'iu');
+
+/** 6+ palavras e nenhuma letra minúscula: frase de chamada, não título ("CORALINE" curto continua valendo). */
+function isShoutedHeadline(s: string): boolean {
+  const words = s.trim().split(/\s+/).filter((w) => /\p{L}/u.test(w));
+  return words.length >= 6 && !/\p{Ll}/u.test(s) && /\p{Lu}/u.test(s);
+}
+
+/** Título de uma linha "Título: onde assistir"; null quando a linha não tem esse formato. */
+function watchLineTitle(line: string): string | null {
+  const idx = line.lastIndexOf(': ');
+  if (idx <= 0) return null;
+  const right = line.slice(idx + 2).trim();
+  if (!WATCH_START.test(right)) return null;
+  const title = line.slice(0, idx).trim();
+  return title.length > 0 && title.length <= 80 ? title : null;
 }
 
 /**
@@ -132,6 +182,9 @@ export function extractListItems(text: string): ExtractedItem[] {
     } else if (bullet?.[1]) {
       body = bullet[1];
       marked = true;
+    } else if (WATCH_LINE.test(line)) {
+      body = line;
+      marked = true;
     } else if (YEAR_PARENS.test(line) || (DASH_PAIR.test(line) && (hint === null || isMusic(hint)))) {
       body = line;
     } else if (section && isShortLine(line)) {
@@ -139,6 +192,10 @@ export function extractListItems(text: string): ExtractedItem[] {
       marked = true;
     }
     if (!body) continue;
+    // "Título: Netflix" / "Título: Indisponível em streaming" → só o título
+    body = watchLineTitle(body) ?? body;
+    // manchete do post em caixa alta ("🎬 FILMES COM IDEIAS TÃO BOAS…"), não título
+    if (isShoutedHeadline(body)) continue;
     // cabeçalho de lista ("Top 10 filmes de 2024:"), não item
     if (/:\s*$/.test(body)) continue;
 

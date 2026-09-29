@@ -77,7 +77,7 @@ describe('catálogo: rascunho de priorização e importação (RF-44/RF-47)', ()
     const file = new File(['Duna\nMaid'], 'lista.txt', { type: 'text/plain' });
     fireEvent.dragOver(zone, { dataTransfer: { files: [file], types: ['Files'] } });
     fireEvent.drop(zone, { dataTransfer: { files: [file], types: ['Files'] } });
-    await screen.findByRole('dialog', { name: 'Importar arquivo (.txt)' });
+    await screen.findByRole('dialog', { name: 'Importar prints ou .txt' });
     await waitFor(() => expect(screen.getByLabelText('Prévia do arquivo').textContent).toContain('Maid'));
   });
 });

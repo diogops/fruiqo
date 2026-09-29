@@ -6,7 +6,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { AddTitle } from './AddTitle';
-import { ImportTxt, isTextFile } from './ImportTxt';
+import { ImportTxt, isImportFile } from './ImportTxt';
 import { DRAFT_KEY, PriorityDraftView } from './PriorityDraft';
 import { api, type LibraryFilters } from '../api/client';
 import { CorrectTitleForm, ErrorNote, Modal, useTaxonomy } from '../components/shared';
@@ -33,7 +33,7 @@ export function Catalog() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   // RF-47: import de .txt (botão ou arquivo solto na página)
-  const [importing, setImporting] = useState<{ file: File | null } | null>(null);
+  const [importing, setImporting] = useState<{ files: File[] } | null>(null);
   const [dropping, setDropping] = useState(false);
   // RF-44: rascunho de priorização (persistido no servidor)
   const [draftOpen, setDraftOpen] = useState(false);
@@ -200,12 +200,13 @@ export function Catalog() {
         if (e.currentTarget === e.target) setDropping(false);
       }}
       onDrop={(e) => {
-        const f = e.dataTransfer.files[0];
+        const files = [...e.dataTransfer.files];
         setDropping(false);
-        if (!f) return;
+        if (files.length === 0) return;
         e.preventDefault();
-        if (isTextFile(f)) setImporting({ file: f });
-        else toast.show('Solte um arquivo .txt para importar títulos.', { tone: 'error' });
+        const accepted = files.filter(isImportFile);
+        if (accepted.length > 0) setImporting({ files: accepted });
+        else toast.show('Solte prints (PNG/JPG) ou um arquivo .txt para importar títulos.', { tone: 'error' });
       }}
     >
       <div className="page-head">
@@ -226,8 +227,8 @@ export function Catalog() {
               </>
             )}
           </Menu>
-          <button type="button" className="btn" onClick={() => setImporting({ file: null })}>
-            <Icon name="list" /> Importar .txt
+          <button type="button" className="btn" onClick={() => setImporting({ files: [] })}>
+            <Icon name="list" /> Importar prints ou .txt
           </button>
           <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
             <Icon name="plus" /> Adicionar título
@@ -426,7 +427,7 @@ export function Catalog() {
 
       {openId && <TitleDetail id={openId} onClose={() => setOpenId(null)} />}
       {adding && <AddTitle onClose={() => setAdding(false)} />}
-      {importing && <ImportTxt initialFile={importing.file} onClose={() => setImporting(null)} />}
+      {importing && <ImportTxt initialFiles={importing.files} onClose={() => setImporting(null)} />}
     </section>
   );
 }

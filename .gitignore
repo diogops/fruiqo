@@ -24,3 +24,6 @@ reports/
 *credenciais*
 *credentials*
 *.secret
+
+# motor e idiomas do OCR do web, copiados de node_modules no build (scripts/copy-tesseract.mjs)
+apps/web/public/tesseract/

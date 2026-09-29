@@ -1,5 +1,6 @@
-// RF-47: importar títulos de um arquivo de texto. O arquivo é lido no navegador; só o conteúdo vai
-// para a API (`textFile`), que extrai os títulos e manda tudo para a Revisão (RF-42).
+// RF-47 + prints no web: importar títulos de um arquivo de texto ou de prints (ex.: perfil do
+// Instagram). Tudo é lido no navegador: do .txt vai o conteúdo (`textFile`); dos prints, só o texto
+// lido pelo OCR local (`pages`), nunca a imagem. A API extrai os títulos e manda tudo para a Revisão.
 import { MAX_TEXT_FILE_CHARS, type Share } from '@fruiqo/contracts';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
@@ -8,6 +9,7 @@ import { api } from '../api/client';
 import { ErrorNote, Modal } from '../components/shared';
 import { useToast } from '../components/Toast';
 import { Icon } from '../components/ui';
+import { isImageFile, MAX_SCREENSHOT_PAGES, type OcrProgress, readScreenshots } from '../ocr/screenshots';
 
 const PREVIEW_LINES = 12;
 const POLL_MS = 1000;
@@ -38,6 +40,11 @@ export function isTextFile(file: File): boolean {
   return file.type === 'text/plain' || file.name.toLowerCase().endsWith('.txt');
 }
 
+/** .txt ou print (PNG/JPG/WebP) */
+export function isImportFile(file: File): boolean {
+  return isTextFile(file) || isImageFile(file);
+}
+
 async function waitShare(id: string): Promise<Share> {
   for (let i = 0; i < POLL_MAX; i++) {
     const s = await api.share(id);
@@ -47,10 +54,13 @@ async function waitShare(id: string): Promise<Share> {
   return api.share(id);
 }
 
-export function ImportTxt({ initialFile, onClose }: { initialFile?: File | null; onClose: () => void }) {
-  const [file, setFile] = useState<{ name: string; content: string } | null>(null);
+type Loaded = { type: 'txt'; name: string; content: string } | { type: 'prints'; names: string[]; pages: string[] };
+
+export function ImportTxt({ initialFiles, onClose }: { initialFiles?: File[] | null; onClose: () => void }) {
+  const [file, setFile] = useState<Loaded | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState<'reading' | 'sending' | 'processing' | null>(null);
+  const [ocr, setOcr] = useState<OcrProgress | null>(null);
   const [drag, setDrag] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const started = useRef(false);
@@ -58,11 +68,18 @@ export function ImportTxt({ initialFile, onClose }: { initialFile?: File | null;
   const toast = useToast();
   const navigate = useNavigate();
 
-  async function load(f: File | undefined | null) {
-    if (!f) return;
+  async function load(list: File[] | FileList | undefined | null) {
+    const files = [...(list ?? [])];
+    if (files.length === 0) return;
     setError(null);
+    const images = files.filter(isImageFile);
+    if (images.length > 0) {
+      await loadPrints(images);
+      return;
+    }
+    const f = files[0]!;
     if (!isTextFile(f)) {
-      setError(new Error('Escolha um arquivo .txt (um título por linha).'));
+      setError(new Error('Escolha prints (PNG/JPG) ou um arquivo .txt (um título por linha).'));
       return;
     }
     setBusy('reading');
@@ -72,7 +89,7 @@ export function ImportTxt({ initialFile, onClose }: { initialFile?: File | null;
       if (content.length > MAX_TEXT_FILE_CHARS) {
         throw new Error(`Arquivo grande demais (${content.length.toLocaleString('pt-BR')} caracteres; máximo ${MAX_TEXT_FILE_CHARS.toLocaleString('pt-BR')}). Divida em partes.`);
       }
-      setFile({ name: f.name, content });
+      setFile({ type: 'txt', name: f.name, content });
     } catch (err) {
       setError(err);
     } finally {
@@ -80,32 +97,58 @@ export function ImportTxt({ initialFile, onClose }: { initialFile?: File | null;
     }
   }
 
+  async function loadPrints(images: File[]) {
+    if (images.length > MAX_SCREENSHOT_PAGES) {
+      setError(new Error(`Até ${MAX_SCREENSHOT_PAGES} prints por vez; escolha menos e importe o resto depois.`));
+      return;
+    }
+    setBusy('reading');
+    setFile(null);
+    try {
+      const pages = await readScreenshots(images, setOcr);
+      if (pages.every((p) => !p.trim())) {
+        throw new Error('Não encontrei texto nesses prints. Tente prints mais nítidos, sem cortar os títulos.');
+      }
+      setFile({ type: 'prints', names: images.map((i) => i.name), pages });
+    } catch (err) {
+      const loadFailed = err instanceof Error && /fetch|network|wasm|worker/i.test(err.message);
+      setError(loadFailed ? new Error('Não foi possível carregar o leitor de prints. Recarregue a página e tente de novo.') : err);
+    } finally {
+      setOcr(null);
+      setBusy(null);
+    }
+  }
+
   // arquivo solto direto no catálogo (arrastar e soltar) já abre carregado
   useEffect(() => {
-    if (initialFile && !started.current) {
+    if (initialFiles?.length && !started.current) {
       started.current = true;
-      void load(initialFile);
+      void load(initialFiles);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialFile]);
+  }, [initialFiles]);
 
   async function send() {
     if (!file) return;
     setBusy('sending');
     setError(null);
     try {
-      const share = await api.createShare({ clientShareId: crypto.randomUUID(), textFile: file });
+      const share = await api.createShare(
+        file.type === 'txt'
+          ? { clientShareId: crypto.randomUUID(), textFile: { name: file.name, content: file.content } }
+          : { clientShareId: crypto.randomUUID(), pages: file.pages.filter((p) => p.trim()) },
+      );
       setBusy('processing');
       const done = await waitShare(share.id);
       await qc.invalidateQueries();
       if (done.status !== 'done') {
-        throw new Error(done.error ?? 'Não foi possível ler o arquivo.');
+        throw new Error(done.error ?? (file.type === 'txt' ? 'Não foi possível ler o arquivo.' : 'Não foi possível ler os prints.'));
       }
       const n = done.recommendations.length;
       const dup = done.dedup.itemsAlreadyInList;
       toast.show(
         n === 0 && dup === 0
-          ? 'Nenhum título encontrado no arquivo.'
+          ? `Nenhum título encontrado ${file.type === 'txt' ? 'no arquivo' : 'nos prints'}.`
           : `${n} título(s) para revisar${dup ? ` · ${dup} já estava(m) na sua lista` : ''}.`,
       );
       onClose();
@@ -116,15 +159,19 @@ export function ImportTxt({ initialFile, onClose }: { initialFile?: File | null;
     }
   }
 
-  const lines = file ? file.content.split('\n').filter((l) => l.trim()) : [];
+  const lines = file ? (file.type === 'txt' ? file.content : file.pages.join('\n')).split('\n').filter((l) => l.trim()) : [];
 
   return (
-    <Modal title="Importar arquivo (.txt)" onClose={onClose}>
+    <Modal title="Importar prints ou .txt" onClose={onClose}>
       <div className="form">
         <p className="muted small">
-          Um título por linha, com ou sem ano (ex.: <code>Maid (2021)</code>). Cabeçalhos como <code>Series:</code>,{' '}
-          <code>Filmes:</code>, <code>Livros:</code> ou <code>Músicas:</code> definem o tipo das linhas abaixo. Tudo vai para a
-          Revisão antes de entrar na fila.
+          <strong>Prints</strong> (PNG/JPG, até {MAX_SCREENSHOT_PAGES}): por exemplo, de um perfil do Instagram com uma lista de
+          filmes. O texto é lido aqui no seu navegador; a imagem não é enviada.
+        </p>
+        <p className="muted small">
+          <strong>.txt</strong>: um título por linha, com ou sem ano (ex.: <code>Maid (2021)</code>). Cabeçalhos como{' '}
+          <code>Series:</code>, <code>Filmes:</code>, <code>Livros:</code> ou <code>Músicas:</code> definem o tipo das linhas abaixo.
+          Tudo vai para a Revisão antes de entrar na fila.
         </p>
         <div
           className={drag ? 'dropzone dragging' : 'dropzone'}
@@ -136,27 +183,41 @@ export function ImportTxt({ initialFile, onClose }: { initialFile?: File | null;
           onDrop={(e) => {
             e.preventDefault();
             setDrag(false);
-            void load(e.dataTransfer.files[0]);
+            void load(e.dataTransfer.files);
           }}
         >
           <Icon name="plus" size={22} />
-          <span>Arraste o arquivo aqui ou</span>
-          <button type="button" className="btn" data-autofocus onClick={() => inputRef.current?.click()}>
-            Escolher arquivo
+          <span>Arraste os prints ou o .txt aqui ou</span>
+          <button type="button" className="btn" data-autofocus disabled={busy === 'reading'} onClick={() => inputRef.current?.click()}>
+            Escolher arquivos
           </button>
           <input
             ref={inputRef}
             type="file"
-            accept=".txt,text/plain"
+            multiple
+            accept=".txt,text/plain,image/png,image/jpeg,image/webp"
             className="sr-only"
-            aria-label="Arquivo de texto"
-            onChange={(e) => void load(e.target.files?.[0])}
+            aria-label="Prints ou arquivo de texto"
+            onChange={(e) => {
+              void load(e.target.files ? [...e.target.files] : null);
+              e.target.value = '';
+            }}
           />
         </div>
 
+        {ocr && (
+          <p className="muted small" role="status">
+            {ocr.stage === 'loading'
+              ? `Preparando o leitor de prints (só na primeira vez)… ${Math.round(ocr.progress * 100)}%`
+              : `Lendo print ${ocr.index + 1} de ${ocr.total}…`}
+          </p>
+        )}
         {file && (
-          <div className="txt-preview" aria-label="Prévia do arquivo">
-            <strong>{file.name}</strong> <span className="muted small">· {lines.length} linha(s)</span>
+          <div className="txt-preview" aria-label={file.type === 'txt' ? 'Prévia do arquivo' : 'Texto lido dos prints'}>
+            <strong>{file.type === 'txt' ? file.name : `${file.names.length} print(s)`}</strong>{' '}
+            <span className="muted small">
+              · {lines.length} linha(s){file.type === 'prints' ? ' lida(s)' : ''}
+            </span>
             <ol>
               {lines.slice(0, PREVIEW_LINES).map((l, i) => (
                 <li key={i}>{l}</li>

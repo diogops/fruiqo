@@ -91,3 +91,39 @@ describe('extração de listas', () => {
     expect(contextKind('sem pista nenhuma')).toBeNull();
   });
 });
+
+describe('lista "Título: onde assistir" (posts de perfil)', () => {
+  // texto sintético no formato dos posts; o 🎬 de cada linha chega como emoji (app) ou lixo do OCR (web)
+  const post = (marker: string) =>
+    [
+      'Siga @perfil.teste',
+      `${marker} 6 FILMES DE SUSPENSE PARA VER NUMA NOITE DE CHUVA`,
+      'Separei filmes com ideias simples e finais que ninguém espera.',
+      'ONDE ASSISTIR:',
+      `${marker} A Casa do Lago Escuro: Netflix`,
+      `${marker} Silêncio: O Retorno: Plex`,
+      `${marker} Ninguém Sai Daqui: Disney+`,
+      `${marker} O Farol: Indisponível em streaming no momento`,
+      `${marker} Linha Cruzada: Telecine / Universal+`,
+      `${marker} Duplo: MGM +`,
+      'Qual desses te ganhou só pela ideia?',
+    ].join('\n');
+  const expected = ['A Casa do Lago Escuro', 'Silêncio: O Retorno', 'Ninguém Sai Daqui', 'O Farol', 'Linha Cruzada', 'Duplo'];
+
+  it.each(['🎬', 'EB', '@', '©'])('marcador %s: só os títulos, sem o serviço nem a manchete', (marker) => {
+    const items = extractListItems(post(marker));
+    expect(items.map((i) => i.title)).toEqual(expected);
+    expect(items.every((i) => i.kind === 'movie')).toBe(true);
+  });
+
+  it('sem marcador também funciona; "Título: frase qualquer" não vira item', () => {
+    expect(extractListItems(post('').replace(/^ /gm, '')).map((i) => i.title)).toEqual(expected);
+    expect(extractListItems('Filmes da semana\nDica: assista com pipoca\nObs: sem spoilers')).toEqual([]);
+  });
+
+  it('prefixo curto repetido só vira marcador em linha de item (título de 1 palavra e caixa alta curta continuam)', () => {
+    const items = extractListItems(['filmes para ver', 'EU Coraline (2009)', 'EU Up (2009)', 'EU Soul (2020)'].join('\n'));
+    expect(items.map((i) => i.title)).toEqual(['Coraline', 'Up', 'Soul']);
+    expect(extractListItems('filmes\n• CORALINE (2009)').map((i) => i.title)).toEqual(['CORALINE']);
+  });
+});
