@@ -1,6 +1,11 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import {
   type ActivityResponse,
+  type ApproveReviewRequest,
+  ApproveReviewRequestSchema,
+  type ReviewBatchRequest,
+  ReviewBatchRequestSchema,
+  type ReviewBatchResponse,
   type BulkRequest,
   BulkRequestSchema,
   type BulkResponse,
@@ -42,6 +47,7 @@ import type { AccessClaims } from '../auth/tokens.js';
 import { ZodPipe } from '../common/zod-pipe.js';
 import { SandboxService } from '../sandbox/sandbox.service.js';
 import { CatalogService } from './catalog.service.js';
+import { ReviewService } from './review.service.js';
 
 const CursorSchema = z.string().max(200).optional();
 const FixtureIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
@@ -115,23 +121,35 @@ export class ListsAdminController {
 
 @Controller('review')
 export class ReviewController {
-  constructor(private readonly catalog: CatalogService) {}
+  constructor(private readonly review: ReviewService) {}
 
   @Get()
   list(@CurrentAuth() auth: AccessClaims): Promise<ReviewListResponse> {
-    return this.catalog.reviewQueue(auth.userId);
+    return this.review.list(auth.userId);
   }
 
+  /** RF-42: em lote (rota estática antes de `:id`) */
+  @Post('batch')
+  @HttpCode(200)
+  batch(@CurrentAuth() auth: AccessClaims, @Body(new ZodPipe(ReviewBatchRequestSchema)) body: ReviewBatchRequest): Promise<ReviewBatchResponse> {
+    return this.review.batch(auth.userId, body);
+  }
+
+  /** RF-42: corpo opcional; sem corpo = aceita o encaixe sugerido e a lista proposta */
   @Post(':id/approve')
   @HttpCode(200)
-  approve(@CurrentAuth() auth: AccessClaims, @Param('id', new ParseUUIDPipe()) id: string): Promise<Title> {
-    return this.catalog.approve(auth.userId, id);
+  approve(
+    @CurrentAuth() auth: AccessClaims,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(new ZodPipe(ApproveReviewRequestSchema.optional())) body: ApproveReviewRequest | undefined,
+  ): Promise<Title> {
+    return this.review.approve(auth.userId, id, body ?? {});
   }
 
   @Post(':id/reject')
   @HttpCode(204)
   reject(@CurrentAuth() auth: AccessClaims, @Param('id', new ParseUUIDPipe()) id: string): Promise<void> {
-    return this.catalog.reject(auth.userId, id);
+    return this.review.reject(auth.userId, id);
   }
 
   @Post(':id/rematch')
@@ -141,7 +159,7 @@ export class ReviewController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body(new ZodPipe(ReviewRematchRequestSchema)) body: ReviewRematchRequest,
   ): Promise<Title> {
-    return this.catalog.rematch(auth.userId, id, body);
+    return this.review.rematch(auth.userId, id, body);
   }
 }
 

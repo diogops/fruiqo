@@ -1,0 +1,34 @@
+{
+  "synthetic": true,
+  "recorded_at": "2026-09-28T00:00:00.000Z",
+  "request": {
+    "method": "GET",
+    "url": "https://api.themoviedb.org/3/search/multi?query=Criada&language=pt-BR&include_adult=false"
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "results": [
+        {
+          "id": 9910107,
+          "media_type": "movie",
+          "title": "Criada",
+          "release_date": "1998-03-01",
+          "poster_path": null,
+          "overview": "Sinopse fictícia escrita pelo time Fruiqo.",
+          "popularity": 12
+        },
+        {
+          "id": 9910007,
+          "media_type": "tv",
+          "name": "Criada",
+          "first_air_date": "2021-03-01",
+          "poster_path": null,
+          "overview": "Sinopse fictícia escrita pelo time Fruiqo.",
+          "popularity": 22
+        }
+      ]
+    }
+  }
+}

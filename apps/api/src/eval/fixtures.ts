@@ -41,7 +41,7 @@ export type MoodCase = z.infer<typeof MoodCaseSchema>;
 
 const MetaSchema = z.object({
   id: z.string(),
-  kind: z.enum(['screenshot', 'text', 'url', 'sequence', 'mood-set']),
+  kind: z.enum(['screenshot', 'text', 'url', 'sequence', 'mood-set', 'text_file']),
   description: z.string().default(''),
   synthetic: z.boolean(),
 });
@@ -49,7 +49,7 @@ const MetaSchema = z.object({
 export type PipelineFixture = {
   id: string;
   set: 'public' | 'private';
-  kind: 'screenshot' | 'text' | 'url' | 'sequence';
+  kind: 'screenshot' | 'text' | 'url' | 'sequence' | 'text_file';
   description: string;
   /** um ou mais shares, na ordem; sem clientShareId (o eval gera) */
   shares: Omit<CreateShareRequest, 'clientShareId'>[];
@@ -60,11 +60,17 @@ export type MoodFixture = { id: string; set: 'public' | 'private'; kind: 'mood-s
 
 export type Fixture = PipelineFixture | MoodFixture;
 
+/** RF-47: `.txt` importado; `file` é o arquivo dentro da pasta da fixture */
+const TextFileInputSchema = z.object({ name: z.string(), file: z.string().regex(/^[\w.-]+\.txt$/) });
+
 const InputSchema = z.object({
   pages: z.array(z.string()).optional(),
   url: z.string().optional(),
   text: z.string().optional(),
-  shares: z.array(z.object({ pages: z.array(z.string()).optional(), url: z.string().optional(), text: z.string().optional() })).optional(),
+  textFile: TextFileInputSchema.optional(),
+  shares: z
+    .array(z.object({ pages: z.array(z.string()).optional(), url: z.string().optional(), text: z.string().optional(), textFile: TextFileInputSchema.optional() }))
+    .optional(),
 });
 
 function readJson(path: string): unknown {
@@ -72,11 +78,16 @@ function readJson(path: string): unknown {
 }
 
 /** `pages` na entrada são nomes (page-1); o texto vem do page-N.ocr.txt (o que o OCR do device mandaria). */
-function toRequest(dir: string, input: { pages?: string[]; url?: string; text?: string }): Omit<CreateShareRequest, 'clientShareId'> {
+function toRequest(
+  dir: string,
+  input: { pages?: string[]; url?: string; text?: string; textFile?: { name: string; file: string } },
+): Omit<CreateShareRequest, 'clientShareId'> {
   return {
     ...(input.pages ? { pages: input.pages.map((p) => readFileSync(join(dir, `${p}.ocr.txt`), 'utf8').trim()) } : {}),
     ...(input.url ? { url: input.url } : {}),
     ...(input.text ? { text: input.text } : {}),
+    // o conteúdo vai como o navegador/app leria o arquivo (sem normalizar quebras de linha)
+    ...(input.textFile ? { textFile: { name: input.textFile.name, content: readFileSync(join(dir, input.textFile.file), 'utf8') } } : {}),
   };
 }
 

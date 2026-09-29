@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const dir = join(root, 'fixtures');
 const ALLOWED = /\.(json|txt|png|md)$/;
-const KINDS = new Set(['screenshot', 'text', 'url', 'sequence', 'mood-set']);
+const KINDS = new Set(['screenshot', 'text', 'url', 'sequence', 'mood-set', 'text_file']);
 const errors = [];
 
 function walk(d) {

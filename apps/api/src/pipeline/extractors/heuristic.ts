@@ -1,4 +1,4 @@
-import { extractListItems } from './list.js';
+import { extractListItems, extractTextFileItems } from './list.js';
 import type { ExtractedItem, ExtractionInput, Extractor } from './types.js';
 
 // Sufixos típicos de título de vídeo que não fazem parte do nome da obra.
@@ -21,6 +21,9 @@ export class HeuristicExtractor implements Extractor {
   readonly name = 'heuristic' as const;
 
   async extract(input: ExtractionInput): Promise<ExtractedItem[]> {
+    // RF-47: .txt importado, um título por linha
+    if (input.origin === 'text_file') return input.text ? extractTextFileItems(input.text, input.fileName) : [];
+
     const title = input.title?.trim();
     if (title) return [this.fromTitle(title)];
 

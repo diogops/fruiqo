@@ -1,0 +1,108 @@
+{
+  "status": "done",
+  "items": [
+    {
+      "title": "Bebe Lontra",
+      "kind": "series",
+      "tmdbId": "tv:9910001"
+    },
+    {
+      "title": "Olhos que julgam",
+      "kind": "series",
+      "tmdbId": "tv:9910002"
+    },
+    {
+      "title": "Chernoville",
+      "kind": "series",
+      "tmdbId": "tv:9910003"
+    },
+    {
+      "title": "Uma família quase perfeita",
+      "kind": "series",
+      "year": 2025,
+      "tmdbId": "tv:9910004"
+    },
+    {
+      "title": "O pacto",
+      "kind": "series",
+      "year": 2019,
+      "tmdbId": "tv:9910005"
+    },
+    {
+      "title": "Incontestável",
+      "kind": "series",
+      "year": 2019,
+      "tmdbId": "tv:9910006"
+    },
+    {
+      "title": "Criada",
+      "kind": "series",
+      "year": 2021,
+      "tmdbId": "tv:9910007"
+    },
+    {
+      "title": "Amor e Luto",
+      "kind": "series",
+      "year": 2023,
+      "tmdbId": "tv:9910008"
+    },
+    {
+      "title": "The Stopout",
+      "kind": "series",
+      "year": 2022,
+      "tmdbId": "tv:9910009"
+    },
+    {
+      "title": "Back Heron",
+      "kind": "series",
+      "year": 2022,
+      "tmdbId": "tv:9910010"
+    },
+    {
+      "title": "DopeFlick",
+      "kind": "series",
+      "year": 2021,
+      "tmdbId": "tv:9910011"
+    },
+    {
+      "title": "O paraíso e a víbora",
+      "kind": "series",
+      "year": 2021,
+      "tmdbId": "tv:9910012"
+    },
+    {
+      "title": "A escadaria",
+      "kind": "series",
+      "year": 2022,
+      "tmdbId": "tv:9910013"
+    },
+    {
+      "title": "Entre vizinhos",
+      "kind": "series",
+      "year": 2023,
+      "tmdbId": "tv:9910014"
+    },
+    {
+      "title": "Em nome da fé",
+      "kind": "series",
+      "year": 2022,
+      "tmdbId": "tv:9910015"
+    },
+    {
+      "title": "Mindcatcher",
+      "kind": "series",
+      "year": 2017,
+      "tmdbId": "tv:9910016"
+    },
+    {
+      "title": "Monstra",
+      "kind": "series",
+      "year": 2022,
+      "tmdbId": "tv:9910017"
+    }
+  ],
+  "dedup": {
+    "pagesIgnored": 0,
+    "itemsAlreadyInList": 0
+  }
+}

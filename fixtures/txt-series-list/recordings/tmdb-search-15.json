@@ -1,0 +1,25 @@
+{
+  "synthetic": true,
+  "recorded_at": "2026-09-28T00:00:00.000Z",
+  "request": {
+    "method": "GET",
+    "url": "https://api.themoviedb.org/3/search/multi?query=Em+nome+da+f%C3%A9&language=pt-BR&include_adult=false"
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "results": [
+        {
+          "id": 9910015,
+          "media_type": "tv",
+          "name": "Em Nome da Fé",
+          "first_air_date": "2022-03-01",
+          "poster_path": null,
+          "overview": "Sinopse fictícia escrita pelo time Fruiqo.",
+          "popularity": 12
+        }
+      ]
+    }
+  }
+}

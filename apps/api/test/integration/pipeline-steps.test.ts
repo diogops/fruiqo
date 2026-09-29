@@ -65,7 +65,14 @@ describe('pipeline inspector (RF-19)', () => {
     expect(metadata.outputSummary).toEqual({ found: true, hasAuthor: true });
     expect(JSON.stringify(body.steps)).not.toContain('Official Video');
     expect(body.decisions).toEqual([
-      expect.objectContaining({ rawTitle: 'Canção Teste', kind: 'music_track', decision: 'cataloged', reason: 'confident', recommendationId: expect.any(String) }),
+      // RF-42: todo import vai para a revisão; o motivo guarda a sugestão do pipeline
+      expect.objectContaining({
+        rawTitle: 'Canção Teste',
+        kind: 'music_track',
+        decision: 'review_queue',
+        reason: 'suggested_cataloged:confident',
+        recommendationId: expect.any(String),
+      }),
     ]);
   });
 
@@ -95,9 +102,11 @@ describe('pipeline inspector (RF-19)', () => {
       { kind: 'movie', title: 'Quase Nada', confidence: 0.05 },
     ]).process({ shareId, userId });
     const got = (await ctx.http().get(`/shares/${shareId}`).set('authorization', `Bearer ${user.accessToken}`).expect(200)).body;
-    expect(got.recommendations.map((r: { title: string; decision: string }) => [r.title, r.decision])).toEqual([
-      ['Alta Confiança', 'cataloged'],
-      ['Média Confiança', 'review_queue'],
+    expect(
+      got.recommendations.map((r: { title: string; decision: string; suggestedDecision: string }) => [r.title, r.decision, r.suggestedDecision]),
+    ).toEqual([
+      ['Alta Confiança', 'review_queue', 'cataloged'],
+      ['Média Confiança', 'review_queue', 'review_queue'],
     ]);
     const body = await steps(ctx, user.accessToken, shareId);
     expect(body.decisions.find((d: { rawTitle: string }) => d.rawTitle === 'Quase Nada')).toMatchObject({ decision: 'discarded' });

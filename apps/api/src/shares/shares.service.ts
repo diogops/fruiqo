@@ -40,6 +40,10 @@ export class SharesService {
           ...(input.pages
             ? { inputPages: input.pages, origin: 'screenshot' as const, pageCount: input.pages.length }
             : {}),
+          // RF-47: .txt lido no device/navegador; o conteúdo segue como texto e o nome vira o título da fonte
+          ...(input.textFile && !input.pages
+            ? { inputText: input.textFile.content, origin: 'text_file' as const, sourceTitle: input.textFile.name }
+            : {}),
         })
         .onConflictDoNothing({ target: [shares.userId, shares.clientShareId] })
         .returning();

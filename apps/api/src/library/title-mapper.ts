@@ -23,6 +23,8 @@ export function toTitle(r: RecommendationRow, lists: { id: string; name: string 
     enrichment: r.enrichment,
     ...tmdbDisplay(r.resolution),
     decision: r.decision,
+    ...(r.suggestedDecision ? { suggestedDecision: r.suggestedDecision } : {}),
+    ...(r.matchScore != null ? { matchScore: r.matchScore } : {}),
     confidence: r.confidence,
     extractor: r.extractor,
     ...(r.resolution ? { resolution: r.resolution } : {}),

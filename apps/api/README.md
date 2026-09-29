@@ -33,7 +33,7 @@ Todos exigem `Authorization: Bearer <accessToken>`, exceto os marcados como púb
 | POST | `/auth/logout` | 204, revoga a sessão atual |
 | GET | `/auth/sessions` | `Session[]` |
 | DELETE | `/auth/sessions/:id` | 204 |
-| POST | `/shares` | `CreateShareRequest` → 201 `Share` (novo) ou 200 (retry do mesmo `clientShareId`) |
+| POST | `/shares` | `CreateShareRequest` (`url`/`text`/`pages` ou `textFile: {name, content}` de um .txt, RF-47) → 201 `Share` (novo) ou 200 (retry do mesmo `clientShareId`) |
 | GET | `/shares?cursor=` | `ShareListResponse` (20 por página) |
 | GET | `/shares/:id` | `Share` (cada recomendação traz `decision`: `cataloged` ou `review_queue`) |
 | GET | `/shares/:id/steps` | `ShareStepsResponse`: etapas do pipeline em ordem + decisão por candidato (RF-19) |
@@ -46,6 +46,17 @@ Todos exigem `Authorization: Bearer <accessToken>`, exceto os marcados como púb
 | GET | `/home` | `HomeResponse`: "Continuar", presets de subgênero, estatísticas, `aiMode` |
 | POST | `/discover` | `DiscoverRequest` (`surprise` por subgênero/gênero ou `mood` por texto) → `DiscoverResponse` |
 | POST | `/feedback` | `FeedbackRequest` (`accept`/`skip`/`another`) → `{ next }` |
+| GET | `/review` | `ReviewListResponse`: cada item com `fit` (posição sugerida + motivos), `alternatives` (até 3), `proposedList`, `duplicateOf` (RF-42) |
+| POST | `/review/:id/approve` | `ApproveReviewRequest` opcional (`placement` suggested\|end\|top, `position`, `listIds`, `useProposedList`, `alternative`, correções) → `Title` |
+| POST | `/review/:id/reject`, `/review/:id/rematch` | 204 / `CorrectTitleRequest` → `Title` |
+| POST | `/review/batch` | `ReviewBatchRequest` (`approve`\|`reject`, até 200) → `ReviewBatchResponse` (cada item na sua transação) |
+| GET | `/profile/declared` | `DeclaredTaste`: resumo, favoritos, o que as regras entenderam e afinidades (RF-43) |
+| PUT | `/profile/summary` | `UpdateTasteSummaryRequest` (≤ 2000; vazio apaga) → `DeclaredTaste` |
+| POST/DELETE | `/profile/favorites`, `/profile/favorites/:id` | `CreateFavoriteRequest` → 201 `Favorite` / 204 |
+| POST/GET/PATCH/DELETE | `/library/priority-draft` | `CreatePriorityDraftRequest` → 201 `PriorityDraft`; PATCH `UpdatePriorityDraftRequest` (ordem completa ou `move`) (RF-44) |
+| POST | `/library/priority-draft/apply` | `ApplyPriorityDraftRequest` (`reconcile: 'append_new'`) → `ApplyPriorityDraftResponse` (`undoToken` do `/library/bulk/undo`); 409 com `staleDetails` se a fila mudou |
+| GET | `/search/titles?q=&kind=` | `TitleSearchResponse` (título/ano, pessoa, gênero/década, descrição) (RF-46) |
+| POST | `/library/import` | `ImportTitlesRequest` (TMDB ids; `approveNow`, `listId`) → `ImportTitlesResponse` |
 
 Erros seguem `ApiError` (`{ error, message }`), sem detalhes internos.
 
@@ -157,4 +168,15 @@ Decisões: o desfazer guarda um snapshot em `bulk_undo` (uso único, 10 min); de
 - **`user_settings`** (RLS FORCE; sem linha = tudo `false`), via `GET/PATCH /profile/settings`:
   - `remember_mood` (SEC-CTRL-50): sem ele, o run do "Como estou" guarda só o ranking (para "outra coisa") e sai em 1 dia; com ele, a intenção estruturada fica até 90 dias (`purge_expired_mood_runs()`, no job de retenção). Desligar apaga as intenções guardadas. O histórico (`/profile/mood-history`) mostra só o que foi lembrado.
   - `ai_consent` + `ai_consent_at` (SEC-CTRL-51): o LLM do "Como estou" e o extrator por LLM do worker só rodam com a flag de ambiente **e** o consentimento do usuário; senão, regras/heurística.
+
+## Revisão obrigatória, perfil declarado, prioridade, busca e .txt (RF-42 a RF-47)
+
+- **RF-42, tudo passa pela revisão**: todo import (link, prints, texto, `.txt`, busca) grava `decision = 'review_queue'`; o que o pipeline sugeriria fica em `suggested_decision` (e o motivo em `candidate_decisions.reason`, ex. `suggested_cataloged:resolved`). Nada ganha `rank` nem entra em lista antes da aprovação, então "Continuar" e sugestões só veem títulos aprovados. O `POST /library` manual continua adicionando direto (o usuário já decidiu). Títulos catalogados antes desta versão não mudam.
+- **Encaixe sugerido** (`src/library/fit.ts`, puro): score -1..1 = declarado (favoritos + resumo, 40%) + sinais com overrides (30%) + notas dos títulos do mesmo gênero (20%) + subgêneros citados (10%) + bônus "parecido com <favorito>". A posição sugerida é antes do primeiro título aberto da fila que encaixa claramente pior; sem gêneros, fim da fila. Aprovar sem corpo aceita a sugestão.
+- **Lista proposta**: prints e `.txt` com ≥ 2 itens guardam `shares.proposed_list` (nome + chaves na ordem). A lista nasce na primeira aprovação, com os títulos do post que o usuário já tinha; cada aprovação seguinte entra na posição do post. Lista apagada pelo usuário não volta.
+- **RF-43**: `taste_favorites` (resolvidos no TMDB pelo id escolhido na busca ou por título/ano com match ≥ 0,6; TTL de 180 dias nos dados do TMDB) e `taste_statements` (resumo livre, interpretado por `interpretTasteStatement` no `@fruiqo/taxonomy`, sem LLM). O perfil declarado aparece em `GET /profile/taste` (`declaredScore`) e soma metade do peso ao gosto do `/discover`.
+- **RF-44**: `priority_drafts` (um por usuário) guarda a ordem proposta e a fila no momento da geração (`base`). Gerar não muda nada; aplicar grava a ordem inteira numa transação (fila 1..N, advisory lock), guarda o snapshot em `bulk_undo` e devolve o `undoToken`. Títulos que entraram depois do rascunho: 409 ou `reconcile: 'append_new'` (vão para o fim, na ordem atual).
+- **RF-46**: a busca lê o texto localmente (`search-query.ts`): título (com erro de digitação/parcial), título + ano, só gênero/década (`/discover`), pessoa (reconhecida no `search/multi`, filmografia sem aparições como "ele mesmo") ou descrição. Descrição vai ao LLM só com `AI_MODE=anthropic` + chave + `TMDB_AI_CLEARANCE=confirmed` + `ai_consent`, e o modelo recebe só o texto digitado (`title-guesser.ts`, coberto pelo teste ARB-REQ-06); os palpites são conferidos no TMDB. Sem isso, cai para gêneros citados + palavras-chave. Limite por usuário em memória: `SEARCH_RATE_LIMIT_PER_MIN` (30) e `IMPORT_RATE_LIMIT_PER_MIN` (20).
+- **RF-47, `.txt`**: `textFile` no `POST /shares` (origem `text_file`, até 60 mil caracteres, lido no device/navegador). O extrator só por regras (`extractTextFileItems`) trata toda linha curta como item, e cabeçalhos "Series:"/"Filmes:"/"Músicas:" definem o tipo. O resolver TMDB (`resolveDetailed`) pontua cada candidato por título (Levenshtein sem acento/pontuação, contenção ponderada pela cobertura), ano (diferença > 1 derruba para "fraco") e tipo. Match fraco tenta de novo com a palavra mais longa + ano + tipo (`search/tv`/`search/movie`); as outras opções (até 3) ficam em `match_alternatives` e aparecem na revisão.
+- **Eval**: fixture sintética `txt-series-list` (formato da lista real, obras e IDs fictícios), baseline `eval-baselines/v1-review-txt.json` (a `v0-heuristic` fica como histórico). A taxa de revisão do eval mede `suggested_decision`.
 

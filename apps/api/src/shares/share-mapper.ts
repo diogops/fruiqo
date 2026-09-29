@@ -33,6 +33,8 @@ function toRecommendation(r: RecommendationRow): Recommendation {
     extractor: r.extractor,
     ...(r.resolution ? { resolution: r.resolution } : {}),
     decision: r.decision,
+    ...(r.suggestedDecision ? { suggestedDecision: r.suggestedDecision } : {}),
+    ...(r.matchScore != null ? { matchScore: r.matchScore } : {}),
   };
 }
 

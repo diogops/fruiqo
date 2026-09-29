@@ -1,0 +1,9 @@
+{
+  "id": "txt-series-list",
+  "kind": "text_file",
+  "description": "Arquivo .txt com cabeçalho 'Series:', linhas sem ano, ano colado, erro de digitação e homônimo de outro ano (RF-47)",
+  "synthetic": true,
+  "origin": "escrito pelo time Fruiqo (sintético)",
+  "license": "CC0-1.0",
+  "version": 1
+}

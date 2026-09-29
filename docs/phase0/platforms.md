@@ -41,6 +41,8 @@ Fonte única de verdade para os agentes da Fase 0. Nenhum agente deve avaliar pl
 | P-IOS-SHORTCUTS | Atalhos do iOS (Shortcuts) | Alternativa de contingência | RF-01: atalho no share sheet que faz POST da URL para a API (somente SC-PERSONAL) |
 | P-GOOGLE-ID | Google Identity (Sign in with Google / OAuth 2.0 OIDC) | Autenticação | RF-41 (novo): login social no app Android e no web, com vínculo à conta por e-mail verificado |
 | P-APPLE-ID | Sign in with Apple | Autenticação | RF-41 (novo): login social no iOS e no web; obrigatório no iOS se houver outro login social (App Store 4.8) |
+| P-OPENLIBRARY | Open Library (Internet Archive) | Metadados de livros | RF-48 (novo): busca/resolução de livros (título, autor, ano, capa, assuntos), fonte primária |
+| P-GOOGLEBOOKS | Google Books API | Metadados de livros | RF-48 (novo): fallback de busca de livros, com branding obrigatório |
 
 ## Pastas de saída
 

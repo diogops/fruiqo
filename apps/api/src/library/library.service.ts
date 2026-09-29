@@ -28,6 +28,7 @@ import {
   type SubgenreKey,
   detectRisk,
   interpretMood,
+  interpretTasteStatement,
   matchesRule,
 } from '@fruiqo/taxonomy';
 import { and, asc, desc, eq, gte, ilike, inArray, sql } from 'drizzle-orm';
@@ -36,7 +37,9 @@ import { DB, type Db, type Tx, withUser } from '../db/client.js';
 import {
   listItems,
   lists,
+  tasteFavorites,
   tasteOverrides,
+  tasteStatements,
   recommendationFeedback,
   recommendationRuns,
   recommendations,
@@ -63,6 +66,7 @@ import { type InterpretResult, llmSafeInput, MOOD_INTERPRETER, type MoodInterpre
 import { readSettings } from './user-settings.js';
 import { moveTitle } from './rank-queue.js';
 import { toTitle } from './title-mapper.js';
+import { declaredAffinity } from './fit.js';
 
 /** RF-38: serviços de assinatura onde o título está (flatrate do TMDB, já mapeado para chave própria). */
 export function subscriptionProviderKeys(t: Pick<RecommendationRow, 'resolution'>): string[] {
@@ -459,6 +463,10 @@ export class LibraryService {
     // RF-29/RNF-10: overrides do perfil valem sobre os sinais; gênero excluído nunca é sugerido
     const overrides = await tx.select().from(tasteOverrides);
     const excluded = new Set(overrides.filter((o) => o.mode === 'exclude').map((o) => o.genre));
+    // RF-43: o perfil declarado soma metade do seu peso aos sinais (overrides continuam valendo por cima)
+    const [statement] = await tx.select().from(tasteStatements);
+    const declared = declaredAffinity(await tx.select().from(tasteFavorites), statement?.summary ? interpretTasteStatement(statement.summary) : null);
+    for (const [g, d] of declared) taste[g] = Math.max(-1, Math.min(1, (taste[g] ?? 0) + 0.5 * d.score));
     for (const o of overrides) {
       if (!GENRE_SET.has(o.genre)) continue;
       taste[o.genre as GenreKey] = o.mode === 'pin' ? 1 : -1;

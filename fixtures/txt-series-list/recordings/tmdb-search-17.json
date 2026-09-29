@@ -1,0 +1,34 @@
+{
+  "synthetic": true,
+  "recorded_at": "2026-09-28T00:00:00.000Z",
+  "request": {
+    "method": "GET",
+    "url": "https://api.themoviedb.org/3/search/multi?query=Monstra&language=pt-BR&include_adult=false"
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "results": [
+        {
+          "id": 9910117,
+          "media_type": "tv",
+          "name": "Monstra",
+          "first_air_date": "2026-03-01",
+          "poster_path": null,
+          "overview": "Sinopse fictícia escrita pelo time Fruiqo.",
+          "popularity": 50
+        },
+        {
+          "id": 9910017,
+          "media_type": "tv",
+          "name": "Dália - Monstra: A História de uma Assassina",
+          "first_air_date": "2022-03-01",
+          "poster_path": null,
+          "overview": "Sinopse fictícia escrita pelo time Fruiqo.",
+          "popularity": 40
+        }
+      ]
+    }
+  }
+}

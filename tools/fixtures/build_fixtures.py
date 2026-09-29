@@ -61,6 +61,84 @@ def pages(d: Path, texts: list[str]) -> list[str]:
     return names
 
 
+# RF-47: lista em .txt no formato de uma lista real de séries (cabeçalho "Series:", linhas sem ano,
+# ano colado ao título, erro de digitação e título homônimo de outro ano). Obras e IDs fictícios.
+TXT_SERIES = [
+    # (linha do arquivo, título extraído, ano, id escolhido, resultados do search/multi)
+    ("Bebe Lontra", "Bebe Lontra", None, 9910001, [("tv", 9910001, "Bebê Lontra", 2024, 20)]),
+    ("Olhos que julgam", "Olhos que julgam", None, 9910002, [("tv", 9910002, "Olhos Que Julgam", 2019, 25)]),
+    ("Chernoville", "Chernoville", None, 9910003, [("movie", 9910103, "Chernoville: O Filme", 2021, 30), ("tv", 9910003, "Chernoville", 2019, 28)]),
+    ("Uma família quase perfeita(2025)", "Uma família quase perfeita", 2025, 9910004, [("tv", 9910004, "Uma Família Quase Perfeita", 2025, 15)]),
+    ("O pacto(2019)", "O pacto", 2019, 9910005, [("movie", 9910105, "O Pacto", 2004, 30), ("tv", 9910005, "O Pacto", 2019, 10)]),
+    ("Incontestável(2019)", "Incontestável", 2019, 9910006, [("tv", 9910006, "Incontestável", 2019, 18)]),
+    ("Criada(2021)", "Criada", 2021, 9910007, [("movie", 9910107, "Criada", 1998, 12), ("tv", 9910007, "Criada", 2021, 22)]),
+    ("Amor e Luto(2023)", "Amor e Luto", 2023, 9910008, [("tv", 9910008, "Amor e Luto", 2023, 16)]),
+    ("The Stopout(2022)", "The Stopout", 2022, 9910009, [("tv", 9910009, "The Stopout", 2022, 14)]),
+    # erro de digitação: a busca exata acha um documentário; a segunda tentativa (palavra + ano) acha a série
+    ("Back Heron(2022)", "Back Heron", 2022, 9910010, [("movie", 9910110, "Back to the Heron", 2023, 5)]),
+    ("DopeFlick(2021)", "DopeFlick", 2021, 9910011, [("tv", 9910011, "Dopeflick", 2021, 19)]),
+    ("O paraíso e a víbora(2021)", "O paraíso e a víbora", 2021, 9910012, [("tv", 9910012, "O Paraíso e a Víbora", 2021, 13)]),
+    ("A escadaria(2022)", "A escadaria", 2022, 9910013, [("tv", 9910013, "A Escadaria", 2022, 17)]),
+    ("Entre vizinhos(2023)", "Entre vizinhos", 2023, 9910014, [("tv", 9910014, "Entre Vizinhos", 2023, 11)]),
+    ("Em nome da fé(2022)", "Em nome da fé", 2022, 9910015, [("tv", 9910015, "Em Nome da Fé", 2022, 12)]),
+    ("Mindcatcher(2017)", "Mindcatcher", 2017, 9910016, [("tv", 9910016, "Mindcatcher", 2017, 35)]),
+    # homônimo de outro ano: "Monstra" (2026) não serve; a série de 2022 tem o título mais longo
+    ("Monstra(2022)", "Monstra", 2022, 9910017, [("tv", 9910117, "Monstra", 2026, 50), ("tv", 9910017, "Dália - Monstra: A História de uma Assassina", 2022, 40)]),
+]
+
+# segunda tentativa do resolver para match fraco (search/tv com a palavra mais longa e o ano)
+TXT_SERIES_RETRY = {"Heron": (2022, [("tv", 9910010, "Black Heron", 2022, 21)])}
+
+# detalhes (gêneros) de alguns títulos, para o encaixe na fila (RF-42/43)
+TXT_SERIES_DETAILS = {
+    9910002: (18,), 9910003: (18, 10768), 9910010: (80, 18), 9910016: (80, 18, 9648), 9910017: (80, 18),
+}
+
+
+def build_txt_series_list() -> None:
+    from urllib.parse import urlencode
+
+    d = fixture(
+        "txt-series-list",
+        "text_file",
+        "Arquivo .txt com cabeçalho 'Series:', linhas sem ano, ano colado, erro de digitação e homônimo de outro ano (RF-47)",
+        {"status": "done", "items": [
+            {"title": title, "kind": "series", **({"year": year} if year else {}), "tmdbId": f"tv:{tid}"}
+            for _, title, year, tid, _ in TXT_SERIES
+        ], "dedup": {"pagesIgnored": 0, "itemsAlreadyInList": 0}},
+    )
+    content = "Series:\n" + "\n".join(line for line, *_ in TXT_SERIES)
+    write(d / "lista-series.txt", content)
+    write(d / "input.json", {"textFile": {"name": "lista series.txt", "file": "lista-series.txt"}})
+
+    def hit(media, tid, name, year, pop):
+        key_title, key_date = ("name", "first_air_date") if media == "tv" else ("title", "release_date")
+        return {"id": tid, "media_type": media, key_title: name, key_date: f"{year}-03-01", "poster_path": None,
+                "overview": "Sinopse fictícia escrita pelo time Fruiqo.", "popularity": pop}
+
+    for idx, (_, title, _, _, results) in enumerate(TXT_SERIES, 1):
+        q = urlencode({"query": title, "language": "pt-BR", "include_adult": "false"})
+        write(d / "recordings" / f"tmdb-search-{idx:02d}.json", recording(
+            "GET", f"https://api.themoviedb.org/3/search/multi?{q}", {"results": [hit(*r) for r in results]},
+        ))
+    for word, (year, results) in TXT_SERIES_RETRY.items():
+        q = urlencode({"query": word, "language": "pt-BR", "include_adult": "false", "first_air_date_year": str(year)})
+        write(d / "recordings" / f"tmdb-retry-{word.lower()}.json", recording(
+            "GET", f"https://api.themoviedb.org/3/search/tv?{q}",
+            {"results": [{k: v for k, v in hit(*r).items() if k != "media_type"} for r in results]},
+        ))
+    names = {tid: name for _, _, _, _, results in TXT_SERIES for (_, tid, name, _, _) in results}
+    names.update({tid: name for _, results in TXT_SERIES_RETRY.values() for (_, tid, name, _, _) in results})
+    for tid, genres in TXT_SERIES_DETAILS.items():
+        q = urlencode({"language": "pt-BR", "append_to_response": "external_ids,watch/providers"})
+        write(d / "recordings" / f"tmdb-details-{tid}.json", recording(
+            "GET", f"https://api.themoviedb.org/3/tv/{tid}?{q}",
+            {"id": tid, "name": names[tid], "overview": "Sinopse fictícia escrita pelo time Fruiqo.", "poster_path": None,
+             "episode_run_time": [50], "genres": [{"id": g, "name": "gênero fictício"} for g in genres],
+             "external_ids": {"imdb_id": None}, "watch/providers": {"results": {}}},
+        ))
+
+
 def main() -> None:
     if FIXTURES.exists():
         for child in FIXTURES.iterdir():
@@ -386,6 +464,8 @@ def main() -> None:
         ]},
     )
 
+    build_txt_series_list()
+
     write(FIXTURES / "README.md", README)
     print(f"fixtures geradas em {FIXTURES}")
 
@@ -404,8 +484,8 @@ Os arquivos são gerados por `tools/fixtures/build_fixtures.py` (conteúdo) e
 
 | Arquivo | Conteúdo |
 |---|---|
-| `meta.json` | `id`, `kind` (`screenshot` / `text` / `url` / `sequence` / `mood-set`), `description`, `synthetic: true`, `origin`, `license`, `version` |
-| `input.json` / `input.txt` | Entrada do share: `{pages}`, `{url}`, `{text}` ou `{shares: [...]}` (sequência); `input.txt` = texto colado |
+| `meta.json` | `id`, `kind` (`screenshot` / `text` / `url` / `sequence` / `mood-set` / `text_file`), `description`, `synthetic: true`, `origin`, `license`, `version` |
+| `input.json` / `input.txt` | Entrada do share: `{pages}`, `{url}`, `{text}`, `{textFile: {name, file}}` (.txt importado, RF-47) ou `{shares: [...]}` (sequência); `input.txt` = texto colado |
 | `page-N.ocr.txt` | Texto esperado do OCR do print N (é o que o device mandaria em `pages`) |
 | `page-N.png` | Print renderizado a partir do `.ocr.txt` (para o simulador e para OCR real em emulador) |
 | `expected.json` | `status`, `items` (`title`, `kind`, `year?`, `creator?`, `tmdbId?`), `forbidden?`, `source?`, `dedup?`; sequência: `shares[]`; humor: `cases[]` |

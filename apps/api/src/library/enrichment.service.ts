@@ -5,7 +5,8 @@ import type { Env } from '../config/env.js';
 import { DB, type Db, withUser } from '../db/client.js';
 import { recommendations, type RecommendationRow } from '../db/schema.js';
 import { GatewayError, PipelineGateway } from '../pipeline/gateway.js';
-import { TmdbResolver, type TmdbQuery } from '../pipeline/resolvers/tmdb.js';
+import type { TmdbQuery } from '../pipeline/resolvers/tmdb.js';
+import { createTmdbCatalog } from './tmdb-catalog.js';
 import { enrichmentUpdate } from './tmdb-enrichment.js';
 
 export const TITLE_LOOKUP = Symbol('TITLE_LOOKUP');
@@ -17,10 +18,7 @@ export interface TitleLookup {
 
 /** TMDB pelo PipelineGateway do modo configurado; em `mock` usa as gravações sintéticas. */
 export function createTitleLookup(env: Pick<Env, 'TMDB_API_KEY' | 'PIPELINE_MODE'>, gateway?: PipelineGateway): TitleLookup | null {
-  const key = env.TMDB_API_KEY ?? (env.PIPELINE_MODE === 'mock' ? 'mock-key' : undefined);
-  if (!key) return null;
-  const gw = gateway ?? new PipelineGateway({ mode: env.PIPELINE_MODE });
-  return new TmdbResolver(key, gw.fetchImpl);
+  return createTmdbCatalog(env, gateway);
 }
 
 export type EnrichStatus = 'enriched' | 'no_match' | 'unsupported' | 'unavailable';

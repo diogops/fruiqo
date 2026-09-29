@@ -1,0 +1,24 @@
+{
+  "synthetic": true,
+  "recorded_at": "2026-09-28T00:00:00.000Z",
+  "request": {
+    "method": "GET",
+    "url": "https://api.themoviedb.org/3/search/tv?query=Heron&language=pt-BR&include_adult=false&first_air_date_year=2022"
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "results": [
+        {
+          "id": 9910010,
+          "name": "Black Heron",
+          "first_air_date": "2022-03-01",
+          "poster_path": null,
+          "overview": "Sinopse fictícia escrita pelo time Fruiqo.",
+          "popularity": 21
+        }
+      ]
+    }
+  }
+}

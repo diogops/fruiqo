@@ -33,6 +33,13 @@ import {
 import { CatalogService } from './library/catalog.service.js';
 import { SandboxService } from './sandbox/sandbox.service.js';
 import { createTitleLookup, EnrichmentService, TITLE_LOOKUP } from './library/enrichment.service.js';
+import { PriorityDraftService } from './library/priority-draft.service.js';
+import { ProfileService } from './library/profile.service.js';
+import { ReviewService } from './library/review.service.js';
+import { SearchService } from './library/search.service.js';
+import { DeclaredProfileController, LibraryExtrasController, SearchController } from './library/taste-search.controller.js';
+import { createTitleGuesser, TITLE_GUESSER } from './library/title-guesser.js';
+import { createTmdbCatalog, TMDB_CATALOG } from './library/tmdb-catalog.js';
 import { LibraryService } from './library/library.service.js';
 import { createMoodInterpreter, MOOD_INTERPRETER } from './library/mood-interpreter.js';
 import { SharesController } from './shares/shares.controller.js';
@@ -89,7 +96,8 @@ export class AppModule {
       imports: [
         InfraModule.forEnv(env),
         LoggerModule.forRoot(pinoParams(env)),
-        ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
+        // limite global por IP; API_RATE_LIMIT_PER_MIN só para testes/ambientes com muitas chamadas legítimas
+        ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: Number(process.env.API_RATE_LIMIT_PER_MIN ?? 120) }]),
       ],
       controllers: [
         HealthController,
@@ -97,6 +105,8 @@ export class AppModule {
         SharesController,
         // CatalogController antes do LibraryController: rotas estáticas de /library (bulk) vêm primeiro
         CatalogController,
+        // /library/priority-draft e /library/import também antes de /library/:id
+        LibraryExtrasController,
         LibraryController,
         ListsController,
         ListsAdminController,
@@ -104,6 +114,8 @@ export class AppModule {
         TaxonomyController,
         ReviewController,
         ProfileController,
+        DeclaredProfileController,
+        SearchController,
         SandboxController,
       ],
       providers: [
@@ -112,7 +124,13 @@ export class AppModule {
         LibraryService,
         CatalogService,
         EnrichmentService,
+        ReviewService,
+        ProfileService,
+        PriorityDraftService,
+        SearchService,
         { provide: TITLE_LOOKUP, useFactory: () => createTitleLookup(env) },
+        { provide: TMDB_CATALOG, useFactory: () => createTmdbCatalog(env) },
+        { provide: TITLE_GUESSER, useFactory: () => createTitleGuesser(env) },
         { provide: MOOD_INTERPRETER, useFactory: () => createMoodInterpreter(env) },
         SandboxService,
         { provide: APP_GUARD, useClass: ThrottlerGuard },

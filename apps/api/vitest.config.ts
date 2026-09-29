@@ -8,7 +8,7 @@ export default defineConfig({
     include: ['test/**/*.test.ts'],
     globalSetup: ['test/global-setup.ts'],
     fileParallelism: false,
-    env: { AUTH_RATE_LIMIT_PER_MIN: '10000' },
+    env: { AUTH_RATE_LIMIT_PER_MIN: '10000', API_RATE_LIMIT_PER_MIN: '10000' },
     testTimeout: 20_000,
     hookTimeout: 60_000,
   },

@@ -34,7 +34,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
         res.status(status).json({ error: 'conflict', message, conflictWith, ...suggestion });
         return;
       }
-      const body: ApiError = { error: HttpStatus[status] ?? 'ERROR', message };
+      // RF-44: rascunho de prioridade desatualizado (quantos títulos entraram/saíram da fila)
+      const stale = typeof response === 'object' ? (response as { staleDetails?: { added?: unknown; removed?: unknown } }).staleDetails : undefined;
+      const staleDetails =
+        status === HttpStatus.CONFLICT && typeof stale?.added === 'number' && typeof stale.removed === 'number'
+          ? { staleDetails: { added: stale.added, removed: stale.removed } }
+          : {};
+      const body: ApiError = { error: HttpStatus[status] ?? 'ERROR', message, ...staleDetails };
       res.status(status).json(body);
       return;
     }

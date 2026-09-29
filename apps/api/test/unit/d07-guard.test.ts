@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { loadEnv } from '../../src/config/env.js';
 import { AnthropicInterpreter, llmSafeInput } from '../../src/library/mood-interpreter.js';
+import { AnthropicTitleGuesser } from '../../src/library/title-guesser.js';
 import { aiAvailability } from '../../src/library/user-settings.js';
 import type { LlmClient } from '../../src/pipeline/gateway.js';
 
@@ -57,7 +58,7 @@ describe('guarda D-07: TMDB ativo × IA (C-15)', () => {
 
 describe('ARB-REQ-06: nada do TMDB/Spotify (nem derivado) entra em prompt de LLM', () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), '../../src');
-  const llmModules = ['library/mood-interpreter.ts', 'pipeline/extractors/anthropic.ts'];
+  const llmModules = ['library/mood-interpreter.ts', 'pipeline/extractors/anthropic.ts', 'library/title-guesser.ts'];
   // fontes de dados de terceiros ou do catálogo (gêneros/providers derivados do TMDB)
   const forbidden = [/resolvers\//, /\/db\//, /schema/, /library\.service/, /catalog/, /ranking/, /providers/, /enrichment/, /tmdb/i, /spotify/i, /user-settings/];
 
@@ -93,6 +94,24 @@ describe('ARB-REQ-06: nada do TMDB/Spotify (nem derivado) entra em prompt de LLM
     const params = seen[0] as { messages: { role: string; content: string }[]; system: string; tools?: unknown };
     expect(params.tools).toBeUndefined();
     expect(params.messages).toEqual([{ role: 'user', content: '<user_text>\nquero algo leve\n</user_text>' }]);
+    expect(params.system).not.toMatch(/genre|gênero|taste|gosto|tmdb|spotify/i);
+  });
+
+  it('RF-46: o palpite de título por descrição recebe só o texto digitado (sem tools, sem catálogo)', async () => {
+    const seen: unknown[] = [];
+    const client = {
+      messages: {
+        parse: async (params: unknown) => {
+          seen.push(params);
+          return { parsed_output: { titles: [{ title: 'Algum Filme', kind: 'movie' }] }, stop_reason: 'end_turn' };
+        },
+      },
+    } as unknown as LlmClient;
+    const guesser = new AnthropicTitleGuesser({ model: 'claude-haiku-4-5', maxInputChars: 1000, dailyQuota: 10, client });
+    expect(await guesser.guess(llmSafeInput('filme do cara preso no mesmo dia'), 'u1')).toEqual([{ title: 'Algum Filme', kind: 'movie' }]);
+    const params = seen[0] as { messages: { role: string; content: string }[]; system: string; tools?: unknown };
+    expect(params.tools).toBeUndefined();
+    expect(params.messages).toEqual([{ role: 'user', content: '<user_text>\nfilme do cara preso no mesmo dia\n</user_text>' }]);
     expect(params.system).not.toMatch(/genre|gênero|taste|gosto|tmdb|spotify/i);
   });
 });

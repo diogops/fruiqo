@@ -4,3 +4,4 @@ export * from './mood.js';
 export * from './risk.js';
 export { interpretMood, extractRuntime } from './interpreter.js';
 export { normalizeMoodText } from './text.js';
+export { genreTermsIn, interpretTasteStatement, type TasteStatementInterpretation } from './taste.js';

@@ -92,8 +92,15 @@ function prepareLines(text: string): string[] {
 export function extractListItems(text: string): ExtractedItem[] {
   const hint = contextKind(text);
   const items: ExtractedItem[] = [];
+  // RF-47: cabeçalho só com o tipo ("Séries:", "Filmes:") abre uma seção em que toda linha curta é item
+  let section: RecommendationKind | null = null;
 
   for (const line of prepareLines(text)) {
+    const header = sectionHeader(line);
+    if (header !== undefined) {
+      section = header;
+      continue;
+    }
     let body: string | null = null;
     let marked = false;
     const numbered = NUMBERED.exec(line);
@@ -106,13 +113,81 @@ export function extractListItems(text: string): ExtractedItem[] {
       marked = true;
     } else if (YEAR_PARENS.test(line) || (DASH_PAIR.test(line) && (hint === null || isMusic(hint)))) {
       body = line;
+    } else if (section && isShortLine(line)) {
+      body = line;
+      marked = true;
     }
     if (!body) continue;
     // cabeçalho de lista ("Top 10 filmes de 2024:"), não item
     if (/:\s*$/.test(body)) continue;
 
-    const item = parseBody(body, hint, marked);
+    const item = parseBody(body, section ?? hint, marked);
     if (item) items.push(item);
+    if (items.length >= MAX_LIST_ITEMS) break;
+  }
+  return items;
+}
+
+/** Palavras de cabeçalho de seção → tipo. */
+const SECTION_KINDS: { kind: RecommendationKind; re: RegExp }[] = [
+  { kind: 'movie', re: /^(meus |minha lista de |lista de )?(filmes?|movies?|films?|longas?)( para ver| pra ver| favoritos?)?$/ },
+  { kind: 'series', re: /^(minhas |minha lista de |lista de )?(series?|seriados?|tv shows?|shows?|doramas?|animes?|minisseries?)( para ver| pra ver| favoritas?)?$/ },
+  { kind: 'music_track', re: /^(minhas |lista de )?(musicas?|songs?|faixas?|tracks?|cancoes)( favoritas?)?$/ },
+  { kind: 'music_album', re: /^(meus |lista de )?(albuns?|albums?|discos?)( favoritos?)?$/ },
+];
+
+/**
+ * Linha que é só um cabeçalho de seção ("Series:", "Filmes", "## Músicas"): devolve o tipo
+ * (null = cabeçalho sem tipo conhecido, que encerra a seção anterior); undefined = não é cabeçalho.
+ */
+export function sectionHeader(line: string): RecommendationKind | null | undefined {
+  const trimmed = line.trim();
+  const withColon = /:\s*$/.test(trimmed);
+  const n = normalizeText(trimmed.replace(/^#+\s*/, '').replace(/:\s*$/, ''));
+  if (!n) return undefined;
+  const found = SECTION_KINDS.find((s) => s.re.test(n));
+  if (found) return found.kind;
+  // "Outros:" / "Para depois:" encerram a seção; título com dois-pontos no meio não é cabeçalho
+  if (withColon && n.split(' ').length <= 4 && !YEAR_PARENS.test(trimmed)) return null;
+  return undefined;
+}
+
+function isShortLine(line: string): boolean {
+  if (/https?:\/\//i.test(line)) return false;
+  return line.length <= 120 && line.split(/\s+/).length <= 12;
+}
+
+/**
+ * RF-47: arquivo .txt com um título por linha. Diferente de legenda/OCR, toda linha curta é item,
+ * com ou sem marcador/ano; cabeçalhos de seção ("Series:", "Filmes:", "Músicas:") definem o tipo.
+ * Sem cabeçalho, o tipo vem do vocabulário do arquivo (ou do nome do arquivo, em `nameHint`).
+ */
+export function extractTextFileItems(text: string, nameHint?: string): ExtractedItem[] {
+  const fallback = contextKind(text) ?? (nameHint ? contextKind(nameHint) : null);
+  const items: ExtractedItem[] = [];
+  let section: RecommendationKind | null = null;
+
+  const lines = text
+    .replace(KEYCAP, '$1. ')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    // só descarta linha sem letra/dígito (separador, emoji); nada de filtro de UI de rede social
+    .filter((l) => /[\p{L}\p{N}]/u.test(l));
+  for (const line of lines) {
+    const header = sectionHeader(line);
+    if (header !== undefined) {
+      section = header;
+      continue;
+    }
+    if (!isShortLine(line)) continue;
+    const numbered = NUMBERED.exec(line);
+    const bullet = numbered ? null : BULLET.exec(line);
+    const body = numbered?.[1] ?? bullet?.[1] ?? line;
+    const item = parseBody(body, section ?? fallback, true);
+    if (!item) continue;
+    // numa seção declarada o tipo é certo; sem seção, a confiança fica abaixo da de lista marcada
+    item.confidence = section ? 0.65 : fallback ? 0.55 : 0.45;
+    items.push(item);
     if (items.length >= MAX_LIST_ITEMS) break;
   }
   return items;

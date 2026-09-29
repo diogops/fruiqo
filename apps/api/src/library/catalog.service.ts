@@ -20,7 +20,7 @@ import type {
   UpdateUserSettingsRequest,
   UserSettings,
 } from '@fruiqo/contracts';
-import { GENRES, GENRE_KEYS, type GenreKey, SUBGENRES } from '@fruiqo/taxonomy';
+import { GENRES, GENRE_KEYS, type GenreKey, interpretTasteStatement, SUBGENRES } from '@fruiqo/taxonomy';
 import { and, asc, desc, eq, gt, inArray, lt, or, sql } from 'drizzle-orm';
 import { ENV, type Env } from '../config/env.js';
 import { DB, type Db, type Tx, withUser } from '../db/client.js';
@@ -35,14 +35,17 @@ import {
   recommendations,
   reviewActions,
   shares,
+  tasteFavorites,
   tasteOverrides,
   tasteSignals,
+  tasteStatements,
   userSettings,
   userSubscriptions,
   type RecommendationRow,
 } from '../db/schema.js';
 import { dedupKey } from '../pipeline/dedup.js';
 import { LibraryService } from './library.service.js';
+import { declaredAffinity } from './fit.js';
 import { NEED_LABEL, tasteFromSignals } from './ranking.js';
 import { moveTitle, moveToEdge, type RankSnapshot, restoreQueue, snapshotQueue } from './rank-queue.js';
 import { STREAMING_PROVIDERS } from './providers.js';
@@ -437,70 +440,6 @@ export class CatalogService {
     });
   }
 
-  // ---------- RF-28: fila de revisão ----------
-
-  async reviewQueue(userId: string): Promise<ReviewListResponse> {
-    return withUser(this.db, userId, async (tx) => {
-      const rows = await tx
-        .select()
-        .from(recommendations)
-        .where(eq(recommendations.decision, 'review_queue'))
-        .orderBy(asc(recommendations.createdAt), asc(recommendations.id));
-      if (rows.length === 0) return { items: [] };
-      const ids = rows.map((r) => r.id);
-      const decisions = await tx
-        .select()
-        .from(candidateDecisions)
-        .where(inArray(candidateDecisions.recommendationId, ids))
-        .orderBy(desc(candidateDecisions.createdAt));
-      const shareIds = [...new Set(rows.map((r) => r.shareId).filter((s): s is string => Boolean(s)))];
-      const shareRows = shareIds.length ? await tx.select().from(shares).where(inArray(shares.id, shareIds)) : [];
-      const titles = await this.library.withLists(tx, rows);
-      const items: ReviewItem[] = rows.map((r, i) => {
-        const d = decisions.find((x) => x.recommendationId === r.id);
-        const s = shareRows.find((x) => x.id === r.shareId);
-        return {
-          title: titles[i]!,
-          candidate: d ? { rawTitle: d.rawTitle, confidenceScore: d.confidenceScore, reason: d.reason } : null,
-          share: s
-            ? { id: s.id, platform: s.platform, origin: s.origin, ...(s.sourceTitle ? { sourceTitle: s.sourceTitle } : {}) }
-            : null,
-        };
-      });
-      return { items };
-    });
-  }
-
-  async approve(userId: string, id: string): Promise<Title> {
-    return withUser(this.db, userId, async (tx) => {
-      const row = await this.findReview(tx, id);
-      const [updated] = await tx
-        .update(recommendations)
-        .set({ decision: 'cataloged', decisionReason: 'approved', updatedAt: new Date() })
-        .where(eq(recommendations.id, id))
-        .returning();
-      await this.logAction(tx, userId, id, 'approve', { decision: row.decision }, { decision: 'cataloged' });
-      return (await this.library.withLists(tx, [updated!]))[0]!;
-    });
-  }
-
-  async reject(userId: string, id: string): Promise<void> {
-    await withUser(this.db, userId, async (tx) => {
-      const row = await this.findReview(tx, id);
-      await this.logAction(tx, userId, id, 'reject', pickMatch(row), { decision: 'rejected' });
-      await tx.delete(recommendations).where(eq(recommendations.id, id));
-    });
-  }
-
-  async rematch(userId: string, id: string, input: CorrectTitleRequest): Promise<Title> {
-    return withUser(this.db, userId, async (tx) => {
-      const row = await this.findReview(tx, id);
-      const updated = await this.applyCorrection(tx, row, input, 'cataloged');
-      await this.logAction(tx, userId, id, 'rematch', pickMatch(row), pickMatch(updated));
-      return (await this.library.withLists(tx, [updated]))[0]!;
-    });
-  }
-
   // ---------- RF-29/RNF-10: perfil de gosto ----------
 
   async taste(userId: string): Promise<TasteProfile> {
@@ -575,7 +514,7 @@ export class CatalogService {
     await withUser(this.db, userId, (tx) => tx.delete(recommendationRuns).where(eq(recommendationRuns.mode, 'mood')));
   }
 
-  // ---------- internos ----------
+  // ---------- internos (os públicos daqui também servem ao ReviewService) ----------
 
   private async buildTaste(tx: Tx): Promise<TasteProfile> {
     const titles = await tx.select({ id: recommendations.id, genres: recommendations.genres, status: recommendations.status, rating: recommendations.rating }).from(recommendations);
@@ -588,15 +527,21 @@ export class CatalogService {
     const overrides = await tx.select().from(tasteOverrides);
     const overrideOf = new Map(overrides.map((o) => [o.genre, o.mode]));
 
-    const genres: TasteEntry[] = GENRE_KEYS.filter((g) => signalCount.has(g) || overrideOf.has(g))
+    // RF-43: perfil declarado (favoritos + resumo) aparece ao lado dos sinais, sem apagá-los
+    const [statement] = await tx.select().from(tasteStatements);
+    const declared = declaredAffinity(await tx.select().from(tasteFavorites), statement?.summary ? interpretTasteStatement(statement.summary) : null);
+
+    const genres: TasteEntry[] = GENRE_KEYS.filter((g) => signalCount.has(g) || overrideOf.has(g) || declared.has(g))
       .map((g) => {
         const mode = overrideOf.get(g);
+        const decl = declared.get(g)?.score;
         return {
           key: g,
           label: GENRE_LABEL.get(g) ?? g,
           score: mode === 'pin' ? 1 : mode === 'exclude' ? -1 : (scores[g] ?? 0),
           source: mode === 'pin' ? ('pinned' as const) : mode === 'exclude' ? ('excluded' as const) : ('signals' as const),
           signals: signalCount.get(g) ?? 0,
+          ...(decl !== undefined ? { declaredScore: decl } : {}),
         };
       })
       .sort((a, b) => b.score - a.score || a.label.localeCompare(b.label));
@@ -626,7 +571,7 @@ export class CatalogService {
     };
   }
 
-  private async applyCorrection(
+  async applyCorrection(
     tx: Tx,
     row: RecommendationRow,
     input: CorrectTitleRequest,
@@ -658,7 +603,7 @@ export class CatalogService {
     return updated!;
   }
 
-  private async assertNoClash(tx: Tx, key: string, selfId: string | null, suggestMerge: boolean) {
+  async assertNoClash(tx: Tx, key: string, selfId: string | null, suggestMerge: boolean) {
     const [clash] = await tx.select({ id: recommendations.id }).from(recommendations).where(eq(recommendations.dedupKey, key));
     if (clash && clash.id !== selfId) {
       throw new ConflictException({
@@ -669,7 +614,7 @@ export class CatalogService {
     }
   }
 
-  private async logAction(
+  async logAction(
     tx: Tx,
     userId: string,
     recommendationId: string,
@@ -680,13 +625,13 @@ export class CatalogService {
     await tx.insert(reviewActions).values({ userId, recommendationId, action, before, after });
   }
 
-  private async findTitle(tx: Tx, id: string): Promise<RecommendationRow> {
+  async findTitle(tx: Tx, id: string): Promise<RecommendationRow> {
     const [row] = await tx.select().from(recommendations).where(eq(recommendations.id, id));
     if (!row) throw new NotFoundException('Título não encontrado');
     return row;
   }
 
-  private async findReview(tx: Tx, id: string): Promise<RecommendationRow> {
+  async findReview(tx: Tx, id: string): Promise<RecommendationRow> {
     const row = await this.findTitle(tx, id);
     if (row.decision !== 'review_queue') throw new ConflictException('O título não está na fila de revisão');
     return row;
@@ -699,7 +644,7 @@ export class CatalogService {
   }
 
   /** Acrescenta ao fim da lista só quem ainda não está nela; devolve os ids adicionados. */
-  private async appendToList(tx: Tx, userId: string, listId: string, ids: string[]): Promise<string[]> {
+  async appendToList(tx: Tx, userId: string, listId: string, ids: string[]): Promise<string[]> {
     await this.assertList(tx, listId);
     const existing = await tx.select().from(listItems).where(eq(listItems.listId, listId));
     const had = new Set(existing.map((e) => e.recommendationId));

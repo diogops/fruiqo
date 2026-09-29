@@ -48,6 +48,12 @@ export const ShareStatusSchema = z.enum(['queued', 'processing', 'done', 'failed
 export type ShareStatus = z.infer<typeof ShareStatusSchema>;
 
 export const MAX_SCREENSHOT_PAGES = 10;
+/** RF-47: tamanho máximo do conteúdo de um arquivo .txt importado */
+export const MAX_TEXT_FILE_CHARS = 60000;
+
+/** Origem do conteúdo de um share */
+export const ShareOriginSchema = z.enum(['link', 'screenshot', 'text_file']);
+export type ShareOrigin = z.infer<typeof ShareOriginSchema>;
 
 /**
  * O que o app recebeu do share sheet. Pelo teste §4.1 (device-tests-log.md),
@@ -62,9 +68,18 @@ export const CreateShareRequestSchema = z
     text: z.string().max(5000).optional(),
     url: z.url({ protocol: /^https$/ }).max(2048).optional(),
     pages: z.array(z.string().trim().min(1).max(8000)).min(1).max(MAX_SCREENSHOT_PAGES).optional(),
+    /**
+     * RF-47: arquivo de texto (.txt) com um título por linha. Lido no device/navegador; só o conteúdo
+     * vem para a API. Campo próprio (em vez de `pages`) porque o formato é outro: sem ruído de UI de
+     * OCR, cabeçalhos de lista ("Series:") valem como tipo e toda linha curta é um item.
+     */
+    textFile: z
+      .object({ name: z.string().trim().min(1).max(200), content: z.string().min(1).max(MAX_TEXT_FILE_CHARS) })
+      .strict()
+      .optional(),
   })
-  .refine((v) => v.text !== undefined || v.url !== undefined || v.pages !== undefined, {
-    message: 'text, url ou pages é obrigatório',
+  .refine((v) => v.text !== undefined || v.url !== undefined || v.pages !== undefined || v.textFile !== undefined, {
+    message: 'text, url, pages ou textFile é obrigatório',
   });
 export type CreateShareRequest = z.infer<typeof CreateShareRequestSchema>;
 
@@ -133,13 +148,17 @@ export const RecommendationSchema = z.object({
    * sem correspondência). Candidatos 'discarded' não viram recomendação (ver GET /shares/:id/steps).
    */
   decision: z.enum(['cataloged', 'review_queue']).optional(),
+  /** RF-42: todo import entra como 'review_queue'; aqui fica o que o pipeline sugeriu */
+  suggestedDecision: z.enum(['cataloged', 'review_queue']).optional(),
+  /** RF-47: aderência do match do catálogo ao texto importado, 0..1 */
+  matchScore: z.number().min(0).max(1).optional(),
 });
 export type Recommendation = z.infer<typeof RecommendationSchema>;
 
 export const ShareSourceSchema = z.object({
   platform: PlatformSchema,
-  /** 'screenshot' quando o conteúdo veio de prints (OCR no device) */
-  origin: z.enum(['link', 'screenshot']),
+  /** 'screenshot' quando o conteúdo veio de prints (OCR no device); 'text_file' de um .txt (RF-47) */
+  origin: ShareOriginSchema,
   /** quantidade de prints recebidos, quando origin = screenshot */
   pageCount: z.number().int().min(1).optional(),
   url: z.url().optional(),
@@ -279,6 +298,13 @@ export const TitleSchema = z.object({
   watchProvidersBR: z.array(WatchProviderSchema).optional(),
   watchUrl: z.url().optional(),
   decision: z.enum(['cataloged', 'review_queue']),
+  /**
+   * RF-42: o que o pipeline sugeriria (todo import passa pela revisão; `cataloged` aqui = "confiável,
+   * pode aprovar"). Ausente em títulos antigos/manuais.
+   */
+  suggestedDecision: z.enum(['cataloged', 'review_queue']).optional(),
+  /** RF-47: aderência do match do catálogo ao texto importado (título, ano, tipo), 0..1 */
+  matchScore: z.number().min(0).max(1).optional(),
   confidence: z.number().min(0).max(1),
   extractor: z.enum(['llm', 'heuristic']),
   resolution: ResolutionSchema.optional(),
@@ -531,6 +557,8 @@ export type LlmExtraction = z.infer<typeof LlmExtractionSchema>;
 export const ApiErrorSchema = z.object({
   error: z.string(),
   message: z.string(),
+  /** RF-44: 409 do apply do rascunho quando a fila mudou */
+  staleDetails: z.object({ added: z.number().int().min(0), removed: z.number().int().min(0) }).optional(),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;
 
@@ -655,7 +683,7 @@ export type MergeTitleRequest = z.infer<typeof MergeTitleRequestSchema>;
 export const ActivityItemSchema = z.object({
   shareId: z.uuid(),
   status: ShareStatusSchema,
-  origin: z.enum(['link', 'screenshot']),
+  origin: ShareOriginSchema,
   platform: PlatformSchema,
   sourceTitle: z.string().optional(),
   sourceUrl: z.string().optional(),
@@ -678,13 +706,48 @@ export const ActivityResponseSchema = z.object({ items: z.array(ActivityItemSche
 export type ActivityResponse = z.infer<typeof ActivityResponseSchema>;
 
 // RF-28: fila de revisão
+/** RF-47: outra opção de match do catálogo para o mesmo texto importado */
+export const MatchAlternativeSchema = z.object({
+  tmdbId: z.number().int(),
+  mediaType: z.enum(['movie', 'tv']),
+  title: z.string(),
+  year: z.number().int().optional(),
+  posterUrl: z.url().optional(),
+  overview: z.string().max(400).optional(),
+  /** aderência ao texto importado, 0..1 */
+  score: z.number().min(0).max(1),
+});
+export type MatchAlternative = z.infer<typeof MatchAlternativeSchema>;
+
+/** RF-42/RF-43: onde o título entraria na fila e por quê */
+export const FitSuggestionSchema = z.object({
+  /** posição sugerida (1 = topo) considerando a fila atual */
+  position: z.number().int().min(1),
+  /** tamanho da fila depois da aprovação */
+  total: z.number().int().min(1),
+  /** -1..1 */
+  score: z.number(),
+  reasons: z.array(z.string()),
+  /** título que ficaria logo depois (ajuda a entender o encaixe) */
+  before: z.object({ id: z.uuid(), title: z.string(), rank: TitleRankSchema }).optional(),
+});
+export type FitSuggestion = z.infer<typeof FitSuggestionSchema>;
+
 export const ReviewItemSchema = z.object({
   title: TitleSchema,
+  /** RF-42: encaixe sugerido (posição + explicação) */
+  fit: FitSuggestionSchema.nullable().optional(),
+  /** RF-47: até 3 outras opções de match */
+  alternatives: z.array(MatchAlternativeSchema).max(3).optional(),
+  /** lista proposta pelo mesmo import (ex.: a lista do post dos prints); criada na primeira aprovação */
+  proposedList: z.object({ name: z.string(), shareId: z.uuid(), listId: z.uuid().nullable() }).nullable().optional(),
+  /** título do catálogo que parece ser o mesmo (mesmo match no TMDB): sugere mesclar */
+  duplicateOf: z.object({ id: z.uuid(), title: z.string(), rank: TitleRankSchema.nullable() }).nullable().optional(),
   candidate: z
     .object({ rawTitle: z.string(), confidenceScore: z.number().min(0).max(1), reason: z.string() })
     .nullable(),
   share: z
-    .object({ id: z.uuid(), platform: PlatformSchema, origin: z.enum(['link', 'screenshot']), sourceTitle: z.string().optional() })
+    .object({ id: z.uuid(), platform: PlatformSchema, origin: ShareOriginSchema, sourceTitle: z.string().optional() })
     .nullable(),
 });
 export type ReviewItem = z.infer<typeof ReviewItemSchema>;
@@ -693,6 +756,46 @@ export type ReviewListResponse = z.infer<typeof ReviewListResponseSchema>;
 /** rematch = corrigir título/ano/tipo e aprovar */
 export const ReviewRematchRequestSchema = CorrectTitleRequestSchema;
 export type ReviewRematchRequest = z.infer<typeof ReviewRematchRequestSchema>;
+
+/** RF-42: aprovar aceitando o encaixe sugerido ou ajustando posição, listas, título ou match */
+export const ReviewPlacementSchema = z.enum(['suggested', 'end', 'top']);
+export const ApproveReviewRequestSchema = z
+  .object({
+    /** padrão: `suggested` */
+    placement: ReviewPlacementSchema.optional(),
+    /** posição exata (vence `placement`) */
+    position: z.number().int().min(1).optional(),
+    /** listas extras onde incluir o título */
+    listIds: z.array(z.uuid()).max(20).optional(),
+    /** incluir na lista proposta pelo import (padrão: true) */
+    useProposedList: z.boolean().optional(),
+    /** trocar o match por uma das alternativas */
+    alternative: z.object({ tmdbId: z.number().int(), mediaType: z.enum(['movie', 'tv']) }).strict().optional(),
+    /** corrigir antes de aprovar */
+    title: z.string().trim().min(1).max(200).optional(),
+    kind: RecommendationKindSchema.optional(),
+    year: z.number().int().min(1870).max(2100).nullable().optional(),
+    creator: z.string().trim().max(200).nullable().optional(),
+  })
+  .strict();
+export type ApproveReviewRequest = z.infer<typeof ApproveReviewRequestSchema>;
+
+export const ReviewBatchRequestSchema = z
+  .object({
+    ids: z.array(z.uuid()).min(1).max(200),
+    action: z.enum(['approve', 'reject']),
+    /** só para approve; padrão `suggested` */
+    placement: ReviewPlacementSchema.optional(),
+  })
+  .strict();
+export type ReviewBatchRequest = z.infer<typeof ReviewBatchRequestSchema>;
+
+export const ReviewBatchResponseSchema = z.object({
+  approved: z.array(TitleSchema),
+  rejected: z.number().int().min(0),
+  failed: z.array(z.object({ id: z.uuid(), message: z.string() })),
+});
+export type ReviewBatchResponse = z.infer<typeof ReviewBatchResponseSchema>;
 
 // RF-29 / RNF-10: perfil de gosto transparente e editável
 export const TasteEntrySchema = z.object({
@@ -704,6 +807,8 @@ export const TasteEntrySchema = z.object({
   source: z.enum(['signals', 'pinned', 'excluded']),
   /** quantos sinais contribuíram */
   signals: z.number().int().min(0),
+  /** RF-43: parte que vem do perfil declarado (favoritos + resumo), -1..1 */
+  declaredScore: z.number().optional(),
 });
 export type TasteEntry = z.infer<typeof TasteEntrySchema>;
 
@@ -814,3 +919,187 @@ export const SandboxEvalReportSchema = z.object({
 });
 export const SandboxEvalsResponseSchema = z.object({ reports: z.array(SandboxEvalReportSchema) });
 export type SandboxEvalsResponse = z.infer<typeof SandboxEvalsResponseSchema>;
+
+// ---------- RF-43: perfil de gosto declarado (favoritos + resumo livre) ----------
+
+export const FavoriteSchema = z.object({
+  id: z.uuid(),
+  title: z.string(),
+  kind: RecommendationKindSchema,
+  year: z.number().int().optional(),
+  rating: z.number().int().min(1).max(5).optional(),
+  comment: z.string().optional(),
+  genres: z.array(TaxonomyTagSchema),
+  posterUrl: z.url().optional(),
+  tmdbId: z.number().int().optional(),
+  mediaType: z.enum(['movie', 'tv']).optional(),
+  createdAt: z.iso.datetime(),
+});
+export type Favorite = z.infer<typeof FavoriteSchema>;
+
+export const CreateFavoriteRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200),
+    kind: RecommendationKindSchema.optional(),
+    year: z.number().int().min(1870).max(2100).optional(),
+    rating: z.number().int().min(1).max(5).optional(),
+    comment: z.string().trim().max(500).optional(),
+    /** escolhido na busca (RF-46); sem isto o servidor procura pelo título/ano */
+    tmdbId: z.number().int().optional(),
+    mediaType: z.enum(['movie', 'tv']).optional(),
+  })
+  .strict();
+export type CreateFavoriteRequest = z.infer<typeof CreateFavoriteRequestSchema>;
+
+export const MAX_TASTE_SUMMARY_CHARS = 2000;
+export const UpdateTasteSummaryRequestSchema = z.object({ summary: z.string().max(MAX_TASTE_SUMMARY_CHARS) }).strict();
+export type UpdateTasteSummaryRequest = z.infer<typeof UpdateTasteSummaryRequestSchema>;
+
+export const DeclaredAffinitySchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  /** -1..1 */
+  score: z.number(),
+  source: z.enum(['favorites', 'summary', 'both']),
+});
+export type DeclaredAffinity = z.infer<typeof DeclaredAffinitySchema>;
+
+export const DeclaredTasteSchema = z.object({
+  summary: z.string().nullable(),
+  favorites: z.array(FavoriteSchema),
+  /** o que as regras locais entenderam do resumo (transparente e editável, RNF-10) */
+  interpreted: z.object({
+    likes: z.array(TaxonomyTagSchema),
+    dislikes: z.array(TaxonomyTagSchema),
+    likedSubgenres: z.array(TaxonomyTagSchema),
+    dislikedSubgenres: z.array(TaxonomyTagSchema),
+  }),
+  /** afinidades declaradas por gênero (favoritos + resumo) */
+  affinities: z.array(DeclaredAffinitySchema),
+});
+export type DeclaredTaste = z.infer<typeof DeclaredTasteSchema>;
+
+// ---------- RF-44: rascunho de priorização automática ----------
+
+export const PriorityDraftItemSchema = z.object({
+  title: TitleSchema,
+  /** posição atual na fila (null se o título saiu da fila depois do rascunho) */
+  currentRank: TitleRankSchema.nullable(),
+  /** posição no rascunho */
+  proposedRank: TitleRankSchema,
+  /** positivo = sobe */
+  delta: z.number().int(),
+  reason: z.string(),
+  score: z.number(),
+});
+export type PriorityDraftItem = z.infer<typeof PriorityDraftItemSchema>;
+
+export const PriorityDraftSchema = z.object({
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+  items: z.array(PriorityDraftItemSchema),
+  /** a fila mudou desde que o rascunho foi gerado (títulos entraram/saíram) */
+  stale: z.boolean(),
+  staleDetails: z.object({ added: z.number().int().min(0), removed: z.number().int().min(0) }).optional(),
+});
+export type PriorityDraft = z.infer<typeof PriorityDraftSchema>;
+
+export const CreatePriorityDraftRequestSchema = z
+  .object({
+    /** `to_watch`: só "quero ver"/"assistindo" são reordenados; os demais vão para o fim, na ordem atual */
+    scope: z.enum(['all', 'to_watch']).optional(),
+  })
+  .strict();
+export type CreatePriorityDraftRequest = z.infer<typeof CreatePriorityDraftRequestSchema>;
+
+export const UpdatePriorityDraftRequestSchema = z.union([
+  /** ordem completa (ex.: depois de arrastar) */
+  z.object({ titleIds: z.array(z.uuid()).min(1).max(5000) }).strict(),
+  /** mover um item dentro do rascunho */
+  z.object({ id: z.uuid(), move: MoveTitleRequestSchema }).strict(),
+]);
+export type UpdatePriorityDraftRequest = z.infer<typeof UpdatePriorityDraftRequestSchema>;
+
+export const ApplyPriorityDraftRequestSchema = z
+  .object({
+    /**
+     * fila mudou desde o rascunho: `append_new` aplica a ordem do rascunho e mantém os títulos novos
+     * depois dele (na ordem atual); sem isto, responde 409
+     */
+    reconcile: z.enum(['append_new']).optional(),
+  })
+  .strict();
+export type ApplyPriorityDraftRequest = z.infer<typeof ApplyPriorityDraftRequestSchema>;
+
+export const ApplyPriorityDraftResponseSchema = z.object({
+  applied: z.number().int().min(0),
+  undoToken: z.uuid(),
+  undoExpiresAt: z.iso.datetime(),
+});
+export type ApplyPriorityDraftResponse = z.infer<typeof ApplyPriorityDraftResponseSchema>;
+
+// ---------- RF-46: incluir título por busca inteligente ----------
+
+export const TitleSearchQuerySchema = z.object({
+  q: z.string().trim().min(1).max(200),
+  kind: z.enum(['movie', 'series']).optional(),
+});
+export type TitleSearchQuery = z.infer<typeof TitleSearchQuerySchema>;
+
+export const TitleSearchResultSchema = z.object({
+  tmdbId: z.number().int(),
+  mediaType: z.enum(['movie', 'tv']),
+  kind: z.enum(['movie', 'series']),
+  title: z.string(),
+  originalTitle: z.string().optional(),
+  year: z.number().int().optional(),
+  posterUrl: z.url().optional(),
+  /** sinopse curta */
+  overview: z.string().max(400).optional(),
+  /** elenco principal (até 3) */
+  cast: z.array(z.string()),
+  /** o título já está no catálogo/revisão do usuário */
+  inLibrary: z
+    .object({ id: z.uuid(), rank: TitleRankSchema.nullable(), decision: z.enum(['cataloged', 'review_queue']) })
+    .nullable(),
+  matchedBy: z.enum(['title', 'person', 'genre', 'description']),
+});
+export type TitleSearchResult = z.infer<typeof TitleSearchResultSchema>;
+
+export const TitleSearchResponseSchema = z.object({
+  query: z.string(),
+  interpreted: z.object({
+    type: z.enum(['title', 'person', 'genre', 'description']),
+    year: z.number().int().optional(),
+    person: z.string().optional(),
+    genres: z.array(TaxonomyTagSchema),
+    decade: z.number().int().optional(),
+    /** a descrição passou pelo LLM (só com a IA liberada, D-07/D-17, e consentimento, SEC-CTRL-51) */
+    aiUsed: z.boolean(),
+  }),
+  items: z.array(TitleSearchResultSchema),
+});
+export type TitleSearchResponse = z.infer<typeof TitleSearchResponseSchema>;
+
+export const ImportTitlesRequestSchema = z
+  .object({
+    items: z.array(z.object({ tmdbId: z.number().int(), mediaType: z.enum(['movie', 'tv']) }).strict()).min(1).max(50),
+    /** pula a revisão e aprova já, no encaixe sugerido (RF-46) */
+    approveNow: z.boolean().optional(),
+    listId: z.uuid().optional(),
+  })
+  .strict();
+export type ImportTitlesRequest = z.infer<typeof ImportTitlesRequestSchema>;
+
+export const ImportTitlesResponseSchema = z.object({
+  created: z.array(TitleSchema),
+  skipped: z.array(
+    z.object({
+      tmdbId: z.number().int(),
+      mediaType: z.enum(['movie', 'tv']),
+      reason: z.enum(['already_in_list', 'not_found']),
+      existingId: z.uuid().optional(),
+    }),
+  ),
+});
+export type ImportTitlesResponse = z.infer<typeof ImportTitlesResponseSchema>;

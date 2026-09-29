@@ -2,7 +2,7 @@ import type { CandidateDecisionValue, PipelineMode, Resolution } from '@fruiqo/c
 import { and, eq, inArray, isNull, ne, or } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { type Db, type Tx, withUser } from '../db/client.js';
-import { candidateDecisions, listItems, lists, pipelineStepLogs, recommendations, seenPages, shares, type ShareRow } from '../db/schema.js';
+import { candidateDecisions, type MatchAlternativeRow, pipelineStepLogs, recommendations, seenPages, shares, type ShareRow } from '../db/schema.js';
 import type { ShareJob } from '../queue/queue.js';
 import { dedupKey, mergePages, pageHash } from './dedup.js';
 import { listNameFromOcr } from '../library/list-name.js';
@@ -16,10 +16,14 @@ import { normalizeSource } from './normalize.js';
 import type { SourceMetadata } from './oembed.js';
 import { preview, type Pricing, shortError, StepRecorder } from './steps.js';
 import { isUiNoise } from './ui-noise.js';
+import { STRONG_MATCH } from './resolvers/match.js';
+import type { DetailedResolution } from './resolvers/tmdb.js';
 
 export interface Resolver {
   supports(item: ExtractedItem): boolean;
   resolve(item: ExtractedItem): Promise<Resolution | null>;
+  /** RF-47: resolução com aderência do match e alternativas (TMDB) */
+  resolveDetailed?(item: ExtractedItem): Promise<DetailedResolution>;
 }
 
 export interface DecisionPolicy {
@@ -58,7 +62,11 @@ interface Candidate {
   item: ExtractedItem;
   key: string;
   resolution: Resolution | null;
+  /** aderência do match ao texto (null sem resolver com pontuação) */
+  matchScore: number | null;
+  alternatives: MatchAlternativeRow[];
   alreadyInList: boolean;
+  /** decisão SUGERIDA pelo pipeline; todo item não descartado entra na revisão (RF-42) */
   decision: CandidateDecisionValue;
   reason: string;
 }
@@ -71,8 +79,10 @@ interface FinishResult {
   extractor?: 'llm' | 'heuristic';
   candidates?: Candidate[];
   pagesIgnored?: number;
-  /** shares de prints: nome da lista gerada automaticamente com os itens catalogados (RF-26) */
+  /** RF-26/RF-42: nome da lista proposta pelo import (prints/.txt); criada na primeira aprovação */
   listName?: string;
+  /** título da fonte quando não vem de metadados (nome do .txt) */
+  sourceTitle?: string;
 }
 
 /**
@@ -84,10 +94,13 @@ export function decideCandidate(
   resolution: Resolution | null,
   resolverAvailable: boolean,
   policy: DecisionPolicy,
+  matchScore: number | null = null,
 ): { decision: CandidateDecisionValue; reason: string } {
   if (item.confidence < policy.discardThreshold) return { decision: 'discarded', reason: 'confidence_below_discard' };
   if (item.confidence < policy.reviewThreshold) return { decision: 'review_queue', reason: 'confidence_below_review' };
   if (resolverAvailable && !resolution) return { decision: 'review_queue', reason: 'no_catalog_match' };
+  // RF-47: match fraco (título parecido, ano/tipo divergentes) pede conferência com as alternativas
+  if (resolution && matchScore !== null && matchScore < STRONG_MATCH) return { decision: 'review_queue', reason: 'weak_match' };
   return { decision: 'cataloged', reason: resolution ? 'resolved' : 'confident' };
 }
 
@@ -122,7 +135,12 @@ export class ShareProcessor {
     if (!share) return; // apagado ou já processado
 
     const rec = new StepRecorder(this.deps.mode ?? 'live', share.isFixture, this.deps.pricing);
-    const run = () => (share.origin === 'screenshot' ? this.processScreenshots(job, share, rec, log) : this.processLink(job, share, rec, log));
+    const run = () =>
+      share.origin === 'screenshot'
+        ? this.processScreenshots(job, share, rec, log)
+        : share.origin === 'text_file'
+          ? this.processTextFile(job, share, rec, log)
+          : this.processLink(job, share, rec, log);
     try {
       await (this.deps.runWithFixture ? this.deps.runWithFixture(share.fixtureId, run) : run());
     } catch (err) {
@@ -232,6 +250,37 @@ export class ShareProcessor {
   }
 
   /**
+   * RF-47: arquivo .txt (um título por linha, cabeçalhos de seção definem o tipo). Extração só por
+   * regras: o formato é estruturado e o conteúdo não precisa de LLM. Vira uma lista proposta com o
+   * nome do arquivo.
+   */
+  private async processTextFile(job: ShareJob, share: ShareRow, rec: StepRecorder, log: Logger) {
+    const text = share.inputText ?? '';
+    const fileName = share.sourceTitle ?? undefined;
+    const source: Source = { platform: 'other', url: null };
+    rec.note('normalize', { origin: 'text_file', chars: text.length }, { lines: text.split(/\r?\n/).filter((l) => l.trim()).length, preview: preview(text) });
+    if (!text.trim()) {
+      await this.finish(job, rec, { status: 'rejected', error: 'Arquivo vazio', source, ...(fileName ? { sourceTitle: fileName } : {}) });
+      return;
+    }
+    const { items, extractor } = await this.extract(
+      { userId: job.userId, platform: 'other', origin: 'text_file', text, ...(fileName ? { fileName } : {}) },
+      rec,
+      log,
+    );
+    const candidates = await this.resolveAndDecide(job, items, rec, log);
+    const listName = listNameFromFile(fileName);
+    await this.finish(job, rec, {
+      status: 'done',
+      source,
+      extractor,
+      candidates,
+      ...(listName ? { listName } : {}),
+      ...(fileName ? { sourceTitle: fileName } : {}),
+    });
+  }
+
+  /**
    * Registra os hashes dos prints e devolve só os inéditos para o usuário. Um print já registrado por
    * OUTRO share é ignorado; se o registro é deste mesmo share (retry do job), conta como inédito.
    * ON CONFLICT resolve a corrida entre dois jobs com o mesmo print: só um deles fica com o print.
@@ -272,7 +321,8 @@ export class ShareProcessor {
         let items: ExtractedItem[] | null = null;
         let extractor: 'llm' | 'heuristic' = 'heuristic';
         // SEC-CTRL-51 (D-08): além das flags de ambiente, o LLM só roda com consentimento do usuário
-        const llmConsented = this.deps.llm ? await userAllowsAi(this.deps.db, input.userId) : false;
+        // .txt (RF-47) é estruturado: só regras
+        const llmConsented = this.deps.llm && input.origin !== 'text_file' ? await userAllowsAi(this.deps.db, input.userId) : false;
         if (this.deps.llm && !llmConsented) llmNote = 'sem consentimento de IA do usuário';
         if (this.deps.llm && llmConsented) {
           try {
@@ -350,24 +400,34 @@ export class ShareProcessor {
         mapLimit(unique, RESOLVE_CONCURRENCY, async ({ item, key }) => {
           const resolver = this.deps.resolvers.find((r) => r.supports(item));
           const alreadyInList = existing.has(key);
+          const none = { matchScore: null, alternatives: [] as MatchAlternativeRow[] };
           if (alreadyInList || !resolver || item.confidence < MIN_CONFIDENCE_TO_RESOLVE) {
-            return { item, key, alreadyInList, resolverAvailable: Boolean(resolver), resolution: null };
+            return { item, key, alreadyInList, resolverAvailable: Boolean(resolver), resolution: null, ...none };
           }
           try {
-            const resolution = await resolver.resolve(item);
+            const detailed: DetailedResolution = resolver.resolveDetailed
+              ? await resolver.resolveDetailed(item)
+              : { resolution: await resolver.resolve(item), score: null, alternatives: [] };
+            const { resolution } = detailed;
             if (resolution) byProvider[resolution.provider] = (byProvider[resolution.provider] ?? 0) + 1;
-            return { item, key, alreadyInList, resolverAvailable: true, resolution };
+            return { item, key, alreadyInList, resolverAvailable: true, resolution, matchScore: detailed.score, alternatives: detailed.alternatives };
           } catch (err) {
             // mock sem gravação para este item = resolver indisponível (não é "sem correspondência")
             if (err instanceof GatewayError) {
-              return { item, key, alreadyInList, resolverAvailable: false, resolution: null };
+              return { item, key, alreadyInList, resolverAvailable: false, resolution: null, ...none };
             }
             failures++;
             log.warn({ err: shortError(err), kind: item.kind }, 'resolução falhou');
-            return { item, key, alreadyInList, resolverAvailable: true, resolution: null };
+            return { item, key, alreadyInList, resolverAvailable: true, resolution: null, ...none };
           }
         }),
-      (r) => ({ attempted: r.filter((x) => x.resolverAvailable && !x.alreadyInList).length, resolved: r.filter((x) => x.resolution).length, failures, byProvider }),
+      (r) => ({
+        attempted: r.filter((x) => x.resolverAvailable && !x.alreadyInList).length,
+        resolved: r.filter((x) => x.resolution).length,
+        weakMatches: r.filter((x) => x.resolution && x.matchScore !== null && x.matchScore < STRONG_MATCH).length,
+        failures,
+        byProvider,
+      }),
     );
 
     return rec.run(
@@ -376,7 +436,7 @@ export class ShareProcessor {
       () =>
         resolved.map((r): Candidate => {
           // item que o usuário já tem não é reavaliado contra o catálogo (não foi resolvido de novo)
-          const { decision, reason } = decideCandidate(r.item, r.resolution, r.resolverAvailable && !r.alreadyInList, this.policy);
+          const { decision, reason } = decideCandidate(r.item, r.resolution, r.resolverAvailable && !r.alreadyInList, this.policy, r.matchScore);
           return { ...r, decision, reason: r.alreadyInList && decision !== 'discarded' ? 'already_in_list' : reason };
         }),
       (c) => ({
@@ -404,13 +464,14 @@ export class ShareProcessor {
         await tx.delete(seenPages).where(eq(seenPages.firstShareId, job.shareId));
       }
 
-      if (result.status === 'done' && result.listName) {
-        await this.createListFromPrints(tx, job, result, result.listName, now);
-      }
+      const proposedList = result.status === 'done' && result.listName ? proposedListFor(result, result.listName) : null;
 
       if (rec) {
         for (const c of result.candidates ?? []) {
-          rec.decide({ rawTitle: c.item.title, kind: c.item.kind, confidenceScore: c.item.confidence, decision: c.decision, reason: c.reason, dedupKey: c.key });
+          // RF-42: nada é catalogado direto; a decisão registrada é a revisão e o motivo guarda a sugestão
+          const decision = c.decision === 'discarded' ? 'discarded' : 'review_queue';
+          const reason = c.decision === 'cataloged' ? `suggested_cataloged:${c.reason}` : c.reason;
+          rec.decide({ rawTitle: c.item.title, kind: c.item.kind, confidenceScore: c.item.confidence, decision, reason, dedupKey: c.key });
         }
         await this.writeSteps(tx, job, rec, idByKey);
       }
@@ -421,7 +482,8 @@ export class ShareProcessor {
           status: result.status,
           error: result.error ?? null,
           ...(result.source ? { platform: result.source.platform, sourceUrl: result.source.url } : {}),
-          sourceTitle: result.metadata?.title ?? null,
+          sourceTitle: result.metadata?.title ?? result.sourceTitle ?? null,
+          proposedList,
           sourceAuthor: result.metadata?.author ?? null,
           sourceThumbnailUrl: result.metadata?.thumbnailUrl ?? null,
           sourceFetchedAt: result.metadata ? now : null,
@@ -434,28 +496,6 @@ export class ShareProcessor {
         })
         .where(eq(shares.id, job.shareId));
     });
-  }
-
-  /**
-   * RF-26: share de prints com ≥ 2 itens catalogados vira uma lista, na ordem extraída. Inclui itens
-   * que o usuário já tinha (a lista representa o post). Retry do job substitui a lista do share.
-   */
-  private async createListFromPrints(tx: Tx, job: ShareJob, result: FinishResult, name: string, now: Date) {
-    await tx.delete(lists).where(eq(lists.sourceShareId, job.shareId));
-    const keys = (result.candidates ?? []).filter((c) => c.decision === 'cataloged').map((c) => c.key);
-    if (keys.length < 2) return;
-    const rows = await tx
-      .select({ id: recommendations.id, key: recommendations.dedupKey })
-      .from(recommendations)
-      .where(and(inArray(recommendations.dedupKey, keys), eq(recommendations.decision, 'cataloged')));
-    const idByKey = new Map(rows.map((r) => [r.key, r.id]));
-    const ids = [...new Set(keys.map((k) => idByKey.get(k)).filter((id): id is string => Boolean(id)))];
-    if (ids.length < 2) return;
-    const [list] = await tx
-      .insert(lists)
-      .values({ userId: job.userId, name, sourceShareId: job.shareId, createdAt: now, updatedAt: now })
-      .returning({ id: lists.id });
-    await tx.insert(listItems).values(ids.map((recommendationId, position) => ({ listId: list!.id, recommendationId, userId: job.userId, position })));
   }
 
   /** Grava só as etapas (usado quando o processamento lança e o job vai ser tentado de novo). */
@@ -496,7 +536,7 @@ export class ShareProcessor {
     const rows = await tx
       .insert(recommendations)
       .values(
-        kept.map(({ item, key, resolution, decision, reason }) => ({
+        kept.map(({ item, key, resolution, decision, reason, matchScore, alternatives }, index) => ({
           shareId: job.shareId,
           userId: job.userId,
           kind: item.kind,
@@ -509,14 +549,35 @@ export class ShareProcessor {
           // 2d: gêneros/duração vindos do TMDB (TTL de 180 dias pela purga; TOS-REQ-02)
           ...tmdbInsertColumns(resolution, item.year ?? null),
           dedupKey: key,
-          decision: decision as 'cataloged' | 'review_queue',
+          // RF-42: todo import entra na revisão; a sugestão do pipeline fica guardada
+          decision: 'review_queue' as const,
+          suggestedDecision: decision as 'cataloged' | 'review_queue',
           decisionReason: reason,
+          matchScore,
+          matchAlternatives: alternatives.length > 0 ? alternatives : null,
+          sourcePosition: index,
         })),
       )
       .onConflictDoNothing({ target: [recommendations.userId, recommendations.dedupKey] })
       .returning({ id: recommendations.id, key: recommendations.dedupKey });
     return { inserted: rows.length, idByKey: new Map(rows.map((r) => [r.key, r.id])) };
   }
+}
+
+/**
+ * RF-26/RF-42: import com ≥ 2 itens propõe uma lista, na ordem extraída (inclui itens que o usuário
+ * já tinha: a lista representa o post/arquivo). A lista só é criada na primeira aprovação.
+ */
+function proposedListFor(result: FinishResult, name: string): { name: string; keys: string[] } | null {
+  const keys = (result.candidates ?? []).filter((c) => c.decision !== 'discarded').map((c) => c.key);
+  return keys.length >= 2 ? { name, keys } : null;
+}
+
+/** "lista series BFR.txt" → "lista series BFR" */
+export function listNameFromFile(fileName: string | undefined): string | null {
+  if (!fileName) return null;
+  const name = fileName.replace(/\.[a-z0-9]{1,5}$/i, '').replace(/[_]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  return name ? name.slice(0, 80) : null;
 }
 
 function tmdbInsertColumns(resolution: Resolution | null, year: number | null) {

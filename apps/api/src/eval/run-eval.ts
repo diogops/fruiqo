@@ -4,7 +4,8 @@
 //   pnpm eval [--set public|private|all] [--label v1] [--compare <arquivo.json>] [--check] [--write-baseline]
 //
 // --check falha (exit 1) se: recall de risco < 100% (RNF-07), F1 cair em relação à baseline, ou uma
-// checagem que passava na baseline passar a falhar. A baseline versionada é a `v0-heuristic`.
+// checagem que passava na baseline passar a falhar. A baseline versionada é a `v1-review-txt` (RF-42/47;
+// a `v0-heuristic` fica como histórico).
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -152,7 +153,8 @@ async function readShare(db: ReturnType<typeof createDb>['db'], userId: string, 
         title: r.title,
         kind: r.kind,
         creator: r.creator,
-        decision: r.decision,
+        // RF-42: tudo entra na revisão; a taxa de revisão mede a sugestão do pipeline
+        decision: r.suggestedDecision ?? r.decision,
         resolutionId: r.resolution?.externalId ?? null,
       })),
       source: { platform: row!.platform, url: row!.sourceUrl },
@@ -305,7 +307,7 @@ async function main() {
   const pipeline = await runPipelineFixtures(pipelineFixtures, args.set);
   const report = buildReport(args, pipeline, mood);
 
-  const baselinePath = args.compare ?? join(BASELINE_DIR, 'v0-heuristic.json');
+  const baselinePath = args.compare ?? join(BASELINE_DIR, 'v1-review-txt.json');
   const base = existsSync(baselinePath) && !args.writeBaseline ? (JSON.parse(readFileSync(baselinePath, 'utf8')) as EvalReport) : undefined;
 
   const reportsDir = join(REPO_ROOT, 'reports');

@@ -63,7 +63,12 @@ export const shares = pgTable(
     inputUrl: text('input_url'),
     /** texto de cada print (OCR feito no device); apagado junto com input_text */
     inputPages: jsonb('input_pages').$type<string[]>(),
-    origin: text('origin', { enum: ['link', 'screenshot'] }).notNull().default('link'),
+    origin: text('origin', { enum: ['link', 'screenshot', 'text_file'] }).notNull().default('link'),
+    /**
+     * RF-42: lista proposta pelo import (nome + dedup_keys na ordem extraída, inclusive os que o usuário
+     * já tinha). A lista só é criada na primeira aprovação de um item deste share.
+     */
+    proposedList: jsonb('proposed_list').$type<ProposedListRow>(),
     pageCount: integer('page_count'),
     /** prints idênticos a prints já enviados em outro share do usuário */
     pagesIgnored: integer('pages_ignored').notNull().default(0),
@@ -116,6 +121,14 @@ export const recommendations = pgTable(
     /** RF-19/RF-28: só 'cataloged' é catálogo; 'review_queue' espera revisão. Descartados não viram linha aqui. */
     decision: text('decision', { enum: ['cataloged', 'review_queue'] }).notNull().default('cataloged'),
     decisionReason: text('decision_reason'),
+    /** RF-42: o que o pipeline sugeriria; todo import entra como review_queue */
+    suggestedDecision: text('suggested_decision', { enum: ['cataloged', 'review_queue'] }),
+    /** RF-47: aderência do match (título/ano/tipo) ao texto importado, 0..1 */
+    matchScore: real('match_score'),
+    /** RF-47: até 3 outras opções de match do TMDB (dados do TMDB: TTL de 180 dias pela purga) */
+    matchAlternatives: jsonb('match_alternatives').$type<MatchAlternativeRow[]>(),
+    /** ordem do item no conteúdo importado (posição na lista proposta) */
+    sourcePosition: integer('source_position'),
     // ---- catálogo (a recomendação catalogada é o "título" do usuário; ver README) ----
     status: text('status', { enum: ['to_watch', 'watching', 'watched', 'dropped'] }).notNull().default('to_watch'),
     /**
@@ -319,6 +332,24 @@ export const recommendationFeedback = pgTable(
 );
 
 export type ShareRow = typeof shares.$inferSelect;
+
+/** RF-42: lista proposta por um import (prints/.txt): nome e chaves de dedup na ordem extraída */
+export interface ProposedListRow {
+  name: string;
+  keys: string[];
+  /** lista criada na primeira aprovação (apagada pelo usuário = não recria) */
+  listId?: string;
+}
+
+export interface MatchAlternativeRow {
+  tmdbId: number;
+  mediaType: 'movie' | 'tv';
+  title: string;
+  year?: number;
+  posterUrl?: string;
+  overview?: string;
+  score: number;
+}
 export type RecommendationRow = typeof recommendations.$inferSelect;
 export type ListRow = typeof lists.$inferSelect;
 
@@ -393,3 +424,48 @@ export const bulkUndo = pgTable(
   },
   (t) => [index('bulk_undo_user_idx').on(t.userId, t.expiresAt)],
 );
+
+/** RF-43: filmes/séries que o usuário declara ter adorado (perfil declarado). */
+export const tasteFavorites = pgTable(
+  'taste_favorites',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    kind: text('kind', { enum: ['movie', 'series', 'music_track', 'music_album', 'artist', 'other'] }).notNull(),
+    year: integer('year'),
+    rating: integer('rating'),
+    comment: text('comment'),
+    /** chaves da taxonomia (derivadas do TMDB quando resolvido) */
+    genres: text('genres').array().notNull().default(sql`'{}'::text[]`),
+    tmdbId: integer('tmdb_id'),
+    mediaType: text('media_type', { enum: ['movie', 'tv'] }),
+    posterUrl: text('poster_url'),
+    /** quando os dados do TMDB foram obtidos (TTL: 180 dias, TOS-REQ-02) */
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('taste_favorites_user_idx').on(t.userId, t.createdAt)],
+);
+
+/** RF-43: resumo livre do gosto (o texto é do próprio usuário e fica guardado por escolha dele). */
+export const tasteStatements = pgTable('taste_statements', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  summary: text('summary').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** RF-44: rascunho de priorização (1 por usuário). `base` = fila no momento da geração. */
+export const priorityDrafts = pgTable('priority_drafts', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  order: jsonb('order').$type<{ id: string; score: number; reason: string }[]>().notNull(),
+  base: jsonb('base').$type<{ id: string; rank: number }[]>().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

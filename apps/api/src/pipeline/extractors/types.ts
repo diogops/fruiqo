@@ -4,7 +4,9 @@ export interface ExtractionInput {
   userId: string;
   platform: Platform;
   /** 'screenshot': `text` é o OCR dos prints já mesclado; sem fallback de "primeira linha" */
-  origin?: 'link' | 'screenshot';
+  origin?: 'link' | 'screenshot' | 'text_file';
+  /** 'text_file' (RF-47): nome do arquivo .txt, pista de tipo quando não há cabeçalho */
+  fileName?: string;
   text?: string;
   title?: string;
   author?: string;
