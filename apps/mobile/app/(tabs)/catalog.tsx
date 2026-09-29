@@ -447,7 +447,7 @@ function CatalogCard({
 }) {
   const { shown } = genreChips(t.genres);
   const isTop = t.rank === 1;
-  // linha compacta: capa + posição e título + uma linha de dados + status/nota; ▲ ⋯ ▼ à direita
+  // card da altura da capa: posição · status · nota no topo, título, uma linha de dados; ▲ ⋯ ▼ à direita
   const meta = [kindLabel(t.kind), t.year, ...shown.map((g) => g.label)].filter(Boolean).join(' · ');
   return (
     <Pressable
@@ -459,26 +459,18 @@ function CatalogCard({
       accessibilityLabel={`${t.rank != null ? `Posição ${t.rank}. ` : ''}${t.title}`}
       style={({ pressed }) => [
         ui.card,
-        { flexDirection: 'row', gap: 10, padding: 8, borderRadius: 12, alignItems: 'center' },
+        { flexDirection: 'row', gap: 10, paddingVertical: 6, paddingHorizontal: 8, borderRadius: 12, alignItems: 'center' },
         selected && { borderColor: colors.primary, backgroundColor: colors.primarySoft },
         pressed && { opacity: 0.85 },
       ]}
     >
       {selecting ? <Icon name={selected ? 'checkbox' : 'square-outline'} size={22} color={selected ? colors.primary : colors.muted} /> : null}
       <Poster url={t.posterUrl ?? t.resolution?.imageUrl} title={t.title} size="sm" />
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '700', color: colors.text }}>
-          {t.rank != null ? <Text style={{ color: isTop ? colors.primary : colors.primary2 }}>#{t.rank} </Text> : null}
-          {t.title}
-        </Text>
-        {meta ? (
-          <Text style={{ fontSize: 12, color: colors.muted }} numberOfLines={1}>
-            {meta}
-          </Text>
-        ) : null}
+      <View style={{ flex: 1, height: 66, justifyContent: 'space-between' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          {t.rank != null ? <Text style={{ fontSize: 13, fontWeight: '800', color: isTop ? colors.primary : colors.primary2 }}>#{t.rank}</Text> : null}
           <Pressable accessibilityRole="button" accessibilityLabel={`Status: ${TITLE_STATUS_LABEL[t.status]}. Mudar`} onPress={onStatus} hitSlop={8}>
-            <Text style={{ fontSize: 12, fontWeight: '600', color: colors.primary2 }}>{TITLE_STATUS_LABEL[t.status]}</Text>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: colors.text2 }}>{TITLE_STATUS_LABEL[t.status]}</Text>
           </Pressable>
           {t.rating ? (
             <Text style={{ color: colors.star, fontSize: 12 }} accessibilityLabel={`Nota ${t.rating}`}>
@@ -486,16 +478,22 @@ function CatalogCard({
             </Text>
           ) : null}
         </View>
+        <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '700', color: colors.text }}>
+          {t.title}
+        </Text>
+        <Text style={{ fontSize: 12, color: colors.muted }} numberOfLines={1}>
+          {meta || ' '}
+        </Text>
       </View>
       {!selecting && t.rank != null ? (
         <View style={{ alignItems: 'center' }}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Subir" disabled={isTop} onPress={onUp} hitSlop={6} style={{ width: 32, height: 24, alignItems: 'center', justifyContent: 'center', opacity: isTop ? 0.3 : 1 }}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Subir" disabled={isTop} onPress={onUp} hitSlop={6} style={{ width: 32, height: 22, alignItems: 'center', justifyContent: 'center', opacity: isTop ? 0.3 : 1 }}>
             <Icon name="chevron-up" size={18} color={colors.text2} />
           </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Mais opções" onPress={onMenu} hitSlop={6} style={{ width: 32, height: 20, alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="ellipsis-horizontal" size={16} color={colors.muted} />
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="Descer" onPress={onDown} hitSlop={6} style={{ width: 32, height: 24, alignItems: 'center', justifyContent: 'center' }}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Descer" onPress={onDown} hitSlop={6} style={{ width: 32, height: 22, alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="chevron-down" size={18} color={colors.text2} />
           </Pressable>
         </View>
