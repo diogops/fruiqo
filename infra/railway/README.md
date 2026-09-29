@@ -35,11 +35,11 @@ Nunca use `postgres` para gestão do dia a dia.
 
 ## Variáveis (só nomes)
 
-Comuns a `api` e `worker`: `NODE_ENV=production`, `PIPELINE_MODE=live`, `LOG_LEVEL`, `HOST`, `JWT_SECRET`, `FRUIQO_APP_PASSWORD`, `DATABASE_URL` (`fruiqo_app` via `${{Postgres.PGHOST}}`), `REDIS_URL` (`${{Redis.REDIS_URL}}?family=0`), `TMDB_API_KEY`, `TMDB_AI_CLEARANCE=pending`, `LLM_ENABLED=false`, `AI_MODE=rules`, `SANDBOX_ENABLED=false`, `REGISTRATION_ENABLED`, `ALLOWED_EMAILS`, `FRUIQO_PROCESS`, `RAILWAY_DOCKERFILE_PATH`.
+Comuns a `api` e `worker`: `NODE_ENV=production`, `PIPELINE_MODE=live`, `LOG_LEVEL`, `HOST`, `JWT_SECRET`, `FRUIQO_APP_PASSWORD`, `DATABASE_URL` (`fruiqo_app` via `${{Postgres.PGHOST}}`), `REDIS_URL` (`${{Redis.REDIS_URL}}?family=0`), `TMDB_API_KEY`, `OPENLIBRARY_CONTACT`, `TMDB_AI_CLEARANCE=confirmed`, `LLM_ENABLED=false`, `AI_MODE=rules`, `SANDBOX_ENABLED=false`, `REGISTRATION_ENABLED`, `ALLOWED_EMAILS`, `FRUIQO_PROCESS`, `RAILWAY_DOCKERFILE_PATH`.
 
 Só na `api`: `DATABASE_URL_ADMIN` (`${{Postgres.DATABASE_URL}}`) e `FRUIQO_OWNER_PASSWORD`.
 
-`WEB_ORIGIN` fica vazio até o sistema web ter um domínio HTTPS. Segredos são gerados e ficam **só** nas variáveis do Railway — nunca no repositório (que é público).
+`WEB_ORIGIN`, `WEB_COOKIE_PATH` e `TRUST_PROXY_HOPS` só na `api` (ver "Sistema web"). Segredos são gerados e ficam **só** nas variáveis do Railway — nunca no repositório (que é público).
 
 ## Deploy
 
@@ -50,7 +50,31 @@ railway up --service worker --detach
 curl https://api-production-b3adf.up.railway.app/health
 ```
 
-`railway up` envia o diretório atual (inclusive mudanças não commitadas, exceto o que está no `.gitignore`/`.railwayignore`): rode a partir de uma árvore limpa.
+`railway up` envia o diretório atual (inclusive mudanças não commitadas, exceto o que está no `.gitignore`/`.railwayignore`): rode a partir de uma árvore limpa. Mudar uma variável (`railway variables --set`) já dispara um redeploy do serviço.
+
+### Checklist de deploy
+
+1. `git status` limpo e CI verde no commit (`gh run list --limit 1`).
+2. `railway up --service api --detach` e `railway up --service worker --detach`; esperar `SUCCESS` em `railway deployment list --service <svc>`.
+3. Logs da `api`: bootstrap das roles e migrações aplicadas, e **nenhuma** connection string impressa. Logs do `worker`: `worker iniciado` com `tmdb=true`.
+4. `curl .../health` → 200 (Railway direto) e `curl https://fruiqo-web.vercel.app/api/health` → 200 (rewrite da Vercel).
+5. Web: build com `MSYS_NO_PATHCONV=1` (ver "Publicar o web") e `grep -c "Program Files" dist/assets/*.js` = 0 antes de publicar.
+6. Fumaça no navegador: login, catálogo, revisão e detalhe de um filme (onde assistir) em https://fruiqo-web.vercel.app.
+7. Contas de teste: tirar o e-mail de QA do `ALLOWED_EMAILS` e apagar a conta (ver abaixo).
+
+### Apagar uma conta
+
+Não há endpoint de exclusão de conta, e o `fruiqo_owner` não enxerga `users` para DELETE (RLS FORCE sem policy para ele). Use o mesmo caminho da app: dentro do container (`railway ssh --service api`), `node` com `pg` em `DATABASE_URL` (`fruiqo_app`), e na mesma transação `select set_config('app.user_id', '<id>', true)` seguido de `delete from users where id = '<id>'` (os dados do usuário saem em cascata). O `<id>` é o `sub` do access token da conta.
+
+## Ligar a IA
+
+Hoje: `AI_MODE=rules` e `LLM_ENABLED=false` (discover e humor funcionam por regras). A guarda D-07 já aceita IA com o TMDB ativo porque `TMDB_AI_CLEARANCE=confirmed` (D-20; evidência em `docs/phase0/tmdb-consulta-C15.md`). Para ligar:
+
+1. Criar a chave em console.anthropic.com (com limite de gasto) e definir `ANTHROPIC_API_KEY` na `api` **e** no `worker` pelo dashboard ou `railway variables --set` — nunca no repositório nem em logs.
+2. Na `api` e no `worker`: `AI_MODE=anthropic` e `LLM_ENABLED=true` (redeploy automático).
+3. Conferir nos logs a subida sem erro da guarda D-07 e, no web, em Perfil, o consentimento de IA por usuário (SEC-CTRL-51): sem ele a conta continua em regras.
+4. Testar "Como estou" com um texto livre e conferir que o interpretador é o LLM. Nenhum dado do TMDB, Spotify ou de capas vai ao LLM (ARB-REQ-06).
+5. Para desligar: `LLM_ENABLED=false` (efeito imediato após o redeploy).
 
 ## Rollback
 
@@ -78,7 +102,8 @@ Deploy estático do build local (nada além do `dist` sobe para a Vercel):
 
 ```bash
 cd apps/web
-VITE_API_URL=/api pnpm build
+MSYS_NO_PATHCONV=1 VITE_API_URL=/api pnpm build   # no Git Bash, sem isso /api vira C:/Program Files/Git/api
+grep -c "Program Files" dist/assets/*.js            # tem que dar 0
 # pasta temporária com dist + vercel.json (sem .env*, sem .vercel de outro projeto)
 mkdir -p /tmp/fruiqo-web && cp -r dist/. /tmp/fruiqo-web/ && cp vercel.json /tmp/fruiqo-web/
 cd /tmp/fruiqo-web
