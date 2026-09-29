@@ -10,6 +10,8 @@ export type CatalogFilters = {
   status?: Title['status'];
   genre?: string;
   listId?: string;
+  /** assistidos ficam ocultos por padrão; true mostra */
+  showWatched?: boolean;
 };
 
 /** Query de GET /library; o ranking/filtragem é da API (RF-30), o app só monta a query. */
@@ -18,6 +20,8 @@ export function buildLibraryQuery(f: CatalogFilters, cursor?: string | null): Re
     q: f.q?.trim() || undefined,
     kind: f.kind,
     status: f.status,
+    // com status escolhido, vale o status; senão os assistidos ficam de fora (padrão)
+    hideWatched: !f.status && !f.showWatched ? '1' : undefined,
     genre: f.genre,
     listId: f.listId,
     sort: 'rank',

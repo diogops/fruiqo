@@ -1273,3 +1273,6 @@ export const ImportTitlesResponseSchema = z.object({
     .optional(),
 });
 export type ImportTitlesResponse = z.infer<typeof ImportTitlesResponseSchema>;
+
+// Importar de imagem (web e app): heurísticas de candidatos e cadastro do que o usuário confirmar
+export * from './import-candidates';

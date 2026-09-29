@@ -62,6 +62,7 @@ function Root() {
         <Stack.Screen name="list/[id]" options={{ title: 'Lista' }} />
         <Stack.Screen name="review" options={{ title: 'Revisão' }} />
         <Stack.Screen name="add" options={{ title: 'Adicionar título' }} />
+        <Stack.Screen name="import-review" options={{ title: 'Conferir títulos' }} />
         <Stack.Screen name="profile" options={{ title: 'Meu gosto' }} />
         <Stack.Screen name="priority-draft" options={{ title: 'Priorizar a fila' }} />
         <Stack.Screen name="share/[id]" options={{ title: 'Compartilhamento' }} />

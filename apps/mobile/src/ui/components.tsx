@@ -120,6 +120,33 @@ export function Link({ title, url }: { title: string; url: string | undefined })
   );
 }
 
+/** Capa (ou outro conteúdo) que abre a página da obra para conferir; sem `url`, só o conteúdo. */
+export function WorkLink({ url, label, children }: { url: string | undefined; label: string; children: React.ReactNode }) {
+  if (!url) return <>{children}</>;
+  return (
+    <Pressable accessibilityRole="link" accessibilityLabel={label} onPress={() => openExternal(url)} hitSlop={4}>
+      {children}
+    </Pressable>
+  );
+}
+
+/** Linha de links "Ver no TMDB ↗ · IMDb ↗" para conferir a obra antes de incluir/aprovar. */
+export function WorkLinks({ title, page }: { title: string; page: { url: string; label: string; imdbUrl?: string } | undefined }) {
+  if (!page) return null;
+  return (
+    <View style={{ flexDirection: 'row', gap: 16, flexWrap: 'wrap' }}>
+      <Text accessibilityRole="link" accessibilityLabel={`Ver ${title} no ${page.label}`} style={styles.link} onPress={() => openExternal(page.url)}>
+        Ver no {page.label} ↗
+      </Text>
+      {page.imdbUrl ? (
+        <Text accessibilityRole="link" accessibilityLabel={`Ver ${title} no IMDb`} style={styles.link} onPress={() => openExternal(page.imdbUrl)}>
+          IMDb ↗
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 export function Chip({
   label,
   onPress,

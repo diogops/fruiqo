@@ -1,6 +1,6 @@
 // Adicionar título (RF-46): busca por nome, pessoa, gênero ou descrição; os escolhidos vão para a
 // Revisão (padrão) ou são aprovados já no encaixe sugerido. Livros vêm da Open Library (RF-48).
-import type { BookSearchResult, TitleSearchResponse, TitleSearchResult } from '@fruiqo/contracts';
+import { tmdbPageUrl, type BookSearchResult, type TitleSearchResponse, type TitleSearchResult } from '@fruiqo/contracts';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Pressable, Text, TextInput, View } from 'react-native';
@@ -8,7 +8,7 @@ import { ActivityIndicator, Alert, FlatList, Pressable, Text, TextInput, View } 
 import { importTitles, searchTitles } from '../src/api/client';
 import { bookKey, movieKey, splitSelection } from '../src/catalog/logic';
 import { useReviewCount } from '../src/catalog/reviewCount';
-import { Button, Chip, Icon, Poster, TmdbAttribution } from '../src/ui/components';
+import { Button, Chip, Icon, Poster, TmdbAttribution, WorkLink, WorkLinks } from '../src/ui/components';
 import { kindLabel } from '../src/ui/labels';
 import { colors, ui } from '../src/ui/theme';
 import { useTheme } from '../src/ui/ThemeProvider';
@@ -184,6 +184,8 @@ function ResultCard({ row, selected, onPress }: { row: Row; selected: boolean; o
   const inLibrary = m?.inLibrary ?? b?.inLibrary ?? null;
   const meta = [kindLabel(m?.kind ?? 'book'), m?.year ?? b?.year, b?.pages ? `${b.pages} págs.` : null].filter(Boolean).join(' · ');
   const people = m ? m.cast.join(', ') : b?.authors.join(', ');
+  // conferir a obra antes de incluir: TMDB (filme/série) ou Open Library (livro)
+  const page = m ? { url: tmdbPageUrl(m.mediaType, m.tmdbId), label: 'TMDB' } : b ? { url: b.url, label: 'Open Library' } : undefined;
   return (
     <Pressable
       onPress={onPress}
@@ -196,11 +198,14 @@ function ResultCard({ row, selected, onPress }: { row: Row; selected: boolean; o
         selected && { borderColor: colors.primary, backgroundColor: colors.primarySoft },
       ]}
     >
-      <Poster url={m?.posterUrl ?? b?.coverUrl} title={title} size="sm" />
+      <WorkLink url={page?.url} label={`Ver ${title} no ${page?.label}`}>
+        <Poster url={m?.posterUrl ?? b?.coverUrl} title={title} size="sm" />
+      </WorkLink>
       <View style={{ flex: 1, gap: 4 }}>
         <Text style={[ui.body, { fontWeight: '700', color: colors.text }]} numberOfLines={2}>
           {title}
         </Text>
+        <WorkLinks title={title} page={page} />
         <Text style={ui.muted}>{meta}</Text>
         {people ? (
           <Text style={ui.muted} numberOfLines={1}>

@@ -58,6 +58,8 @@ import {
   ListSummarySchema,
   SessionSchema,
   ShareListResponseSchema,
+  ShareStepsResponseSchema,
+  type ShareStepsResponse,
   ShareSchema,
   TaxonomyResponseSchema,
   type TaxonomyResponse,
@@ -238,6 +240,10 @@ export const listShares = (cursor?: string | null): Promise<ShareListResponse> =
   request(cursor ? `/shares?cursor=${encodeURIComponent(cursor)}` : '/shares', ShareListResponseSchema);
 
 export const getShare = (id: string): Promise<Share> => request(`/shares/${encodeURIComponent(id)}`, ShareSchema);
+
+/** Decisões por candidato do pipeline (resultado item a item do "Importar de imagem"). */
+export const getShareSteps = (id: string): Promise<ShareStepsResponse> =>
+  request(`/shares/${encodeURIComponent(id)}/steps`, ShareStepsResponseSchema);
 
 export const deleteShare = (id: string) =>
   request(`/shares/${encodeURIComponent(id)}`, z.unknown(), { method: 'DELETE' });

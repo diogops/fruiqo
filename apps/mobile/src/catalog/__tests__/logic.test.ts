@@ -27,6 +27,10 @@ describe('filtros do catálogo', () => {
   it('monta a query ordenada pela fila e ignora vazios', () => {
     expect(buildLibraryQuery({ q: '  ', status: 'to_watch' })).toMatchObject({ q: undefined, status: 'to_watch', sort: 'rank' });
     expect(buildLibraryQuery({}, 'abc').cursor).toBe('abc');
+    // assistidos ocultos por padrão; mostrar ou filtrar por status desliga
+    expect(buildLibraryQuery({}).hideWatched).toBe('1');
+    expect(buildLibraryQuery({ showWatched: true }).hideWatched).toBeUndefined();
+    expect(buildLibraryQuery({ status: 'watched' }).hideWatched).toBeUndefined();
   });
   it('conta filtros ativos sem a busca por texto', () => {
     expect(activeFilterCount({ q: 'x', kind: 'movie', genre: 'drama' })).toBe(2);

@@ -2,7 +2,7 @@
 // Galeria e Arquivos usam os seletores do sistema (Photo Picker no Android, PHPicker no iOS),
 // que entregam só o que o usuário escolhe: nenhuma permissão de galeria/armazenamento é pedida.
 // Câmera pede permissão só no momento do uso. As imagens seguem o mesmo caminho do share
-// (useImageIngestion → OCR no device → CreateShareRequest.pages). RF-47: arquivos .txt são lidos
+// (OCR no device → tela "Conferir títulos", app/import-review.tsx, onde só o confirmado é cadastrado). RF-47: arquivos .txt são lidos
 // no aparelho e enviados em `textFile`; tudo cai na Revisão (RF-42). "Colar" lê a área de transferência:
 // print copiado vai pelo mesmo OCR; texto copiado vira um .txt (src/share/clipboard.ts).
 import { MAX_SCREENSHOT_PAGES } from '@fruiqo/contracts';
@@ -10,6 +10,7 @@ import { randomUUID } from 'expo-crypto';
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Modal, Pressable, Text, View } from 'react-native';
 
@@ -19,7 +20,9 @@ import { Button } from '../ui/components';
 import { colors, ui } from '../ui/theme';
 import { readClipboard } from './clipboard';
 import { selectPickedImages, type PickerAsset } from './ingestImages';
-import { OcrProgressModal, useImageIngestion } from './useImageIngestion';
+import { draftFromOcr, setImportDraft } from './importDraft';
+import { ocrSupported, recognizeAll, type OcrProgress } from './ocr';
+import { OcrProgressModal } from './useImageIngestion';
 
 const PDF_MESSAGE = 'PDF chega na próxima versão. Por enquanto, importe prints (imagens) ou uma lista em .txt.';
 
@@ -52,16 +55,34 @@ function askAnother(count: number): Promise<boolean> {
 
 export function ImportPrints({ label = 'Importar', compact }: { label?: string; compact?: boolean } = {}) {
   const [open, setOpen] = useState(false);
-  const { ingest, progress } = useImageIngestion();
+  const [progress, setProgress] = useState<OcrProgress | null>(null);
   const { setPendingShare } = useAppState();
+  const router = useRouter();
 
+  /** Lê os prints no aparelho e abre "Conferir títulos": só o que o usuário confirmar é cadastrado. */
   async function finish(assets: PickerAsset[]) {
     const selection = selectPickedImages(assets);
     if (!selection) {
       Alert.alert('Nada para ler', 'Nenhuma imagem foi selecionada.');
       return;
     }
-    await ingest(selection);
+    if (!ocrSupported) {
+      Alert.alert('Leitura de prints indisponível', 'Este aparelho não suporta a leitura de texto em imagens.');
+      return;
+    }
+    if (selection.truncated) Alert.alert('Muitos prints', `Serão lidos só os ${MAX_SCREENSHOT_PAGES} primeiros prints.`);
+    setProgress({ current: 0, total: selection.uris.length });
+    try {
+      const draft = draftFromOcr(await recognizeAll(selection.uris, setProgress));
+      if (!draft) {
+        Alert.alert('Nada para ler', 'Não encontrei texto nos prints. Tente prints mais nítidos, sem cortar os títulos.');
+        return;
+      }
+      setImportDraft(draft);
+      router.push('/import-review' as never);
+    } finally {
+      setProgress(null);
+    }
   }
 
   async function fromGallery() {

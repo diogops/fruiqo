@@ -1,7 +1,7 @@
 // Revisão (RF-42): tudo o que é importado passa por aqui antes de entrar na fila. Mostra o match,
 // até 3 alternativas, o encaixe sugerido (#N de M + motivos), a lista proposta e possíveis
 // duplicatas. Aprovar / ajustar / rejeitar, um a um ou em lote.
-import type { ApproveReviewRequest, ReviewItem } from '@fruiqo/contracts';
+import { openLibraryWorkUrl, tmdbPageUrl, workPages, type ApproveReviewRequest, type ReviewItem } from '@fruiqo/contracts';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Pressable, RefreshControl, Switch, Text, TextInput, View } from 'react-native';
@@ -9,7 +9,7 @@ import { ActivityIndicator, Alert, FlatList, Pressable, RefreshControl, Switch, 
 import { approveReview, batchReview, getReview, rejectReview, swapMusicReview } from '../src/api/client';
 import { canSwapMusic, fitLabel, matchPercent, toggleSelected } from '../src/catalog/logic';
 import { useReviewCount } from '../src/catalog/reviewCount';
-import { Button, Chip, Icon, Poster } from '../src/ui/components';
+import { Button, Chip, Icon, openExternal, Poster, WorkLink, WorkLinks } from '../src/ui/components';
 import { kindLabel, sourceLabel } from '../src/ui/labels';
 import { Sheet, Snackbar, useSnackbar } from '../src/ui/overlays';
 import { colors, ui } from '../src/ui/theme';
@@ -20,18 +20,26 @@ function message(e: unknown) {
 }
 
 type Placement = 'suggested' | 'top' | 'end' | 'position';
-type AltChoice = { key: string; label: string; body: Pick<ApproveReviewRequest, 'alternative' | 'alternativeBook'> };
+type AltChoice = {
+  key: string;
+  label: string;
+  /** página da alternativa para conferir antes de escolher */
+  url?: string;
+  body: Pick<ApproveReviewRequest, 'alternative' | 'alternativeBook'>;
+};
 
 /** Alternativas de match (filmes/séries do TMDB e livros da Open Library) num formato único. */
 function alternativesOf(item: ReviewItem): AltChoice[] {
   const movies = (item.alternatives ?? []).map((a) => ({
     key: `tmdb:${a.mediaType}:${a.tmdbId}`,
     label: `${a.title}${a.year ? ` (${a.year})` : ''} · ${matchPercent(a.score)}`,
+    url: tmdbPageUrl(a.mediaType, a.tmdbId),
     body: { alternative: { tmdbId: a.tmdbId, mediaType: a.mediaType } },
   }));
   const books = (item.bookAlternatives ?? []).map((b) => ({
     key: `ol:${b.olWorkId}`,
     label: `${b.title}${b.authors?.length ? ` — ${b.authors[0]}` : ''}${b.year ? ` (${b.year})` : ''} · ${matchPercent(b.score)}`,
+    url: openLibraryWorkUrl(b.olWorkId),
     body: { alternativeBook: { olWorkId: b.olWorkId } },
   }));
   return [...movies, ...books];
@@ -293,6 +301,8 @@ function ReviewCard({
   const fit = fitLabel(item.fit);
   const match = matchPercent(item.candidate?.confidenceScore);
   const alts = alternativesOf(item);
+  // conferir a obra que casou: TMDB/Open Library (e IMDb quando houver)
+  const page = workPages(t.resolution);
   return (
     <Pressable
       onLongPress={onToggle}
@@ -302,9 +312,12 @@ function ReviewCard({
       style={[ui.card, { gap: 10 }, selected && { borderColor: colors.primary, backgroundColor: colors.primarySoft }]}
     >
       <View style={{ flexDirection: 'row', gap: 12 }}>
-        <Poster url={t.posterUrl ?? t.resolution?.imageUrl} title={t.title} size="sm" />
+        <WorkLink url={page?.url} label={`Ver ${t.title} no ${page?.label}`}>
+          <Poster url={t.posterUrl ?? t.resolution?.imageUrl} title={t.title} size="sm" />
+        </WorkLink>
         <View style={{ flex: 1, gap: 4 }}>
           <Text style={[ui.body, { fontWeight: '700', color: colors.text }]}>{t.title}</Text>
+          <WorkLinks title={t.title} page={page} />
           {t.creator ? <Text style={ui.body}>{t.creator}</Text> : null}
           <Text style={ui.muted}>{[kindLabel(t.kind), t.year, match && `match ${match}`].filter(Boolean).join(' · ')}</Text>
           {t.overview ? (
@@ -460,7 +473,16 @@ function AdjustSheet({ item, onClose, onSubmit }: { item: ReviewItem | null; onC
           <Text style={ui.h2}>É outro título?</Text>
           <Chip label={`Manter: ${item.title.title}`} selected={alt === null} onPress={() => setAlt(null)} />
           {alts.map((a) => (
-            <Chip key={a.key} label={a.label} selected={alt === a.key} onPress={() => setAlt(a.key)} />
+            <View key={a.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View style={{ flexShrink: 1 }}>
+                <Chip label={a.label} selected={alt === a.key} onPress={() => setAlt(a.key)} />
+              </View>
+              {a.url ? (
+                <Pressable accessibilityRole="link" accessibilityLabel={`Ver ${a.label} na página da obra`} onPress={() => openExternal(a.url)} hitSlop={8}>
+                  <Icon name="open-outline" size={22} color={colors.primary} />
+                </Pressable>
+              ) : null}
+            </View>
           ))}
         </>
       )}

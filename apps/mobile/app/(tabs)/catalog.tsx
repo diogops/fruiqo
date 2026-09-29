@@ -214,6 +214,13 @@ export default function Catalog() {
                 onPress={() => router.push('/review' as never)}
               />
               <Chip icon="swap-vertical-outline" label="Priorizar" onPress={() => router.push('/priority-draft' as never)} />
+              <Chip
+                icon={filters.showWatched ? 'eye-outline' : 'eye-off-outline'}
+                label={filters.showWatched ? 'Mostrando assistidos' : 'Assistidos ocultos'}
+                selected={!filters.showWatched && !filters.status}
+                disabled={Boolean(filters.status)}
+                onPress={() => setFilters((f) => ({ ...f, showWatched: !f.showWatched }))}
+              />
             </View>
             <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
               <TextInput

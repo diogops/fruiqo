@@ -12,11 +12,8 @@ export interface OcrProgress {
   progress: number;
 }
 
-export interface OcrLine {
-  text: string;
-  /** confiança do OCR na leitura dos caracteres (0..100); não diz se a linha é um título */
-  confidence: number;
-}
+export type { OcrLine } from '@fruiqo/contracts';
+import type { OcrLine } from '@fruiqo/contracts';
 
 export interface OcrResult {
   text: string;
