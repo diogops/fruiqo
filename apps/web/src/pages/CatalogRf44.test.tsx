@@ -22,6 +22,31 @@ function base(extra: Parameters<typeof mockApi>[0] = {}) {
   };
 }
 
+describe('catálogo: ocultar assistidos', () => {
+  it('por padrão esconde os assistidos; desmarcar mostra; status "Assistido" ignora a caixa', async () => {
+    __setAccessToken('tok');
+    const { calls } = base();
+    const user = userEvent.setup();
+    renderWithProviders(<Catalog />, { route: '/catalogo' });
+    await screen.findByText('Oppenheimer');
+    const libraryCalls = () => calls.filter((c) => c.path.startsWith('/library?') || c.path === '/library').map((c) => c.path);
+    expect(libraryCalls().at(-1)).toContain('hideWatched=1');
+
+    const box = screen.getByRole('checkbox', { name: 'Ocultar assistidos' }) as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    await user.click(box);
+    await waitFor(() => expect(libraryCalls().at(-1)).not.toContain('hideWatched'));
+    expect(box.checked).toBe(false);
+
+    await user.click(box);
+    await waitFor(() => expect(libraryCalls().at(-1)).toContain('hideWatched=1'));
+    await user.selectOptions(screen.getAllByRole('combobox', { name: 'Status' })[0]!, 'watched');
+    await waitFor(() => expect(libraryCalls().at(-1)).toContain('status=watched'));
+    expect(libraryCalls().at(-1)).not.toContain('hideWatched');
+    expect((screen.getByRole('checkbox', { name: 'Ocultar assistidos' }) as HTMLInputElement).disabled).toBe(true);
+  });
+});
+
 describe('catálogo: rascunho de priorização e importação (RF-44/RF-47)', () => {
   it('"Sugerir priorização" gera o rascunho e troca a lista pelo modo rascunho', async () => {
     __setAccessToken('tok');

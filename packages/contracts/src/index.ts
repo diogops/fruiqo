@@ -454,6 +454,8 @@ export const LibraryQuerySchema = z.object({
   shareId: z.uuid().optional(),
   /** `pending`: itens da fila de revisão (RF-28) em vez do catálogo */
   review: z.enum(['pending']).optional(),
+  /** `1`: esconde os já assistidos (ignorado quando `status` é informado) */
+  hideWatched: z.enum(['1']).optional(),
   q: z.string().trim().min(1).max(100).optional(),
   sort: LibrarySortSchema.default('rank'),
   cursor: z.string().max(200).optional(),

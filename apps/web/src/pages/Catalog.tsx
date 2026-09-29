@@ -16,14 +16,21 @@ import { EmptyState, Icon, Menu, MQ, ratingText, SkeletonRows, StarRating, Thumb
 import { kindLabel, KINDS, STATUS_LABEL, STATUSES } from '../labels';
 import { shiftRanks, targetPosition } from '../rankQueue';
 
-const FILTER_KEYS = ['q', 'kind', 'status', 'genre', 'listId', 'shareId', 'review', 'sort'] as const;
+// `watched=show` mostra os já assistidos; por padrão ficam ocultos
+const FILTER_KEYS = ['q', 'kind', 'status', 'genre', 'listId', 'shareId', 'review', 'sort', 'watched'] as const;
+
+/** Assistidos ficam ocultos por padrão, salvo `watched=show`, filtro de status ou fila de revisão. */
+export function hidesWatched(params: URLSearchParams): boolean {
+  return params.get('watched') !== 'show' && !params.get('status') && params.get('review') !== 'pending';
+}
 
 function filtersFromParams(params: URLSearchParams): LibraryFilters {
   const f: Record<string, string> = {};
   for (const k of FILTER_KEYS) {
     const v = params.get(k);
-    if (v) f[k] = v;
+    if (v && k !== 'watched') f[k] = v;
   }
+  if (hidesWatched(params)) f.hideWatched = '1';
   return f as LibraryFilters;
 }
 
@@ -662,6 +669,15 @@ function FilterFields({
       <label className="check">
         <input type="checkbox" checked={filters.review === 'pending'} onChange={(e) => setFilter('review', e.target.checked ? 'pending' : '')} />
         Pendentes de revisão
+      </label>
+      <label className="check" title={filters.status ? 'Com um status escolhido, vale o status' : undefined}>
+        <input
+          type="checkbox"
+          checked={filters.hideWatched === '1'}
+          disabled={Boolean(filters.status) || filters.review === 'pending'}
+          onChange={(e) => setFilter('watched', e.target.checked ? '' : 'show')}
+        />
+        Ocultar assistidos
       </label>
       {filters.shareId && (
         <button type="button" className="chip" onClick={() => setFilter('shareId', '')}>

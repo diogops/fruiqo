@@ -31,7 +31,7 @@ import {
   interpretTasteStatement,
   matchesRule,
 } from '@fruiqo/taxonomy';
-import { and, asc, desc, eq, gte, ilike, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, ilike, inArray, ne, sql } from 'drizzle-orm';
 import { ENV, type Env } from '../config/env.js';
 import { DB, type Db, type Tx, withUser } from '../db/client.js';
 import {
@@ -104,6 +104,7 @@ export class LibraryService {
         // RF-28: `review=pending` lista a fila de revisão em vez do catálogo
         eq(recommendations.decision, q.review === 'pending' ? 'review_queue' : 'cataloged'),
         q.status ? eq(recommendations.status, q.status) : undefined,
+        !q.status && q.hideWatched ? ne(recommendations.status, 'watched') : undefined,
         q.shareId ? eq(recommendations.shareId, q.shareId) : undefined,
         q.kind ? eq(recommendations.kind, q.kind) : undefined,
         q.genre ? sql`${q.genre} = ANY(${recommendations.genres})` : undefined,

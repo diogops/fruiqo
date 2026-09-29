@@ -230,6 +230,19 @@ describe('PATCH /library/:id', () => {
     const page2 = (await get(user, `/library?limit=10&cursor=${page1.nextCursor}`).expect(200)).body;
     expect(new Set([...page1.items, ...page2.items].map((t: { id: string }) => t.id)).size).toBe(20);
   });
+
+  it('hideWatched esconde os assistidos; com status explícito, vale o status', async () => {
+    const { user } = await demoUser();
+    const all = (await get(user, '/library?limit=200').expect(200)).body.items as { status: string }[];
+    const watched = all.filter((t) => t.status === 'watched').length;
+    expect(watched).toBeGreaterThan(0);
+    const hidden = (await get(user, '/library?limit=200&hideWatched=1').expect(200)).body.items as { status: string }[];
+    expect(hidden.length).toBe(all.length - watched);
+    expect(hidden.some((t) => t.status === 'watched')).toBe(false);
+    const onlyWatched = (await get(user, '/library?limit=200&hideWatched=1&status=watched').expect(200)).body.items;
+    expect(onlyWatched.length).toBe(watched);
+    await get(user, '/library?hideWatched=sim').expect(400);
+  });
 });
 
 describe('listas', () => {
