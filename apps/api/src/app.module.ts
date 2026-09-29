@@ -39,6 +39,7 @@ import { ReviewService } from './library/review.service.js';
 import { SearchService } from './library/search.service.js';
 import { DeclaredProfileController, LibraryExtrasController, SearchController } from './library/taste-search.controller.js';
 import { createTitleGuesser, TITLE_GUESSER } from './library/title-guesser.js';
+import { createOpenLibraryCatalog, OPENLIBRARY_CATALOG } from './library/openlibrary-catalog.js';
 import { createTmdbCatalog, TMDB_CATALOG } from './library/tmdb-catalog.js';
 import { LibraryService } from './library/library.service.js';
 import { createMoodInterpreter, MOOD_INTERPRETER } from './library/mood-interpreter.js';
@@ -130,6 +131,7 @@ export class AppModule {
         SearchService,
         { provide: TITLE_LOOKUP, useFactory: () => createTitleLookup(env) },
         { provide: TMDB_CATALOG, useFactory: () => createTmdbCatalog(env) },
+        { provide: OPENLIBRARY_CATALOG, useFactory: () => createOpenLibraryCatalog(env) },
         { provide: TITLE_GUESSER, useFactory: () => createTitleGuesser(env) },
         { provide: MOOD_INTERPRETER, useFactory: () => createMoodInterpreter(env) },
         SandboxService,

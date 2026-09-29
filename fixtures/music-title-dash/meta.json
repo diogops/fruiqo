@@ -1,0 +1,9 @@
+{
+  "id": "music-title-dash",
+  "kind": "text",
+  "description": "Lista pt-BR sob \"Músicas:\" no formato Música - Artista (padrão)",
+  "synthetic": true,
+  "origin": "escrito pelo time Fruiqo (sintético)",
+  "license": "CC0-1.0",
+  "version": 1
+}

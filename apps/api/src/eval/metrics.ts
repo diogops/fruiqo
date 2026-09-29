@@ -47,14 +47,15 @@ export function scoreShare(pred: PredictedShare, exp: ExpectedShare, prefix: str
   const missing: string[] = [];
   for (const e of exp.items) {
     const p = predByKey.get(key(e.title));
-    if (e.tmdbId) resolutionExpected++;
+    const expectedId = e.tmdbId ?? e.externalId;
+    if (expectedId) resolutionExpected++;
     if (!p) {
       missing.push(e.title);
       continue;
     }
     tp++;
     if (p.kind === e.kind) kindHits++;
-    if (e.tmdbId && p.resolutionId === e.tmdbId) resolutionHits++;
+    if (expectedId && p.resolutionId === expectedId) resolutionHits++;
   }
   const unexpected = pred.items.filter((p) => !expKeys.has(key(p.title))).map((p) => p.title);
 

@@ -330,3 +330,36 @@ describe('RF-46: busca e importação', () => {
     expect(last).toBe(429);
   });
 });
+
+describe('Música "Música - Artista" e troca na revisão', () => {
+  async function importText(user: User, name: string, content: string) {
+    const res = await post(user, '/shares', { clientShareId: randomUUID(), textFile: { name, content } }).expect(201);
+    await processor.process({ shareId: res.body.id, userId: user.userId });
+    const items = (await get(user, '/review').expect(200)).body.items as ReviewItemBody[];
+    return items.map((i) => i.title as unknown as { id: string; title: string; creator?: string; kind: string });
+  }
+
+  it('"Músicas:" lê "Aquarela - Toquinho" como título Aquarela, artista Toquinho; swap-music inverte e mantém na revisão', async () => {
+    const user = await newUser();
+    const items = await importText(user, 'musicas.txt', 'Músicas:\nAquarela - Toquinho\nÁguas de Março - Tom Jobim');
+    expect(items.map((i) => [i.kind, i.title, i.creator])).toEqual([
+      ['music_track', 'Aquarela', 'Toquinho'],
+      ['music_track', 'Águas de Março', 'Tom Jobim'],
+    ]);
+    const swapped = (await post(user, `/review/${items[0]!.id}/swap-music`).expect(200)).body;
+    expect(swapped).toMatchObject({ title: 'Toquinho', creator: 'Aquarela' });
+    const after = (await get(user, '/review').expect(200)).body.items as ReviewItemBody[];
+    expect(after.find((i) => i.title.id === items[0]!.id)?.title.title).toBe('Toquinho');
+    // desfaz trocando de novo
+    expect((await post(user, `/review/${items[0]!.id}/swap-music`).expect(200)).body).toMatchObject({ title: 'Aquarela', creator: 'Toquinho' });
+  });
+
+  it('troca que colide com outro item responde 409; item que não é música responde 400', async () => {
+    const user = await newUser();
+    const items = await importText(user, 'mix.txt', 'Músicas:\nAquarela - Toquinho\nToquinho - Aquarela\nFilmes:\nFilme Um (2020)');
+    const reversed = items.find((i) => i.title === 'Toquinho')!;
+    await post(user, `/review/${reversed.id}/swap-music`).expect(409);
+    const movie = items.find((i) => i.kind === 'movie')!;
+    await post(user, `/review/${movie.id}/swap-music`).expect(400);
+  });
+});

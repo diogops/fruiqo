@@ -16,7 +16,7 @@ Os arquivos são gerados por `tools/fixtures/build_fixtures.py` (conteúdo) e
 | `input.json` / `input.txt` | Entrada do share: `{pages}`, `{url}`, `{text}`, `{textFile: {name, file}}` (.txt importado, RF-47) ou `{shares: [...]}` (sequência); `input.txt` = texto colado |
 | `page-N.ocr.txt` | Texto esperado do OCR do print N (é o que o device mandaria em `pages`) |
 | `page-N.png` | Print renderizado a partir do `.ocr.txt` (para o simulador e para OCR real em emulador) |
-| `expected.json` | `status`, `items` (`title`, `kind`, `year?`, `creator?`, `tmdbId?`), `forbidden?`, `source?`, `dedup?`; sequência: `shares[]`; humor: `cases[]` |
+| `expected.json` | `status`, `items` (`title`, `kind`, `year?`, `creator?`, `tmdbId?`, `externalId?` — ex.: `ol:OL123W` para livros da Open Library), `forbidden?`, `source?`, `dedup?`; sequência: `shares[]`; humor: `cases[]` |
 | `recordings/*.json` | Respostas simuladas para `PIPELINE_MODE=mock` (`synthetic: true`, não vencem) |
 
 Os dados de catálogo das gravações usam obras e IDs **fictícios** (TOS-REQ-02: dado real do TMDB

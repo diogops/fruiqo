@@ -7,7 +7,7 @@ import { ActivityIndicator, Alert, ImageBackground, Pressable, ScrollView, Text,
 import { ApiError, getLibrary, getTaxonomy, getTitle, moveTitle, updateTitle } from '../../src/api/client';
 import { collectGenreOptions, toggleGenre } from '../../src/discover/logic';
 import { Button, Chip, Icon, Link, Poster, TmdbAttribution, WatchProviders } from '../../src/ui/components';
-import { rankLabel, TITLE_STATUS_LABEL, titleMeta } from '../../src/ui/labels';
+import { providerLabel, rankLabel, TITLE_STATUS_LABEL, titleMeta } from '../../src/ui/labels';
 import { colors, gradients, ui } from '../../src/ui/theme';
 import { useTheme } from '../../src/ui/ThemeProvider';
 
@@ -134,7 +134,7 @@ export default function TitleDetail() {
           ) : null}
           <Text style={ui.h1}>{title.title}</Text>
           {title.creator ? <Text style={ui.body}>{title.creator}</Text> : null}
-          <Text style={ui.muted}>{titleMeta(title)}</Text>
+          <Text style={ui.muted}>{titleMeta(title)}{title.pages ? ` · ${title.pages} págs.` : ''}</Text>
           {title.subgenres.length > 0 && <Text style={ui.muted}>{title.subgenres.map((s) => s.label).join(' · ')}</Text>}
         </View>
         </View>
@@ -146,8 +146,12 @@ export default function TitleDetail() {
           <WatchProviders title={title} />
         </>
       ) : null}
-      {r && <Link title={`Ver no ${r.provider === 'tmdb' ? 'TMDB' : 'Spotify'}`} url={r.url} />}
+      {r && <Link title={`${r.provider === 'openlibrary' ? 'Ver na' : 'Ver no'} ${providerLabel(r.provider)}`} url={r.url} />}
+      {!r && title.kind === 'book' && title.bookUrl ? <Link title="Ver na Open Library" url={title.bookUrl} /> : null}
       {r?.provider === 'tmdb' && <TmdbAttribution />}
+      {title.kind === 'book' && (r?.provider === 'openlibrary' || title.enrichment === 'openlibrary') ? (
+        <Text style={ui.muted}>Dados de livros: Open Library.</Text>
+      ) : null}
 
       <Text style={ui.h2}>Status</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>

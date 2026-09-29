@@ -9,7 +9,7 @@ import { api } from '../api/client';
 import { ErrorNote } from '../components/shared';
 import { useToast } from '../components/Toast';
 import { EmptyState, Icon, Thumb } from '../components/ui';
-import { KIND_LABEL, STATUS_LABEL } from '../labels';
+import { kindLabel, STATUS_LABEL } from '../labels';
 
 function initials(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
@@ -92,7 +92,7 @@ function SortableRow({ t, index }: { t: Title; index: number }) {
       <Thumb src={t.posterUrl} title={t.title} width={32} height={48} />
       <span className="grow">
         <strong>{t.title}</strong>
-        <span className="muted small"> {[KIND_LABEL[t.kind], t.year].filter(Boolean).join(' · ')}</span>
+        <span className="muted small"> {[kindLabel(t.kind), t.year].filter(Boolean).join(' · ')}</span>
       </span>
       <span className={`badge badge-status-${t.status}`}>{STATUS_LABEL[t.status]}</span>
     </li>

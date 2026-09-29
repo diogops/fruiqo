@@ -179,7 +179,8 @@ describe('prints de tela (OCR no device) e deduplicação', () => {
 
   it('share de link também não repete item que já está na lista', async () => {
     const user = await newUser();
-    await shareFromPrints(user, ['Playlist\n1. Linkin Park - Numb']);
+    // sob "Playlist" o par é Música - Artista; o título do vídeo segue artista primeiro
+    await shareFromPrints(user, ['Playlist\n1. Numb - Linkin Park']);
     const linkProcessor = new ShareProcessor({
       db,
       logger: pino({ level: 'silent' }),

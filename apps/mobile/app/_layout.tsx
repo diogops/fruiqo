@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 
+import { ReviewCountProvider } from '../src/catalog/reviewCount';
 import { devToolsEnabled } from '../src/state/devTools';
 import { ShareIntentHandler } from '../src/share/ShareIntentHandler';
 import { AppStateProvider, useAppState } from '../src/state/AppState';
@@ -59,6 +60,10 @@ function Root() {
         <Stack.Screen name="discover" options={{ title: 'Sugestões' }} />
         <Stack.Screen name="title/[id]" options={{ title: 'Título' }} />
         <Stack.Screen name="list/[id]" options={{ title: 'Lista' }} />
+        <Stack.Screen name="review" options={{ title: 'Revisão' }} />
+        <Stack.Screen name="add" options={{ title: 'Adicionar título' }} />
+        <Stack.Screen name="profile" options={{ title: 'Meu gosto' }} />
+        <Stack.Screen name="priority-draft" options={{ title: 'Priorizar a fila' }} />
         <Stack.Screen name="share/[id]" options={{ title: 'Compartilhamento' }} />
         <Stack.Screen name="about" options={{ title: 'Sobre' }} />
         {devToolsEnabled ? <Stack.Screen name="dev/share" options={{ title: 'Simulador de share' }} /> : null}
@@ -75,7 +80,9 @@ export default function RootLayout() {
     <ThemeProvider>
       <ShareIntentProvider options={{ resetOnBackground: false }}>
         <AppStateProvider>
-          <Root />
+          <ReviewCountProvider>
+            <Root />
+          </ReviewCountProvider>
         </AppStateProvider>
       </ShareIntentProvider>
     </ThemeProvider>

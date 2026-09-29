@@ -103,7 +103,7 @@ describe('colunas derivadas do TMDB', () => {
   };
 
   it('mapeia IDs do TMDB para a taxonomia (TV: Sci-Fi & Fantasy vira as duas chaves)', () => {
-    expect(columnsFromResolution(res)).toEqual({ genres: ['drama', 'fantasy', 'scifi'], runtimeMin: 45, year: 2019 });
+    expect(columnsFromResolution(res)).toEqual({ genres: ['drama', 'fantasy', 'scifi'], runtimeMin: 45, year: 2019, enrichment: 'tmdb' });
   });
 
   it('não sobrescreve gêneros marcados à mão', () => {
@@ -228,5 +228,13 @@ describe('perfil incremental ≡ rebuild (RF-34)', () => {
     const a = tasteFromSignals(all);
     const b = tasteFromSignals(shuffled);
     for (const g of Object.keys(a) as GenreKey[]) expect(Math.abs(a[g]! - b[g]!)).toBeLessThanOrEqual(0.001);
+  });
+});
+
+describe('RF-48: colunas de livro (Open Library)', () => {
+  it('gêneros vêm dos assuntos; sem duração; marcador openlibrary', () => {
+    const book = { provider: 'openlibrary' as const, externalId: 'ol:OL1W', title: 'Livro', url: 'https://openlibrary.org/works/OL1W', year: 1998, subjects: ['Poesia brasileira'] };
+    expect(columnsFromResolution(book)).toEqual({ genres: ['poetry'], runtimeMin: null, year: 1998, enrichment: 'openlibrary' });
+    expect(enrichmentUpdate({ genres: [], enrichment: 'none', runtimeMin: null, year: null }, book)).toEqual({ genres: ['poetry'], enrichment: 'openlibrary', runtimeMin: null, year: 1998 });
   });
 });

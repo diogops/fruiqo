@@ -30,7 +30,10 @@ export function mockApi(routes: Record<string, Handler | Record<string, unknown>
     };
     calls.push(call);
     const key = `${call.method} ${url.pathname}`;
-    const route = routes[key];
+    // também aceita parâmetros no caminho: "POST /review/:id/approve"
+    const route =
+      routes[key] ??
+      Object.entries(routes).find(([k]) => k.includes(':') && new RegExp(`^${k.replace(/:[^/]+/g, '[^/]+')}$`).test(key))?.[1];
     const res = typeof route === 'function' ? (route as Handler)(call) : route === undefined ? undefined : { body: route };
     if (!res) return new Response(JSON.stringify({ error: 'not_found', message: `sem mock: ${key}` }), { status: 404 });
     const status = res.status ?? 200;

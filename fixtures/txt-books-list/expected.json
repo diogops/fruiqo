@@ -1,0 +1,32 @@
+{
+  "status": "done",
+  "items": [
+    {
+      "title": "O Relógio de Areia",
+      "kind": "book",
+      "creator": "Ana Fictícia",
+      "externalId": "ol:OL9990001W"
+    },
+    {
+      "title": "Vento Sul",
+      "kind": "book",
+      "creator": "Marta Quintela",
+      "externalId": "ol:OL9990002W"
+    },
+    {
+      "title": "Cartas do Sertão",
+      "kind": "book",
+      "year": 1998,
+      "externalId": "ol:OL9990004W"
+    },
+    {
+      "title": "Nove Estrelas",
+      "kind": "book",
+      "externalId": "ol:OL9990006W"
+    }
+  ],
+  "dedup": {
+    "pagesIgnored": 0,
+    "itemsAlreadyInList": 0
+  }
+}

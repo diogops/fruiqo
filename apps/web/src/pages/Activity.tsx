@@ -43,7 +43,13 @@ export function Activity() {
                 {a.isFixture && <span className="badge">fixture</span>}
               </td>
               <td data-label="Origem">
-                {a.origin === 'screenshot' ? `Prints (${a.pageCount ?? '?'})` : PLATFORM_LABEL[a.platform]}
+                {a.origin === 'screenshot'
+                  ? `Prints (${a.pageCount ?? '?'})`
+                  : a.origin === 'text_file'
+                    ? 'Arquivo .txt'
+                    : a.origin === 'text'
+                      ? 'Texto'
+                      : PLATFORM_LABEL[a.platform]}
                 {a.sourceTitle && <div className="muted small truncate">{a.sourceTitle}</div>}
               </td>
               <td data-label="Status">

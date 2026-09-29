@@ -4,8 +4,10 @@ import { GENRES, GENRE_KEYS, interpretTasteStatement, SUBGENRES } from '@fruiqo/
 import { desc, eq } from 'drizzle-orm';
 import { DB, type Db, withUser } from '../db/client.js';
 import { tasteFavorites, tasteStatements } from '../db/schema.js';
+import type { OpenLibraryResolver } from '../pipeline/resolvers/openlibrary.js';
 import type { TmdbResolver } from '../pipeline/resolvers/tmdb.js';
 import { declaredAffinity } from './fit.js';
+import { OPENLIBRARY_CATALOG } from './openlibrary-catalog.js';
 import { columnsFromResolution } from './tmdb-enrichment.js';
 import { TMDB_CATALOG } from './tmdb-catalog.js';
 
@@ -27,6 +29,7 @@ export class ProfileService {
   constructor(
     @Inject(DB) private readonly db: Db,
     @Optional() @Inject(TMDB_CATALOG) private readonly tmdb: TmdbResolver | null,
+    @Optional() @Inject(OPENLIBRARY_CATALOG) private readonly books: OpenLibraryResolver | null = null,
   ) {}
 
   async declared(userId: string): Promise<DeclaredTaste> {
@@ -57,11 +60,18 @@ export class ProfileService {
     // rede fora da transação
     const res = await this.resolve(input);
     const cols = columnsFromResolution(res);
-    const kind = input.kind ?? (res?.mediaType === 'tv' ? 'series' : res ? 'movie' : 'other');
+    const book = res?.provider === 'openlibrary';
+    const kind = input.kind ?? (book ? 'book' : res?.mediaType === 'tv' ? 'series' : res ? 'movie' : 'other');
     return withUser(this.db, userId, async (tx) => {
-      const existing = await tx.select({ id: tasteFavorites.id, tmdbId: tasteFavorites.tmdbId, mediaType: tasteFavorites.mediaType }).from(tasteFavorites);
+      const existing = await tx
+        .select({ id: tasteFavorites.id, tmdbId: tasteFavorites.tmdbId, mediaType: tasteFavorites.mediaType, olWorkId: tasteFavorites.olWorkId })
+        .from(tasteFavorites);
       if (existing.length >= MAX_FAVORITES) throw new ConflictException(`Limite de ${MAX_FAVORITES} favoritos atingido`);
-      const dup = res?.tmdbId != null ? existing.find((e) => e.tmdbId === res.tmdbId && e.mediaType === res.mediaType) : undefined;
+      const dup = res?.olWorkId
+        ? existing.find((e) => e.olWorkId === res.olWorkId)
+        : res?.tmdbId != null
+          ? existing.find((e) => e.tmdbId === res.tmdbId && e.mediaType === res.mediaType)
+          : undefined;
       const values = {
         userId,
         title: res?.title ?? input.title,
@@ -71,7 +81,8 @@ export class ProfileService {
         comment: input.comment ?? null,
         genres: cols?.genres ?? [],
         tmdbId: res?.tmdbId ?? null,
-        mediaType: res?.mediaType ?? null,
+        mediaType: book ? null : (res?.mediaType ?? null),
+        olWorkId: res?.olWorkId ?? null,
         posterUrl: res?.imageUrl ?? null,
         resolvedAt: res ? new Date() : null,
       };
@@ -89,6 +100,15 @@ export class ProfileService {
   }
 
   private async resolve(input: CreateFavoriteRequest): Promise<Resolution | null> {
+    // RF-48: livro escolhido na busca; sem a obra, o livro fica só com o título (sem busca por texto)
+    if (input.olWorkId && (!input.kind || input.kind === 'book')) {
+      if (!this.books) return null;
+      try {
+        return await this.books.byWorkId(input.olWorkId);
+      } catch {
+        return null;
+      }
+    }
     if (!this.tmdb) return null;
     if (input.kind && input.kind !== 'movie' && input.kind !== 'series') return null;
     try {
@@ -118,6 +138,7 @@ export function toFavorite(r: FavoriteRow): Favorite {
     ...(r.posterUrl ? { posterUrl: r.posterUrl } : {}),
     ...(r.tmdbId != null ? { tmdbId: r.tmdbId } : {}),
     ...(r.mediaType ? { mediaType: r.mediaType } : {}),
+    ...(r.olWorkId ? { olWorkId: r.olWorkId } : {}),
     createdAt: r.createdAt.toISOString(),
   };
 }

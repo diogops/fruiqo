@@ -1,0 +1,32 @@
+{
+  "synthetic": true,
+  "recorded_at": "2026-09-28T00:00:00.000Z",
+  "request": {
+    "method": "GET",
+    "url": "https://openlibrary.org/search.json?q=key%3A%2Fworks%2FOL9990001W&lang=pt&limit=1&fields=key%2Ctitle%2Cauthor_name%2Cfirst_publish_year%2Ccover_i%2Cnumber_of_pages_median%2Csubject%2Cedition_count%2Ceditions%2Ceditions.title%2Ceditions.language"
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "docs": [
+        {
+          "key": "/works/OL9990001W",
+          "title": "The Hourglass Clock",
+          "author_name": [
+            "Ana Fictícia"
+          ],
+          "first_publish_year": 1961,
+          "edition_count": 140,
+          "cover_i": 9990001,
+          "number_of_pages_median": 212,
+          "subject": [
+            "Fiction",
+            "Science fiction",
+            "Time travel"
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -44,7 +44,7 @@ describe('extractTextFileItems (RF-47)', () => {
   });
 
   it('cabeçalhos trocam o tipo; marcadores e linhas decorativas são tratados', () => {
-    const items = extractTextFileItems('Filmes:\n1. Filme Um (2020)\n- Filme Dois\n\n-----\nMúsicas:\nArtista X - Canção Y\nSéries\n• Série Z');
+    const items = extractTextFileItems('Filmes:\n1. Filme Um (2020)\n- Filme Dois\n\n-----\nMúsicas:\nCanção Y - Artista X\nSéries\n• Série Z');
     expect(items.map((i) => [i.title, i.kind])).toEqual([
       ['Filme Um', 'movie'],
       ['Filme Dois', 'movie'],
@@ -78,6 +78,8 @@ describe('cabeçalhos de seção', () => {
     expect(sectionHeader('Series:')).toBe('series');
     expect(sectionHeader('## Filmes')).toBe('movie');
     expect(sectionHeader('Músicas favoritas:')).toBe('music_track');
+    expect(sectionHeader('Playlist:')).toBe('music_track');
+    expect(sectionHeader('Minha playlist')).toBe('music_track');
     expect(sectionHeader('Outros:')).toBeNull();
     expect(sectionHeader('Missão: Impossível')).toBeUndefined();
     expect(sectionHeader('Chernoville')).toBeUndefined();
@@ -96,4 +98,49 @@ it('nome da lista proposta vem do nome do arquivo', () => {
   expect(listNameFromFile('lista series BFR.txt')).toBe('lista series BFR');
   expect(listNameFromFile('filmes_2024.TXT')).toBe('filmes 2024');
   expect(listNameFromFile(undefined)).toBeNull();
+});
+
+describe('RF-48: livros', () => {
+  it('cabeçalho "Livros:" define o tipo; "Título - Autor" separa o autor', () => {
+    const items = extractTextFileItems('Livros:\nO Relógio de Areia\nVento Sul - Marta Quintela\nCartas do Sertão (1998)\n1984\n');
+    expect(items.map((i) => [i.kind, i.title, i.creator ?? null, i.year ?? null])).toEqual([
+      ['book', 'O Relógio de Areia', null, null],
+      ['book', 'Vento Sul', 'Marta Quintela', null],
+      ['book', 'Cartas do Sertão', null, 1998],
+      ['book', '1984', null, null],
+    ]);
+  });
+
+  it('cabeçalhos de livro em pt e en', () => {
+    for (const h of ['Livros:', 'Books', '## Leituras', 'Livros para ler:', 'Meus livros favoritos']) expect(sectionHeader(h)).toBe('book');
+  });
+
+  it('contexto de leitura sem cabeçalho: "Título by Autor" também vale', () => {
+    const items = extractListItems('Livros que quero ler este ano:\n1. Vento Sul by Marta Quintela\n2. Nove Estrelas');
+    expect(items.map((i) => [i.kind, i.title, i.creator ?? null])).toEqual([
+      ['book', 'Vento Sul', 'Marta Quintela'],
+      ['book', 'Nove Estrelas', null],
+    ]);
+  });
+
+  it('seções "Músicas:" e "Playlist:": "A - B" é "Música - Artista"', () => {
+    for (const header of ['Músicas:', 'Playlist:']) {
+      const items = extractTextFileItems(`${header}\nAquarela - Toquinho\nÁguas de Março - Tom Jobim`);
+      expect(items.map((i) => [i.kind, i.title, i.creator])).toEqual([
+        ['music_track', 'Aquarela', 'Toquinho'],
+        ['music_track', 'Águas de Março', 'Tom Jobim'],
+      ]);
+    }
+  });
+
+  it('cabeçalho "Artista - Música:" inverte a ordem e abre seção de música', () => {
+    expect(sectionHeader('Artista - Música:')).toBe('music_track');
+    const items = extractTextFileItems('Artista - Música:\nMarta Quintela - Vento Sul');
+    expect(items[0]).toMatchObject({ kind: 'music_track', creator: 'Marta Quintela', title: 'Vento Sul' });
+  });
+
+  it('sem contexto musical nenhum, "A - B" segue a convenção de vídeo "Artista - Música"', () => {
+    const items = extractTextFileItems('Marta Quintela - Vento Sul');
+    expect(items[0]).toMatchObject({ kind: 'music_track', creator: 'Marta Quintela', title: 'Vento Sul' });
+  });
 });

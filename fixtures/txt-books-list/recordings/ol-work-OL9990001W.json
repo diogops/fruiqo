@@ -1,0 +1,19 @@
+{
+  "synthetic": true,
+  "recorded_at": "2026-09-28T00:00:00.000Z",
+  "request": {
+    "method": "GET",
+    "url": "https://openlibrary.org/works/OL9990001W.json"
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "title": "The Hourglass Clock",
+      "description": {
+        "type": "/type/text",
+        "value": "Sinopse fictícia escrita pelo time Fruiqo."
+      }
+    }
+  }
+}

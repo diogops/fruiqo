@@ -35,12 +35,20 @@ describe('extração de listas', () => {
     ]);
   });
 
-  it('playlist: "Artista - Música" vira faixa com criador', () => {
-    const text = ['Playlist pra estudar 🎧', '1. Tim Maia - Azul da Cor do Mar', '2. Djavan – Oceano', '3. Numb by Linkin Park'].join('\n');
+  it('playlist: "Música - Artista" é o padrão em contexto musical', () => {
+    const text = ['Playlist pra estudar 🎧', '1. Azul da Cor do Mar - Tim Maia', '2. Oceano – Djavan', '3. Numb by Linkin Park'].join('\n');
     expect(extractListItems(text)).toEqual([
       { kind: 'music_track', title: 'Azul da Cor do Mar', creator: 'Tim Maia', confidence: 0.6 },
       { kind: 'music_track', title: 'Oceano', creator: 'Djavan', confidence: 0.6 },
       { kind: 'music_track', title: 'Numb', creator: 'Linkin Park', confidence: 0.6 },
+    ]);
+  });
+
+  it('playlist com pista "(artista - música)": inverte para "Artista - Música"', () => {
+    const text = ['Playlist pra estudar (artista – música) 🎧', '1. Tim Maia - Azul da Cor do Mar', '2. Djavan – Oceano'].join('\n');
+    expect(extractListItems(text).map((i) => [i.title, i.creator])).toEqual([
+      ['Azul da Cor do Mar', 'Tim Maia'],
+      ['Oceano', 'Djavan'],
     ]);
   });
 

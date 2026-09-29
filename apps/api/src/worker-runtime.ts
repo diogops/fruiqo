@@ -12,6 +12,7 @@ import { HeuristicExtractor } from './pipeline/extractors/heuristic.js';
 import { fetchOEmbed } from './pipeline/oembed.js';
 import { type Resolver, ShareProcessor } from './pipeline/process-share.js';
 import { consumeDailyQuota } from './pipeline/quota.js';
+import { OpenLibraryResolver } from './pipeline/resolvers/openlibrary.js';
 import { SpotifyResolver } from './pipeline/resolvers/spotify.js';
 import { TmdbResolver } from './pipeline/resolvers/tmdb.js';
 import {
@@ -43,6 +44,8 @@ export function buildProcessor(
   // no mock os resolvers existem sem chave real: as respostas vêm das gravações das fixtures
   const tmdbKey = env.TMDB_API_KEY ?? (gateway.mode === 'mock' ? 'mock-key' : undefined);
   if (tmdbKey) resolvers.push(new TmdbResolver(tmdbKey, fetchImpl));
+  // RF-48 (D-21): livros pela Open Library, sem chave (User-Agent identificado, TOS-REQ-60)
+  resolvers.push(new OpenLibraryResolver(env.OPENLIBRARY_CONTACT, fetchImpl, gateway.mode !== 'mock'));
   const spotify =
     env.SPOTIFY_CLIENT_ID && env.SPOTIFY_CLIENT_SECRET
       ? { id: env.SPOTIFY_CLIENT_ID, secret: env.SPOTIFY_CLIENT_SECRET }
@@ -69,6 +72,7 @@ export function buildProcessor(
       mode: gateway.mode,
       llm: llmAllowed ? env.LLM_MODEL : 'off',
       tmdb: Boolean(env.TMDB_API_KEY),
+      openLibrary: true,
       spotify: Boolean(env.SPOTIFY_CLIENT_ID && env.SPOTIFY_CLIENT_SECRET),
       instagramOEmbed: Boolean(env.META_OEMBED_ACCESS_TOKEN),
       recordings: gateway.mode === 'mock' ? gateway.recordingCount : undefined,
@@ -127,7 +131,16 @@ export async function startWorker(env: Env): Promise<WorkerRuntime> {
       );
       // SEC-CTRL-50 (D-08): runs do "Como estou" saem em 90 dias (ou 1 dia sem "lembrar meu humor")
       const mood = await db.execute<{ purge_expired_mood_runs: number }>(sql`select purge_expired_mood_runs()`);
-      logger.info({ ...(res.rows[0] ?? {}), moodRunsPurged: mood.rows[0]?.purge_expired_mood_runs ?? 0 }, 'retenção aplicada');
+      // TOS-REQ-62: cache da Open Library (livros, RF-48) vence em 30 dias
+      const books = await db.execute<{ purge_expired_openlibrary_data: number }>(sql`select purge_expired_openlibrary_data()`);
+      logger.info(
+        {
+          ...(res.rows[0] ?? {}),
+          moodRunsPurged: mood.rows[0]?.purge_expired_mood_runs ?? 0,
+          openLibraryCleared: books.rows[0]?.purge_expired_openlibrary_data ?? 0,
+        },
+        'retenção aplicada',
+      );
     },
     { connection },
   );

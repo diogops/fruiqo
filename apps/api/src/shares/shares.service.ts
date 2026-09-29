@@ -8,6 +8,7 @@ import { SHARE_QUEUE_TOKEN, type ShareJob } from '../queue/queue.js';
 import { toDecision, toShare, toStep } from './share-mapper.js';
 
 const PAGE_SIZE = 20;
+const HAS_URL = /https?:\/\//i;
 
 @Injectable()
 export class SharesService {
@@ -35,6 +36,8 @@ export class SharesService {
           status: 'queued',
           inputText: input.text ?? null,
           inputUrl: input.url ?? null,
+          // texto colado sem nenhuma URL (nem no próprio texto) não é "link"
+          ...(!input.url && input.text && !HAS_URL.test(input.text) ? { origin: 'text' as const } : {}),
           ...(fixture ? { isFixture: true, fixtureId: fixture } : {}),
           // prints: OCR feito no device; plataforma não é inferida do texto
           ...(input.pages

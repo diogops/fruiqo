@@ -8,6 +8,7 @@ import { discover, getHome, updateTitle } from '../../src/api/client';
 import { MOOD_MAX_CHARS, buildMoodRequest, buildSurpriseRequest, progressOf } from '../../src/discover/logic';
 import { useMoodOptIn } from '../../src/discover/moodOptIn';
 import { putResult } from '../../src/discover/store';
+import { useReviewCount } from '../../src/catalog/reviewCount';
 import { ImportPrints } from '../../src/share/ImportPrints';
 import { Button, Chip, Poster, ProgressBar } from '../../src/ui/components';
 import { titleMeta } from '../../src/ui/labels';
@@ -21,6 +22,7 @@ function errorMessage(e: unknown) {
 export default function Home() {
   useTheme(); // re-renderiza na troca de tema
   const router = useRouter();
+  const { count: reviewCount } = useReviewCount();
   const [home, setHome] = useState<HomeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -219,6 +221,9 @@ export default function Home() {
 
       {/* Acessos secundários */}
       <View style={{ gap: 8 }}>
+        {reviewCount > 0 && (
+          <Button title={`Revisar ${reviewCount} título(s) importado(s)`} icon="checkmark-done-outline" onPress={() => router.push('/review' as never)} />
+        )}
         <ImportPrints />
         <Button title="Ver compartilhamentos recebidos" icon="download-outline" variant="secondary" onPress={() => router.push('/inbox')} />
       </View>

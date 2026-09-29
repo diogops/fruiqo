@@ -28,6 +28,8 @@ const HINTS: { kind: RecommendationKind; re: RegExp }[] = [
   { kind: 'series', re: /\b(series?|temporadas?|seasons?|episodios?|episodes?|minisseries?|doramas?|animes?)\b/g },
   { kind: 'music_track', re: /\b(musicas?|songs?|playlists?|faixas?|tracks?|cancoes|cancao|hits?)\b/g },
   { kind: 'music_album', re: /\b(albuns?|albums?|discos?)\b/g },
+  // RF-48
+  { kind: 'book', re: /\b(livros?|books?|leituras?|literatura|autora?|autores|(?:para|pra) ler)\b/g },
 ];
 
 /** Tipo predominante pelo vocabulário do texto inteiro; empate filme×série fica com filme. */
@@ -43,6 +45,24 @@ export function contextKind(text: string): RecommendationKind | null {
     }
   }
   return best;
+}
+
+/**
+ * Ordem de "A - B" em contexto musical. Em listas pt-BR escritas pelo usuário ("Músicas:",
+ * "Playlist:") o padrão é "Música - Artista" ("Aquarela - Toquinho"). "Artista - Música" só vale
+ * com pista explícita no texto ("(artista - música)", "Banda – Faixa"). Sem contexto musical
+ * nenhum (hint null), segue a convenção de título de vídeo "Artista - Música".
+ */
+export type MusicOrder = 'title_first' | 'artist_first';
+const ARTIST_WORDS = '(?:artistas?|bandas?|cantor(?:a|es)?|interpretes?|artists?|bands?|singers?)';
+const SONG_WORDS = '(?:musicas?|faixas?|cancao|cancoes|songs?|tracks?|titulos?|titles?)';
+const ORDER_ARTIST_FIRST = new RegExp(String.raw`\b${ARTIST_WORDS}\s*[-–—/x]\s*${SONG_WORDS}\b`);
+const ORDER_TITLE_FIRST = new RegExp(String.raw`\b${SONG_WORDS}\s*[-–—/x]\s*${ARTIST_WORDS}\b`);
+
+export function musicOrder(text: string): MusicOrder {
+  const n = normalizeText(text);
+  if (ORDER_ARTIST_FIRST.test(n)) return 'artist_first';
+  return 'title_first';
 }
 
 function isMusic(kind: RecommendationKind | null) {
@@ -91,6 +111,7 @@ function prepareLines(text: string): string[] {
  */
 export function extractListItems(text: string): ExtractedItem[] {
   const hint = contextKind(text);
+  const order = musicOrder(text);
   const items: ExtractedItem[] = [];
   // RF-47: cabeçalho só com o tipo ("Séries:", "Filmes:") abre uma seção em que toda linha curta é item
   let section: RecommendationKind | null = null;
@@ -121,7 +142,7 @@ export function extractListItems(text: string): ExtractedItem[] {
     // cabeçalho de lista ("Top 10 filmes de 2024:"), não item
     if (/:\s*$/.test(body)) continue;
 
-    const item = parseBody(body, section ?? hint, marked);
+    const item = parseBody(body, section ?? hint, marked, order);
     if (item) items.push(item);
     if (items.length >= MAX_LIST_ITEMS) break;
   }
@@ -132,8 +153,9 @@ export function extractListItems(text: string): ExtractedItem[] {
 const SECTION_KINDS: { kind: RecommendationKind; re: RegExp }[] = [
   { kind: 'movie', re: /^(meus |minha lista de |lista de )?(filmes?|movies?|films?|longas?)( para ver| pra ver| favoritos?)?$/ },
   { kind: 'series', re: /^(minhas |minha lista de |lista de )?(series?|seriados?|tv shows?|shows?|doramas?|animes?|minisseries?)( para ver| pra ver| favoritas?)?$/ },
-  { kind: 'music_track', re: /^(minhas |lista de )?(musicas?|songs?|faixas?|tracks?|cancoes)( favoritas?)?$/ },
+  { kind: 'music_track', re: /^(minhas |minha |lista de )?(musicas?|songs?|faixas?|tracks?|cancoes|playlists?)( favoritas?| para ouvir| pra ouvir)?$/ },
   { kind: 'music_album', re: /^(meus |lista de )?(albuns?|albums?|discos?)( favoritos?)?$/ },
+  { kind: 'book', re: /^(meus |minhas |minha lista de |lista de )?(livros?|books?|leituras?)( para ler| pra ler| favorit[oa]s?)?$/ },
 ];
 
 /**
@@ -147,6 +169,9 @@ export function sectionHeader(line: string): RecommendationKind | null | undefin
   if (!n) return undefined;
   const found = SECTION_KINDS.find((s) => s.re.test(n));
   if (found) return found.kind;
+  // linha com a pista de ordem ("Artista - Música:", "Playlist (música – artista)") é instrução,
+  // nunca uma faixa: vira cabeçalho de seção musical
+  if (ORDER_ARTIST_FIRST.test(n) || ORDER_TITLE_FIRST.test(n)) return 'music_track';
   // "Outros:" / "Para depois:" encerram a seção; título com dois-pontos no meio não é cabeçalho
   if (withColon && n.split(' ').length <= 4 && !YEAR_PARENS.test(trimmed)) return null;
   return undefined;
@@ -164,6 +189,7 @@ function isShortLine(line: string): boolean {
  */
 export function extractTextFileItems(text: string, nameHint?: string): ExtractedItem[] {
   const fallback = contextKind(text) ?? (nameHint ? contextKind(nameHint) : null);
+  const order = musicOrder(text);
   const items: ExtractedItem[] = [];
   let section: RecommendationKind | null = null;
 
@@ -183,7 +209,7 @@ export function extractTextFileItems(text: string, nameHint?: string): Extracted
     const numbered = NUMBERED.exec(line);
     const bullet = numbered ? null : BULLET.exec(line);
     const body = numbered?.[1] ?? bullet?.[1] ?? line;
-    const item = parseBody(body, section ?? fallback, true);
+    const item = parseBody(body, section ?? fallback, true, order);
     if (!item) continue;
     // numa seção declarada o tipo é certo; sem seção, a confiança fica abaixo da de lista marcada
     item.confidence = section ? 0.65 : fallback ? 0.55 : 0.45;
@@ -193,7 +219,12 @@ export function extractTextFileItems(text: string, nameHint?: string): Extracted
   return items;
 }
 
-function parseBody(body: string, hint: RecommendationKind | null, marked: boolean): ExtractedItem | null {
+function parseBody(
+  body: string,
+  hint: RecommendationKind | null,
+  marked: boolean,
+  order: MusicOrder = 'title_first',
+): ExtractedItem | null {
   let rest = body.trim();
   let year: number | undefined;
 
@@ -216,17 +247,27 @@ function parseBody(body: string, hint: RecommendationKind | null, marked: boolea
 
   const dash = DASH_PAIR.exec(rest);
   const by = dash ? null : BY_ARTIST.exec(rest);
-  if (dash?.[1] && dash[2]) {
-    if (isMusic(hint) || (hint === null && !year)) {
-      // convenção "Artista - Música"
+  const pair = dash ?? by;
+  if (hint === 'book' && pair?.[1] && pair[2]) {
+    // RF-48: "Título - Autor" / "Título by Autor"
+    title = cleanPart(pair[1]);
+    creator = cleanPart(pair[2]);
+  } else if (dash?.[1] && dash[2]) {
+    if (isMusic(hint)) {
+      // contexto musical: "Música - Artista" por padrão; "Artista - Música" só com pista explícita
+      const artistFirst = order === 'artist_first';
+      creator = cleanPart(artistFirst ? dash[1] : dash[2]);
+      title = cleanPart(artistFirst ? dash[2] : dash[1]);
+    } else if (hint === null && !year) {
+      // sem contexto nenhum: convenção de título de vídeo "Artista - Música"
       creator = cleanPart(dash[1]);
       title = cleanPart(dash[2]);
-      if (hint === null) kind = 'music_track';
+      kind = 'music_track';
     } else {
       // filme/série: o lado direito costuma ser gênero/descrição/plataforma
       title = cleanPart(dash[1]);
     }
-  } else if (by?.[1] && by[2] && (isMusic(hint) || hint === null)) {
+  } else if (hint !== 'book' && by?.[1] && by[2] && (isMusic(hint) || hint === null)) {
     title = cleanPart(by[1]);
     creator = cleanPart(by[2]);
     if (hint === null) kind = 'music_track';

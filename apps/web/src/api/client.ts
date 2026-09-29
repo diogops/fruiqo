@@ -5,6 +5,14 @@
 import {
   EnrichResponseSchema,
   ActivityResponseSchema,
+  ApplyPriorityDraftResponseSchema,
+  DeclaredTasteSchema,
+  FavoriteSchema,
+  ImportTitlesResponseSchema,
+  PriorityDraftSchema,
+  ReviewBatchResponseSchema,
+  ShareSchema,
+  TitleSearchResponseSchema,
   BulkResponseSchema,
   BulkUndoResponseSchema,
   ListDetailSchema,
@@ -24,7 +32,16 @@ import {
   WEB_CLIENT_HEADER,
   WEB_CLIENT_VALUE,
   WebSessionResponseSchema,
+  type ApplyPriorityDraftRequest,
+  type ApproveReviewRequest,
   type BulkRequest,
+  type CreateFavoriteRequest,
+  type CreatePriorityDraftRequest,
+  type CreateShareRequest,
+  type ImportTitlesRequest,
+  type ReviewBatchRequest,
+  type TitleSearchQuery,
+  type UpdatePriorityDraftRequest,
   type CorrectTitleRequest,
   type CreateTitleRequest,
   type MoveTitleRequest,
@@ -197,9 +214,13 @@ export const api = {
 
   // ---------- revisão ----------
   review: () => request(ReviewListResponseSchema, '/review'),
-  approve: (id: string) => request(TitleSchema, `/review/${id}/approve`, 'POST'),
+  /** RF-42: sem corpo aceita o encaixe sugerido; com corpo ajusta posição/listas/alternativa/título */
+  approve: (id: string, body?: ApproveReviewRequest) => request(TitleSchema, `/review/${id}/approve`, 'POST', body),
+  reviewBatch: (body: ReviewBatchRequest) => request(ReviewBatchResponseSchema, '/review/batch', 'POST', body),
   reject: (id: string) => request(NoContent, `/review/${id}/reject`, 'POST'),
   rematch: (id: string, body: CorrectTitleRequest) => request(TitleSchema, `/review/${id}/rematch`, 'POST', body),
+  /** música lida ao contrário: troca título e artista, o item continua na revisão */
+  swapMusic: (id: string) => request(TitleSchema, `/review/${id}/swap-music`, 'POST'),
 
   // ---------- perfil ----------
   taste: () => request(TasteProfileSchema, '/profile/taste'),
@@ -212,6 +233,36 @@ export const api = {
   updateSettings: (body: UpdateUserSettingsRequest) => request(UserSettingsSchema, '/profile/settings', 'PATCH', body),
   moodHistory: () => request(MoodHistoryResponseSchema, '/profile/mood-history'),
   deleteMoodHistory: () => request(NoContent, '/profile/mood-history', 'DELETE'),
+
+  // ---------- RF-43: perfil declarado ----------
+  declared: () => request(DeclaredTasteSchema, '/profile/declared'),
+  updateSummary: (summary: string) => request(DeclaredTasteSchema, '/profile/summary', 'PUT', { summary }),
+  addFavorite: (body: CreateFavoriteRequest) => request(FavoriteSchema, '/profile/favorites', 'POST', body),
+  deleteFavorite: (id: string) => request(NoContent, `/profile/favorites/${id}`, 'DELETE'),
+
+  // ---------- RF-44: rascunho de priorização ----------
+  createDraft: (body: CreatePriorityDraftRequest = {}) => request(PriorityDraftSchema, '/library/priority-draft', 'POST', body),
+  /** null quando não há rascunho (a API responde 404) */
+  draft: async () => {
+    try {
+      return await request(PriorityDraftSchema, '/library/priority-draft');
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null;
+      throw err;
+    }
+  },
+  updateDraft: (body: UpdatePriorityDraftRequest) => request(PriorityDraftSchema, '/library/priority-draft', 'PATCH', body),
+  applyDraft: (body: ApplyPriorityDraftRequest = {}) =>
+    request(ApplyPriorityDraftResponseSchema, '/library/priority-draft/apply', 'POST', body),
+  discardDraft: () => request(NoContent, '/library/priority-draft', 'DELETE'),
+
+  // ---------- RF-46: busca inteligente e importação ----------
+  searchTitles: (query: TitleSearchQuery) => request(TitleSearchResponseSchema, `/search/titles${qs(query)}`),
+  importTitles: (body: ImportTitlesRequest) => request(ImportTitlesResponseSchema, '/library/import', 'POST', body),
+
+  // ---------- RF-47: importar .txt (entra como share e vai para a revisão) ----------
+  createShare: (body: CreateShareRequest) => request(ShareSchema, '/shares', 'POST', body),
+  share: (id: string) => request(ShareSchema, `/shares/${id}`),
 
   // ---------- sandbox (dev) ----------
   sandboxFixtures: () => request(SandboxFixturesResponseSchema, '/sandbox/fixtures'),

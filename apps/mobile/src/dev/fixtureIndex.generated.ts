@@ -53,8 +53,14 @@ export const SIM_FIXTURES: SimFixture[] = [
   {
     "id": "music-artist-dash",
     "kind": "text",
-    "description": "Playlist colada no formato Artista - Música",
-    "text": "Minha playlist de domingo:\n1. Elis Regina - Águas de Março\n2. Chico Buarque - Construção\n3. Caetano Veloso - Sozinho\n4. Tribalistas - Velha Infância"
+    "description": "Playlist colada no formato Artista - Música, com a pista \"(artista - música)\" no cabeçalho",
+    "text": "Minha playlist de domingo (artista - música):\n1. Elis Regina - Águas de Março\n2. Chico Buarque - Construção\n3. Caetano Veloso - Sozinho\n4. Tribalistas - Velha Infância"
+  },
+  {
+    "id": "music-title-dash",
+    "kind": "text",
+    "description": "Lista pt-BR sob \"Músicas:\" no formato Música - Artista (padrão)",
+    "text": "Músicas:\nRio de Outono - Lia Brandão\nCéu de Maré - Os Faroleiros\nPasso Lento - Duo Serra"
   },
   {
     "id": "no-items",

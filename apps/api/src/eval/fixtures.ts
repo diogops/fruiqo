@@ -11,6 +11,8 @@ const ExpectedItemSchema = z.object({
   year: z.number().int().optional(),
   creator: z.string().optional(),
   tmdbId: z.string().optional(),
+  /** RF-48: id externo de outro catálogo (ex.: `ol:OL123W`, Open Library) */
+  externalId: z.string().optional(),
 });
 export type ExpectedItem = z.infer<typeof ExpectedItemSchema>;
 

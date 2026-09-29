@@ -36,7 +36,16 @@ export function toTitle(r: RecommendationRow, lists: { id: string; name: string 
 }
 
 /** Campos de exibição vindos do TMDB (2d). Sem resolução TMDB, nada é exposto. */
-function tmdbDisplay(res: Resolution | null): Pick<Title, 'posterUrl' | 'overview' | 'watchProvidersBR' | 'watchUrl'> {
+function tmdbDisplay(res: Resolution | null): Pick<Title, 'posterUrl' | 'overview' | 'watchProvidersBR' | 'watchUrl' | 'bookUrl' | 'pages'> {
+  // RF-48: livro (Open Library): capa pela URL pública, sinopse e "onde encontrar" = página da obra
+  if (res?.provider === 'openlibrary') {
+    return {
+      ...(res.imageUrl ? { posterUrl: res.imageUrl } : {}),
+      ...(res.overview ? { overview: res.overview } : {}),
+      ...(res.url ? { bookUrl: res.url } : {}),
+      ...(res.pages ? { pages: res.pages } : {}),
+    };
+  }
   if (!res || res.provider !== 'tmdb') return {};
   const providers =
     res.providers ?? (res.watchProvidersBR ?? []).map((name) => ({ name, type: 'flatrate' as const }));

@@ -86,3 +86,38 @@ describe('fila de revisão (RF-28)', () => {
     await screen.findByText('Nada para revisar. 🎉');
   });
 });
+
+describe('revisão de música e origem', () => {
+  it('mostra artista, origem "texto" e troca música/artista', async () => {
+    __setAccessToken('tok');
+    const song: ReviewItem = {
+      title: makeTitle({ title: 'Toquinho', creator: 'Aquarela', kind: 'music_track', decision: 'review_queue', confidence: 0.5 }),
+      candidate: null,
+      share: { id: '99999999-9999-4999-8999-999999999999', platform: 'other', origin: 'text' },
+    };
+    let queue = [song];
+    const { calls } = mockApi({
+      'GET /review': () => ({ body: { items: queue } }),
+    });
+    const base = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (init?.method === 'POST' && path.endsWith('/swap-music')) {
+        const swapped = { ...song.title, title: 'Aquarela', creator: 'Toquinho' };
+        queue = [{ ...song, title: swapped }];
+        return new Response(JSON.stringify(swapped), { status: 200 });
+      }
+      return base(input, init);
+    }) as typeof fetch;
+
+    const user = userEvent.setup();
+    renderWithProviders(<Review />);
+    await screen.findByText('Toquinho');
+    expect(document.querySelector('.review-creator')?.textContent).toBe(' — Aquarela');
+    expect(screen.getByText('de texto', { exact: false })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Trocar música/artista' }));
+    await waitFor(() => expect(document.querySelector('.review-creator')?.textContent).toBe(' — Toquinho'));
+    expect(screen.getByText('Aquarela')).toBeTruthy();
+    expect(calls.length).toBeGreaterThan(0);
+  });
+});

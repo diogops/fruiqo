@@ -67,3 +67,38 @@ describe('AnthropicExtractor (saída validada fail-closed, SEC-REQ-05)', () => {
     expect(parse).not.toHaveBeenCalled();
   });
 });
+
+describe('D-20: livros e música no extrator e no palpite por descrição', () => {
+  it('o extrator descreve livros (autor) e música (artista) e aceita esses tipos', async () => {
+    const items = [
+      { kind: 'book', title: 'Torto Arado', creator: 'Itamar Vieira Junior', year: 2019, confidence: 0.9 },
+      { kind: 'music_track', title: 'Aquarela', creator: 'Toquinho', confidence: 0.8 },
+    ];
+    const { ex, parse } = extractor({ parsed_output: { items } });
+    expect(await ex.extract({ ...input, text: 'Livros:\nTorto Arado (2019)\nMúsicas:\nAquarela - Toquinho' })).toEqual(items);
+    const system = parse.mock.calls[0]![0].system as string;
+    expect(system).toMatch(/books/);
+    expect(system).toMatch(/music_track/);
+    expect(system).toMatch(/author for a book/);
+  });
+
+  it('o palpite por descrição aceita livro com autor e descarta autor de filme', async () => {
+    const { AnthropicTitleGuesser } = await import('../../src/library/title-guesser.js');
+    const { llmSafeInput } = await import('../../src/library/mood-interpreter.js');
+    const parse = vi.fn().mockResolvedValue({
+      stop_reason: 'end_turn',
+      parsed_output: {
+        titles: [
+          { title: 'Torto Arado', kind: 'book', author: ' Itamar Vieira Junior ', year: 2019 },
+          { title: 'Algum Filme', kind: 'movie', author: 'Ninguém' },
+        ],
+      },
+    });
+    const guesser = new AnthropicTitleGuesser({ model: 'claude-haiku-4-5', maxInputChars: 1000, dailyQuota: 10, client: { messages: { parse } } as LlmClient });
+    expect(await guesser.guess(llmSafeInput('livro das irmãs no sertão da bahia'), 'u1')).toEqual([
+      { title: 'Torto Arado', kind: 'book', author: 'Itamar Vieira Junior', year: 2019 },
+      { title: 'Algum Filme', kind: 'movie' },
+    ]);
+    expect(parse.mock.calls[0]![0].system).toMatch(/book/);
+  });
+});

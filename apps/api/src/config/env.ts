@@ -55,6 +55,8 @@ const EnvSchema = z.object({
   AI_PRICE_OUT_PER_MTOK: z.coerce.number().min(0).default(5),
 
   TMDB_API_KEY: optionalSecret,
+  /** RF-48: contato no User-Agent da Open Library (TOS-REQ-60); contato do projeto, não pessoal */
+  OPENLIBRARY_CONTACT: z.string().trim().max(200).optional(),
   /**
    * D-07 / C-15: com o TMDB ativo, qualquer IA fica proibida até o TMDB confirmar por escrito que
    * um app com recursos de IA pode usar a API (ver docs/phase0/tmdb-consulta-C15.md). Só defina

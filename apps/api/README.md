@@ -55,8 +55,8 @@ Todos exigem `Authorization: Bearer <accessToken>`, exceto os marcados como púb
 | POST/DELETE | `/profile/favorites`, `/profile/favorites/:id` | `CreateFavoriteRequest` → 201 `Favorite` / 204 |
 | POST/GET/PATCH/DELETE | `/library/priority-draft` | `CreatePriorityDraftRequest` → 201 `PriorityDraft`; PATCH `UpdatePriorityDraftRequest` (ordem completa ou `move`) (RF-44) |
 | POST | `/library/priority-draft/apply` | `ApplyPriorityDraftRequest` (`reconcile: 'append_new'`) → `ApplyPriorityDraftResponse` (`undoToken` do `/library/bulk/undo`); 409 com `staleDetails` se a fila mudou |
-| GET | `/search/titles?q=&kind=` | `TitleSearchResponse` (título/ano, pessoa, gênero/década, descrição) (RF-46) |
-| POST | `/library/import` | `ImportTitlesRequest` (TMDB ids; `approveNow`, `listId`) → `ImportTitlesResponse` |
+| GET | `/search/titles?q=&kind=` | `TitleSearchResponse` (título/ano, pessoa, gênero/década, descrição) (RF-46); `kind=book` busca livros por título/autor na Open Library (`books`), sem tipo inclui até 6 livros (RF-48) |
+| POST | `/library/import` | `ImportTitlesRequest` (TMDB ids em `items`, obras da Open Library em `books`; `approveNow`, `listId`) → `ImportTitlesResponse` (`skipped`, `skippedBooks`) |
 
 Erros seguem `ApiError` (`{ error, message }`), sem detalhes internos.
 
@@ -71,6 +71,7 @@ Ver `.env.example`. As principais:
 - `LLM_ENABLED`, `LLM_REAL_CONTENT_ALLOWED`, `LLM_MODEL` (padrão `claude-opus-5`), `LLM_DAILY_QUOTA`, `LLM_MAX_INPUT_CHARS`, `ANTHROPIC_API_KEY`.
 - `PIPELINE_MODE` (`live`/`mock`/`record`), `REVIEW_THRESHOLD` (0.5), `DISCARD_THRESHOLD` (0.15), `SANDBOX_ENABLED`, `LLM_PRICE_IN_PER_MTOK`/`LLM_PRICE_OUT_PER_MTOK`: Fase 2a (seção abaixo).
 - `TMDB_API_KEY` (v3 ou token v4), `SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET`, `META_OEMBED_ACCESS_TOKEN`: opcionais; sem eles o share é processado sem resolução/metadados daquela fonte.
+- `OPENLIBRARY_CONTACT`: contato (URL/e-mail do projeto, não pessoal) no User-Agent da Open Library (TOS-REQ-60); livros não precisam de chave.
 
 ## Decisões
 
@@ -108,7 +109,7 @@ A deduplicação acontece em três níveis (`src/pipeline/dedup.ts`):
 A extração sem LLM segue dois passos:
 
 - **Limpeza** (`src/pipeline/ui-noise.ts`): remove as linhas de interface (horário, "Curtido por", contadores, "há 2 dias", @handles etc.). Para cobrir outro app, estenda a lista e o teste `test/unit/ui-noise.test.ts`.
-- **Itens de lista** (`src/pipeline/extractors/list.ts`): aproveita só linhas numeradas, com bullet ou emoji de número, "Título (2019)" e "Artista - Música". O tipo vem do vocabulário do texto (filmes, séries, música, álbum); a confiança fica em no máximo 0,6, com limite de 50 itens.
+- **Itens de lista** (`src/pipeline/extractors/list.ts`): aproveita só linhas numeradas, com bullet ou emoji de número, "Título (2019)" e pares com travessão. Em contexto de música ("Músicas:", "Playlist:", vocabulário) o par é "Música - Artista"; "Artista - Música" só com pista explícita no texto (ex.: cabeçalho "(artista - música)"). Sem contexto algum, fica a convenção de título de vídeo (artista primeiro). A revisão tem `POST /review/:id/swap-music` para trocar título e artista (409 se virar duplicata). O tipo vem do vocabulário do texto (filmes, séries, música, álbum); a confiança fica em no máximo 0,6, com limite de 50 itens.
 - **Limitação conhecida**: linhas soltas sem marcador são ignoradas. Um carrossel com um título por slide, sem numeração, não é extraído.
 
 A migração `0002` faz o backfill da `dedup_key` em SQL, aproximando a normalização do TypeScript, e apaga colisões antigas mantendo a recomendação mais antiga.
@@ -178,5 +179,13 @@ Decisões: o desfazer guarda um snapshot em `bulk_undo` (uso único, 10 min); de
 - **RF-44**: `priority_drafts` (um por usuário) guarda a ordem proposta e a fila no momento da geração (`base`). Gerar não muda nada; aplicar grava a ordem inteira numa transação (fila 1..N, advisory lock), guarda o snapshot em `bulk_undo` e devolve o `undoToken`. Títulos que entraram depois do rascunho: 409 ou `reconcile: 'append_new'` (vão para o fim, na ordem atual).
 - **RF-46**: a busca lê o texto localmente (`search-query.ts`): título (com erro de digitação/parcial), título + ano, só gênero/década (`/discover`), pessoa (reconhecida no `search/multi`, filmografia sem aparições como "ele mesmo") ou descrição. Descrição vai ao LLM só com `AI_MODE=anthropic` + chave + `TMDB_AI_CLEARANCE=confirmed` + `ai_consent`, e o modelo recebe só o texto digitado (`title-guesser.ts`, coberto pelo teste ARB-REQ-06); os palpites são conferidos no TMDB. Sem isso, cai para gêneros citados + palavras-chave. Limite por usuário em memória: `SEARCH_RATE_LIMIT_PER_MIN` (30) e `IMPORT_RATE_LIMIT_PER_MIN` (20).
 - **RF-47, `.txt`**: `textFile` no `POST /shares` (origem `text_file`, até 60 mil caracteres, lido no device/navegador). O extrator só por regras (`extractTextFileItems`) trata toda linha curta como item, e cabeçalhos "Series:"/"Filmes:"/"Músicas:" definem o tipo. O resolver TMDB (`resolveDetailed`) pontua cada candidato por título (Levenshtein sem acento/pontuação, contenção ponderada pela cobertura), ano (diferença > 1 derruba para "fraco") e tipo. Match fraco tenta de novo com a palavra mais longa + ano + tipo (`search/tv`/`search/movie`); as outras opções (até 3) ficam em `match_alternatives` e aparecem na revisão.
-- **Eval**: fixture sintética `txt-series-list` (formato da lista real, obras e IDs fictícios), baseline `eval-baselines/v1-review-txt.json` (a `v0-heuristic` fica como histórico). A taxa de revisão do eval mede `suggested_decision`.
+- **Eval**: fixture sintética `txt-series-list` (formato da lista real, obras e IDs fictícios); a baseline atual é `eval-baselines/v3-music-order.json` (ordem Música - Artista por padrão em contexto de música, fixture `music-title-dash`; `v2-books`, `v1-review-txt` e `v0-heuristic` ficam como histórico). A taxa de revisão do eval mede `suggested_decision`.
 
+## Livros (RF-48, D-21)
+
+- Fonte única: Open Library (`src/pipeline/resolvers/openlibrary.ts`), pelo `PipelineGateway` (mock/live/record) + `safeFetchJson` (allowlist `openlibrary.org`, `covers.openlibrary.org`). Sem chave; User-Agent `Fruiqo/0.1 (<OPENLIBRARY_CONTACT>)`; até 3 req/s por processo; gravações com TTL de 30 dias.
+- Resolução: `search.json` com `title` (+ `author` quando o texto traz "Título - Autor") e `language=por` (sem resultado, repete sem idioma); nota por título (68%), autor (20%), ano da 1ª publicação ±1 (10%) e edições; até 3 alternativas em `match_alternatives` (`provider: 'openlibrary'`), expostas na revisão como `bookAlternatives` e escolhidas com `alternativeBook: { olWorkId }`. Detalhe: sinopse por `works/<id>.json`, título PT-BR pela edição em português (`works/<id>/editions.json`).
+- Campos: `creator` = primeiro autor; `year`; `Title.posterUrl` = capa `covers.openlibrary.org/b/id/<cover_i>-M.jpg` (só a URL; nunca baixada, nunca ao LLM — teste ARB-REQ-06); `Title.pages`; `Title.bookUrl` = `https://openlibrary.org/works/<OLID>` ("onde encontrar"); gêneros pelos assuntos (`genresFromSubjects`, `@fruiqo/taxonomy`), com `enrichment = 'openlibrary'`.
+- Entrada: cabeçalho "Livros:"/"Books:"/"Leituras:" ou vocabulário de leitura (livro, leitura, autor, "para ler") define `kind: 'book'`. Enriquecimento: `POST /library/:id/enrich` e `enrich:backfill` também tratam livros.
+- Retenção (TOS-REQ-62, migração 0012): `purge_expired_openlibrary_data()` limpa resolução/alternativas com mais de 30 dias (gêneros CC0 ficam; `enrichment` volta a `none` para o backfill renovar), chamada pelo job de retenção do worker.
+- Eval: fixture sintética `txt-books-list` (obras, autores e IDs fictícios) (baseline `v2-books`, hoje sucedida por `v3-music-order`). Favorito de livro aceita `olWorkId` (capa e gêneros da obra; capa sai na purga de 30 dias, migração 0013). O CSP do web libera `archive.org`, destino do redirecionamento das capas.

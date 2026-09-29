@@ -52,7 +52,8 @@ export const MAX_SCREENSHOT_PAGES = 10;
 export const MAX_TEXT_FILE_CHARS = 60000;
 
 /** Origem do conteúdo de um share */
-export const ShareOriginSchema = z.enum(['link', 'screenshot', 'text_file']);
+/** link: URL compartilhada; text: texto colado sem URL; screenshot: prints (OCR no device); text_file: .txt */
+export const ShareOriginSchema = z.enum(['link', 'text', 'screenshot', 'text_file']);
 export type ShareOrigin = z.infer<typeof ShareOriginSchema>;
 
 /**
@@ -89,12 +90,14 @@ export const RecommendationKindSchema = z.enum([
   'music_track',
   'music_album',
   'artist',
+  /** RF-48: livros (metadados da Open Library, D-21) */
+  'book',
   'other',
 ]);
 export type RecommendationKind = z.infer<typeof RecommendationKindSchema>;
 
 export const ResolutionSchema = z.object({
-  provider: z.enum(['tmdb', 'spotify']),
+  provider: z.enum(['tmdb', 'spotify', 'openlibrary']),
   externalId: z.string(),
   title: z.string(),
   /** link público de volta ao provedor (TOS-REQ-10) */
@@ -116,6 +119,13 @@ export const ResolutionSchema = z.object({
   providers: z.array(z.lazy(() => WatchProviderSchema)).optional(),
   /** página pública "onde assistir" do TMDB (sem deep link para os apps de streaming, TOS-REQ-17) */
   watchUrl: z.url().optional(),
+  // ---- livros (RF-48, D-21): Open Library; cache de 30 dias (TOS-REQ-62); capa nunca vai ao LLM (TOS-REQ-66) ----
+  /** ID da obra na Open Library (ex.: OL45883W) */
+  olWorkId: z.string().max(40).optional(),
+  authors: z.array(z.string().max(200)).max(10).optional(),
+  pages: z.number().int().positive().optional(),
+  /** assuntos (CC0) usados só para mapear gêneros da taxonomia */
+  subjects: z.array(z.string().max(120)).max(30).optional(),
 });
 export type Resolution = z.infer<typeof ResolutionSchema>;
 
@@ -268,7 +278,7 @@ export type TitleStatus = z.infer<typeof TitleStatusSchema>;
  */
 export const TitleRankSchema = z.number().int().min(1);
 
-export const EnrichmentSchema = z.enum(['none', 'tmdb', 'demo', 'manual']);
+export const EnrichmentSchema = z.enum(['none', 'tmdb', 'openlibrary', 'demo', 'manual']);
 export type Enrichment = z.infer<typeof EnrichmentSchema>;
 
 export const TaxonomyTagSchema = z.object({ key: z.string(), label: z.string() });
@@ -297,6 +307,9 @@ export const TitleSchema = z.object({
   overview: z.string().optional(),
   watchProvidersBR: z.array(WatchProviderSchema).optional(),
   watchUrl: z.url().optional(),
+  /** RF-48: livro — página pública da obra na Open Library ("onde encontrar") e número de páginas */
+  bookUrl: z.url().optional(),
+  pages: z.number().int().positive().optional(),
   decision: z.enum(['cataloged', 'review_queue']),
   /**
    * RF-42: o que o pipeline sugeriria (todo import passa pela revisão; `cataloged` aqui = "confiável,
@@ -719,6 +732,17 @@ export const MatchAlternativeSchema = z.object({
 });
 export type MatchAlternative = z.infer<typeof MatchAlternativeSchema>;
 
+/** RF-48: outra opção de match de livro (Open Library) para o mesmo texto importado */
+export const BookAlternativeSchema = z.object({
+  olWorkId: z.string().max(40),
+  title: z.string(),
+  authors: z.array(z.string()).max(10).optional(),
+  year: z.number().int().optional(),
+  coverUrl: z.url().optional(),
+  score: z.number().min(0).max(1),
+});
+export type BookAlternative = z.infer<typeof BookAlternativeSchema>;
+
 /** RF-42/RF-43: onde o título entraria na fila e por quê */
 export const FitSuggestionSchema = z.object({
   /** posição sugerida (1 = topo) considerando a fila atual */
@@ -739,6 +763,8 @@ export const ReviewItemSchema = z.object({
   fit: FitSuggestionSchema.nullable().optional(),
   /** RF-47: até 3 outras opções de match */
   alternatives: z.array(MatchAlternativeSchema).max(3).optional(),
+  /** RF-48: até 3 outras opções quando o título é livro */
+  bookAlternatives: z.array(BookAlternativeSchema).max(3).optional(),
   /** lista proposta pelo mesmo import (ex.: a lista do post dos prints); criada na primeira aprovação */
   proposedList: z.object({ name: z.string(), shareId: z.uuid(), listId: z.uuid().nullable() }).nullable().optional(),
   /** título do catálogo que parece ser o mesmo (mesmo match no TMDB): sugere mesclar */
@@ -757,6 +783,9 @@ export type ReviewListResponse = z.infer<typeof ReviewListResponseSchema>;
 export const ReviewRematchRequestSchema = CorrectTitleRequestSchema;
 export type ReviewRematchRequest = z.infer<typeof ReviewRematchRequestSchema>;
 
+/** RF-48: id de obra da Open Library (`OL123W`) */
+export const OlWorkIdSchema = z.string().regex(/^OL[0-9]{1,12}W$/, 'id de obra da Open Library inválido');
+
 /** RF-42: aprovar aceitando o encaixe sugerido ou ajustando posição, listas, título ou match */
 export const ReviewPlacementSchema = z.enum(['suggested', 'end', 'top']);
 export const ApproveReviewRequestSchema = z
@@ -771,13 +800,16 @@ export const ApproveReviewRequestSchema = z
     useProposedList: z.boolean().optional(),
     /** trocar o match por uma das alternativas */
     alternative: z.object({ tmdbId: z.number().int(), mediaType: z.enum(['movie', 'tv']) }).strict().optional(),
+    /** RF-48: trocar o match de livro por uma das alternativas da Open Library */
+    alternativeBook: z.object({ olWorkId: OlWorkIdSchema }).strict().optional(),
     /** corrigir antes de aprovar */
     title: z.string().trim().min(1).max(200).optional(),
     kind: RecommendationKindSchema.optional(),
     year: z.number().int().min(1870).max(2100).nullable().optional(),
     creator: z.string().trim().max(200).nullable().optional(),
   })
-  .strict();
+  .strict()
+  .refine((v) => !(v.alternative && v.alternativeBook), { message: 'Escolha uma alternativa só (filme/série ou livro)' });
 export type ApproveReviewRequest = z.infer<typeof ApproveReviewRequestSchema>;
 
 export const ReviewBatchRequestSchema = z
@@ -933,6 +965,8 @@ export const FavoriteSchema = z.object({
   posterUrl: z.url().optional(),
   tmdbId: z.number().int().optional(),
   mediaType: z.enum(['movie', 'tv']).optional(),
+  /** livro escolhido na busca (RF-48) */
+  olWorkId: OlWorkIdSchema.optional(),
   createdAt: z.iso.datetime(),
 });
 export type Favorite = z.infer<typeof FavoriteSchema>;
@@ -947,6 +981,8 @@ export const CreateFavoriteRequestSchema = z
     /** escolhido na busca (RF-46); sem isto o servidor procura pelo título/ano */
     tmdbId: z.number().int().optional(),
     mediaType: z.enum(['movie', 'tv']).optional(),
+    /** livro escolhido na busca (RF-48): capa e gêneros vêm da obra na Open Library */
+    olWorkId: OlWorkIdSchema.optional(),
   })
   .strict();
 export type CreateFavoriteRequest = z.infer<typeof CreateFavoriteRequestSchema>;
@@ -1042,7 +1078,7 @@ export type ApplyPriorityDraftResponse = z.infer<typeof ApplyPriorityDraftRespon
 
 export const TitleSearchQuerySchema = z.object({
   q: z.string().trim().min(1).max(200),
-  kind: z.enum(['movie', 'series']).optional(),
+  kind: z.enum(['movie', 'series', 'book']).optional(),
 });
 export type TitleSearchQuery = z.infer<typeof TitleSearchQuerySchema>;
 
@@ -1078,17 +1114,39 @@ export const TitleSearchResponseSchema = z.object({
     aiUsed: z.boolean(),
   }),
   items: z.array(TitleSearchResultSchema),
+  /** RF-48: livros (Open Library); preenchido com `kind=book` ou busca sem tipo */
+  books: z.array(z.lazy(() => BookSearchResultSchema)).optional(),
 });
 export type TitleSearchResponse = z.infer<typeof TitleSearchResponseSchema>;
 
+/** RF-48: resultado de busca de livro (Open Library; atribuição por link à obra) */
+export const BookSearchResultSchema = z.object({
+  olWorkId: z.string().max(40),
+  title: z.string(),
+  authors: z.array(z.string()),
+  year: z.number().int().optional(),
+  coverUrl: z.url().optional(),
+  pages: z.number().int().positive().optional(),
+  /** página pública da obra */
+  url: z.url(),
+  inLibrary: z
+    .object({ id: z.uuid(), rank: TitleRankSchema.nullable(), decision: z.enum(['cataloged', 'review_queue']) })
+    .nullable(),
+  matchedBy: z.enum(['title', 'author']),
+});
+export type BookSearchResult = z.infer<typeof BookSearchResultSchema>;
+
 export const ImportTitlesRequestSchema = z
   .object({
-    items: z.array(z.object({ tmdbId: z.number().int(), mediaType: z.enum(['movie', 'tv']) }).strict()).min(1).max(50),
+    items: z.array(z.object({ tmdbId: z.number().int(), mediaType: z.enum(['movie', 'tv']) }).strict()).max(50).default([]),
+    /** RF-48: livros escolhidos na busca */
+    books: z.array(z.object({ olWorkId: OlWorkIdSchema }).strict()).max(50).optional(),
     /** pula a revisão e aprova já, no encaixe sugerido (RF-46) */
     approveNow: z.boolean().optional(),
     listId: z.uuid().optional(),
   })
-  .strict();
+  .strict()
+  .refine((v) => v.items.length + (v.books?.length ?? 0) > 0, { message: 'escolha ao menos um título' });
 export type ImportTitlesRequest = z.infer<typeof ImportTitlesRequestSchema>;
 
 export const ImportTitlesResponseSchema = z.object({
@@ -1101,5 +1159,9 @@ export const ImportTitlesResponseSchema = z.object({
       existingId: z.uuid().optional(),
     }),
   ),
+  /** RF-48: livros não importados */
+  skippedBooks: z
+    .array(z.object({ olWorkId: z.string(), reason: z.enum(['already_in_list', 'not_found']), existingId: z.uuid().optional() }))
+    .optional(),
 });
 export type ImportTitlesResponse = z.infer<typeof ImportTitlesResponseSchema>;

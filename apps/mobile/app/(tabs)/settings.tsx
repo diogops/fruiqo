@@ -86,6 +86,9 @@ export default function Settings() {
 
   return (
     <ScrollView style={ui.screen} contentContainerStyle={ui.pad}>
+      <Text style={ui.h2}>Meu gosto</Text>
+      <Text style={ui.muted}>Favoritos e um resumo do que você curte ajudam a sugerir onde cada título entra na fila.</Text>
+      <Button title="Editar meu gosto" icon="heart-outline" variant="secondary" onPress={() => router.push('/profile' as never)} />
       <Text style={ui.h2}>Sessões ativas</Text>
       {error && <Text style={ui.error}>{error}</Text>}
       {sessions.map((s) => (

@@ -1,6 +1,33 @@
 // Cliente HTTP da API do Fruiqo. Valida toda resposta com os schemas de @fruiqo/contracts.
 // Access token fica só em memória; refresh token fica no Keychain/Keystore via expo-secure-store (SEC-REQ-08).
 import {
+  type ApplyPriorityDraftRequest,
+  ApplyPriorityDraftResponseSchema,
+  type ApplyPriorityDraftResponse,
+  type ApproveReviewRequest,
+  type BulkOperation,
+  BulkResponseSchema,
+  type BulkResponse,
+  BulkUndoResponseSchema,
+  type CreateFavoriteRequest,
+  type CreatePriorityDraftRequest,
+  DeclaredTasteSchema,
+  type DeclaredTaste,
+  FavoriteSchema,
+  type Favorite,
+  ImportTitlesResponseSchema,
+  type ImportTitlesRequest,
+  type ImportTitlesResponse,
+  PriorityDraftSchema,
+  type PriorityDraft,
+  ReviewBatchResponseSchema,
+  type ReviewBatchRequest,
+  type ReviewBatchResponse,
+  ReviewListResponseSchema,
+  type ReviewListResponse,
+  TitleSearchResponseSchema,
+  type TitleSearchResponse,
+  type UpdatePriorityDraftRequest,
   type CreateListRequest,
   type CreateShareRequest,
   type DiscoverRequest,
@@ -57,6 +84,8 @@ export class ApiError extends Error {
     message: string,
     /** 409 de PATCH /library/:id: id do título com que o novo nome/tipo colide */
     readonly conflictWith?: string,
+    /** 409 do rascunho de prioridade (RF-44): a fila mudou desde o rascunho */
+    readonly staleDetails?: { added: number; removed: number },
   ) {
     super(message);
   }
@@ -110,7 +139,7 @@ async function toApiError(res: Response): Promise<ApiError> {
   }
   const body = ApiErrorSchema.safeParse(json);
   return body.success
-    ? new ApiError(res.status, body.data.error, body.data.message)
+    ? new ApiError(res.status, body.data.error, body.data.message, undefined, body.data.staleDetails)
     : new ApiError(res.status, 'http_error', `Erro ${res.status} no servidor.`);
 }
 
@@ -248,3 +277,74 @@ export const reorderList = (id: string, titleIds: string[]): Promise<ListDetail>
 
 export const deleteList = (id: string) =>
   request(`/lists/${encodeURIComponent(id)}`, z.unknown(), { method: 'DELETE' });
+
+// ---------- Catálogo: ações em massa (RF-25) ----------
+
+export const bulkLibrary = (titleIds: string[], operation: BulkOperation): Promise<BulkResponse> =>
+  request('/library/bulk', BulkResponseSchema, { method: 'POST', ...json({ titleIds, operation }) });
+
+export const undoBulk = (undoToken: string) =>
+  request('/library/bulk/undo', BulkUndoResponseSchema, { method: 'POST', ...json({ undoToken }) });
+
+// ---------- Revisão (RF-42) ----------
+
+export const getReview = (): Promise<ReviewListResponse> => request('/review', ReviewListResponseSchema);
+
+export const approveReview = (id: string, body: ApproveReviewRequest = {}): Promise<Title> =>
+  request(`/review/${encodeURIComponent(id)}/approve`, TitleSchema, { method: 'POST', ...json(body) });
+
+export const rejectReview = (id: string) =>
+  request(`/review/${encodeURIComponent(id)}/reject`, z.unknown(), { method: 'POST' });
+
+/** Música lida ao contrário: troca título e artista; o item continua na revisão (409 se virar duplicata). */
+export const swapMusicReview = (id: string): Promise<Title> =>
+  request(`/review/${encodeURIComponent(id)}/swap-music`, TitleSchema, { method: 'POST' });
+
+export const batchReview =(body: ReviewBatchRequest): Promise<ReviewBatchResponse> =>
+  request('/review/batch', ReviewBatchResponseSchema, { method: 'POST', ...json(body) });
+
+// ---------- Busca inteligente e inclusão (RF-46) ----------
+
+export function searchTitles(q: string, kind?: 'movie' | 'series' | 'book'): Promise<TitleSearchResponse> {
+  const qs = `q=${encodeURIComponent(q)}${kind ? `&kind=${kind}` : ''}`;
+  return request(`/search/titles?${qs}`, TitleSearchResponseSchema);
+}
+
+export const importTitles = (body: ImportTitlesRequest): Promise<ImportTitlesResponse> =>
+  request('/library/import', ImportTitlesResponseSchema, { method: 'POST', ...json(body) });
+
+// ---------- Perfil de gosto declarado (RF-43) ----------
+
+export const getDeclaredTaste = (): Promise<DeclaredTaste> => request('/profile/declared', DeclaredTasteSchema);
+
+export const updateTasteSummary = (summary: string): Promise<DeclaredTaste> =>
+  request('/profile/summary', DeclaredTasteSchema, { method: 'PUT', ...json({ summary }) });
+
+export const addFavorite = (body: CreateFavoriteRequest): Promise<Favorite> =>
+  request('/profile/favorites', FavoriteSchema, { method: 'POST', ...json(body) });
+
+export const deleteFavorite = (id: string) =>
+  request(`/profile/favorites/${encodeURIComponent(id)}`, z.unknown(), { method: 'DELETE' });
+
+// ---------- Rascunho de priorização (RF-44) ----------
+
+/** 404 quando não há rascunho ativo: devolve null. */
+export async function getPriorityDraft(): Promise<PriorityDraft | null> {
+  try {
+    return await request('/library/priority-draft', PriorityDraftSchema);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null;
+    throw e;
+  }
+}
+
+export const createPriorityDraft = (body: CreatePriorityDraftRequest = {}): Promise<PriorityDraft> =>
+  request('/library/priority-draft', PriorityDraftSchema, { method: 'POST', ...json(body) });
+
+export const updatePriorityDraft = (body: UpdatePriorityDraftRequest): Promise<PriorityDraft> =>
+  request('/library/priority-draft', PriorityDraftSchema, { method: 'PATCH', ...json(body) });
+
+export const applyPriorityDraft = (body: ApplyPriorityDraftRequest = {}): Promise<ApplyPriorityDraftResponse> =>
+  request('/library/priority-draft/apply', ApplyPriorityDraftResponseSchema, { method: 'POST', ...json(body) });
+
+export const discardPriorityDraft = () => request('/library/priority-draft', z.unknown(), { method: 'DELETE' });

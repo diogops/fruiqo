@@ -5,27 +5,18 @@ import { ActivityIndicator, Alert, Image, ScrollView, Text, View } from 'react-n
 
 import { deleteShare, getShare } from '../../src/api/client';
 import { Button, Link, StatusBadge } from '../../src/ui/components';
-import { plural, sourceLabel, sourceTitle } from '../../src/ui/labels';
+import { kindLabel, plural, providerLabel, sourceLabel, sourceTitle } from '../../src/ui/labels';
 import { colors, ui } from '../../src/ui/theme';
 import { useTheme } from '../../src/ui/ThemeProvider';
 
 const POLL_MS = 3000;
-const KIND_LABEL: Record<Recommendation['kind'], string> = {
-  movie: 'Filme',
-  series: 'Série',
-  music_track: 'Música',
-  music_album: 'Álbum',
-  artist: 'Artista',
-  other: 'Outro',
-};
-const PROVIDER_LABEL = { tmdb: 'TMDB', spotify: 'Spotify' } as const;
 
 function RecommendationCard({ rec }: { rec: Recommendation }) {
   const r = rec.resolution;
   return (
     <View style={ui.card}>
       <Text style={ui.muted}>
-        {KIND_LABEL[rec.kind]} · confiança {Math.round(rec.confidence * 100)}% ·{' '}
+        {kindLabel(rec.kind)} · confiança {Math.round(rec.confidence * 100)}% ·{' '}
         {rec.extractor === 'llm' ? 'IA' : 'heurística'}
       </Text>
       <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -41,8 +32,8 @@ function RecommendationCard({ rec }: { rec: Recommendation }) {
             <Text style={ui.muted}>Disponível no Brasil em: {r.watchProvidersBR.join(', ')}</Text>
           )}
           {/* Link de volta + atribuição do provedor (TOS-REQ-01, TOS-REQ-10) */}
-          {r && <Link title={`Abrir no ${PROVIDER_LABEL[r.provider]}`} url={r.url} />}
-          {r && <Text style={ui.muted}>Dados: {PROVIDER_LABEL[r.provider]}</Text>}
+          {r && <Link title={`Abrir no ${providerLabel(r.provider)}`} url={r.url} />}
+          {r && <Text style={ui.muted}>Dados: {providerLabel(r.provider)}</Text>}
         </View>
       </View>
     </View>
@@ -140,6 +131,21 @@ export default function ShareDetail() {
             ? '1 item já estava na sua lista e não foi repetido.'
             : `${itemsAlreadyInList} itens já estavam na sua lista e não foram repetidos.`}
         </Text>
+      )}
+
+      {done && share.recommendations.some((r) => r.decision === 'review_queue') && (
+        // RF-42: tudo que é importado passa pela revisão antes de entrar no catálogo
+        <View style={[ui.card, { borderColor: colors.primarySoftBorder, backgroundColor: colors.primarySoft }]}>
+          <Text style={ui.body}>
+            {plural(
+              share.recommendations.filter((r) => r.decision === 'review_queue').length,
+              'título aguarda a sua revisão',
+              'títulos aguardam a sua revisão',
+            )}{' '}
+            antes de entrar no catálogo.
+          </Text>
+          <Button title="Revisar agora" icon="checkmark-done-outline" onPress={() => router.push('/review' as never)} />
+        </View>
       )}
 
       <Text style={ui.h2}>Recomendações</Text>

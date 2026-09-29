@@ -1,9 +1,9 @@
 {
   "id": "music-artist-dash",
   "kind": "text",
-  "description": "Playlist colada no formato Artista - Música",
+  "description": "Playlist colada no formato Artista - Música, com a pista \"(artista - música)\" no cabeçalho",
   "synthetic": true,
   "origin": "escrito pelo time Fruiqo (sintético)",
   "license": "CC0-1.0",
-  "version": 1
+  "version": 2
 }

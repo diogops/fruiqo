@@ -63,7 +63,7 @@ export const shares = pgTable(
     inputUrl: text('input_url'),
     /** texto de cada print (OCR feito no device); apagado junto com input_text */
     inputPages: jsonb('input_pages').$type<string[]>(),
-    origin: text('origin', { enum: ['link', 'screenshot', 'text_file'] }).notNull().default('link'),
+    origin: text('origin', { enum: ['link', 'text', 'screenshot', 'text_file'] }).notNull().default('link'),
     /**
      * RF-42: lista proposta pelo import (nome + dedup_keys na ordem extraída, inclusive os que o usuário
      * já tinha). A lista só é criada na primeira aprovação de um item deste share.
@@ -106,7 +106,7 @@ export const recommendations = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     kind: text('kind', {
-      enum: ['movie', 'series', 'music_track', 'music_album', 'artist', 'other'],
+      enum: ['movie', 'series', 'music_track', 'music_album', 'artist', 'book', 'other'],
     }).notNull(),
     title: text('title').notNull(),
     creator: text('creator'),
@@ -126,7 +126,7 @@ export const recommendations = pgTable(
     /** RF-47: aderência do match (título/ano/tipo) ao texto importado, 0..1 */
     matchScore: real('match_score'),
     /** RF-47: até 3 outras opções de match do TMDB (dados do TMDB: TTL de 180 dias pela purga) */
-    matchAlternatives: jsonb('match_alternatives').$type<MatchAlternativeRow[]>(),
+    matchAlternatives: jsonb('match_alternatives').$type<StoredAlternativeRow[]>(),
     /** ordem do item no conteúdo importado (posição na lista proposta) */
     sourcePosition: integer('source_position'),
     // ---- catálogo (a recomendação catalogada é o "título" do usuário; ver README) ----
@@ -143,7 +143,7 @@ export const recommendations = pgTable(
     /** atributos derivados explícitos (heavy, sad_ending…) quando conhecidos */
     attributes: text('attributes').array().notNull().default(sql`'{}'::text[]`),
     runtimeMin: integer('runtime_min'),
-    enrichment: text('enrichment', { enum: ['none', 'tmdb', 'demo', 'manual'] }).notNull().default('none'),
+    enrichment: text('enrichment', { enum: ['none', 'tmdb', 'openlibrary', 'demo', 'manual'] }).notNull().default('none'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -217,7 +217,7 @@ export const candidateDecisions = pgTable(
     recommendationId: uuid('recommendation_id').references(() => recommendations.id, { onDelete: 'set null' }),
     rawTitle: text('raw_title').notNull(),
     kind: text('kind', {
-      enum: ['movie', 'series', 'music_track', 'music_album', 'artist', 'other'],
+      enum: ['movie', 'series', 'music_track', 'music_album', 'artist', 'book', 'other'],
     }).notNull(),
     confidenceScore: real('confidence_score').notNull(),
     decision: text('decision', { enum: ['cataloged', 'review_queue', 'discarded'] }).notNull(),
@@ -341,7 +341,24 @@ export interface ProposedListRow {
   listId?: string;
 }
 
+/** RF-48: alternativa de match de livro (Open Library) guardada em `match_alternatives` */
+export interface BookAlternativeRow {
+  provider: 'openlibrary';
+  olWorkId: string;
+  title: string;
+  authors?: string[];
+  year?: number;
+  coverUrl?: string;
+  score: number;
+}
+/** Alternativa guardada: TMDB (sem `provider`, formato original) ou livro. */
+export type StoredAlternativeRow = MatchAlternativeRow | BookAlternativeRow;
+export function isBookAlternative(a: StoredAlternativeRow): a is BookAlternativeRow {
+  return (a as BookAlternativeRow).provider === 'openlibrary';
+}
+
 export interface MatchAlternativeRow {
+  provider?: undefined;
   tmdbId: number;
   mediaType: 'movie' | 'tv';
   title: string;
@@ -434,7 +451,7 @@ export const tasteFavorites = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     title: text('title').notNull(),
-    kind: text('kind', { enum: ['movie', 'series', 'music_track', 'music_album', 'artist', 'other'] }).notNull(),
+    kind: text('kind', { enum: ['movie', 'series', 'music_track', 'music_album', 'artist', 'book', 'other'] }).notNull(),
     year: integer('year'),
     rating: integer('rating'),
     comment: text('comment'),
@@ -443,7 +460,9 @@ export const tasteFavorites = pgTable(
     tmdbId: integer('tmdb_id'),
     mediaType: text('media_type', { enum: ['movie', 'tv'] }),
     posterUrl: text('poster_url'),
-    /** quando os dados do TMDB foram obtidos (TTL: 180 dias, TOS-REQ-02) */
+    /** RF-48: obra da Open Library (livro escolhido na busca); capa expira em 30 dias (TOS-REQ-62) */
+    olWorkId: text('ol_work_id'),
+    /** quando os dados do TMDB/Open Library foram obtidos (TTL: 180 dias TMDB, 30 dias Open Library) */
     resolvedAt: timestamp('resolved_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },

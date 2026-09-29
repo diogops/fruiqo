@@ -56,11 +56,11 @@ describe('guarda D-07: TMDB ativo × IA (C-15)', () => {
   });
 });
 
-describe('ARB-REQ-06: nada do TMDB/Spotify (nem derivado) entra em prompt de LLM', () => {
+describe('ARB-REQ-06: nada do TMDB/Spotify/Open Library (nem derivado, nem capa) entra em prompt de LLM', () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), '../../src');
   const llmModules = ['library/mood-interpreter.ts', 'pipeline/extractors/anthropic.ts', 'library/title-guesser.ts'];
   // fontes de dados de terceiros ou do catálogo (gêneros/providers derivados do TMDB)
-  const forbidden = [/resolvers\//, /\/db\//, /schema/, /library\.service/, /catalog/, /ranking/, /providers/, /enrichment/, /tmdb/i, /spotify/i, /user-settings/];
+  const forbidden = [/resolvers\//, /\/db\//, /schema/, /library\.service/, /catalog/, /ranking/, /providers/, /enrichment/, /tmdb/i, /spotify/i, /openlibrary/i, /covers?/i, /books?/i, /user-settings/];
 
   for (const mod of llmModules) {
     it(`${mod} não importa nada que carregue dados de catálogo/terceiros`, () => {
@@ -71,6 +71,13 @@ describe('ARB-REQ-06: nada do TMDB/Spotify (nem derivado) entra em prompt de LLM
       }
     });
   }
+
+  it('RF-48 (TOS-REQ-66): capas e dados da Open Library não aparecem em nenhum módulo de LLM', () => {
+    for (const mod of llmModules) {
+      const src = readFileSync(join(root, mod), 'utf-8');
+      expect(src, mod).not.toMatch(/openlibrary|covers\.openlibrary|coverUrl|olWorkId/i);
+    }
+  });
 
   it('o prompt do "Como estou" é só o texto do usuário delimitado (sem resumo de gosto, C-16)', async () => {
     const seen: unknown[] = [];

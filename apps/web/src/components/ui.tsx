@@ -298,7 +298,11 @@ export function SkeletonRows({ rows = 6 }: { rows?: number }) {
 
 /** Pôster pequeno com fallback em degradê e inicial. */
 export function Thumb({ src, title, width = 38, height = 57 }: { src?: string | null; title: string; width?: number; height?: number }) {
-  if (src) return <img className="thumb" src={src} alt="" width={width} height={height} loading="lazy" />;
+  // capa que não carrega (bloqueio, 404) vira a inicial, não um ícone de imagem quebrada
+  const [failed, setFailed] = useState<string | null>(null);
+  if (src && failed !== src) {
+    return <img className="thumb" src={src} alt="" width={width} height={height} loading="lazy" onError={() => setFailed(src)} />;
+  }
   return (
     <span className="thumb thumb-fallback" style={{ width, height }} aria-hidden="true">
       {title.trim().charAt(0).toUpperCase() || '?'}

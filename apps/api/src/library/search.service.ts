@@ -1,5 +1,6 @@
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, Optional, ServiceUnavailableException } from '@nestjs/common';
 import type {
+  BookSearchResult,
   ImportTitlesRequest,
   ImportTitlesResponse,
   Resolution,
@@ -12,12 +13,14 @@ import { DB, type Db, withUser } from '../db/client.js';
 import { recommendations } from '../db/schema.js';
 import { dedupKey } from '../pipeline/dedup.js';
 import { matchScore, similarity } from '../pipeline/resolvers/match.js';
+import { type BookHit, displayTitle, type OpenLibraryResolver } from '../pipeline/resolvers/openlibrary.js';
 import type { TmdbHit, TmdbResolver } from '../pipeline/resolvers/tmdb.js';
 import { llmSafeInput } from './mood-interpreter.js';
 import { LibraryService } from './library.service.js';
 import { ReviewService } from './review.service.js';
 import { interpretSearchQuery, type SearchInterpretation, tmdbGenreIds } from './search-query.js';
-import { TITLE_GUESSER, type TitleGuesser } from './title-guesser.js';
+import { OPENLIBRARY_CATALOG } from './openlibrary-catalog.js';
+import { TITLE_GUESSER, type TitleGuess, type TitleGuesser } from './title-guesser.js';
 import { TMDB_CATALOG } from './tmdb-catalog.js';
 import { columnsFromResolution } from './tmdb-enrichment.js';
 import { userAllowsAi } from './user-settings.js';
@@ -27,6 +30,7 @@ const CAST_FOR = 8;
 const MIN_TITLE_SCORE = 0.35;
 /** nome de pessoa reconhecido pelo TMDB com esta similaridade ao texto = busca por pessoa */
 const PERSON_MATCH = 0.85;
+const BOOKS_IN_MIXED_SEARCH_MS = 6_000;
 const GENRE_LABEL = new Map<string, string>(GENRES.map((g) => [g.key, g.label]));
 
 /** Limite por usuário em memória (1 instância em SC-PERSONAL; o ThrottlerGuard global é por IP). */
@@ -69,15 +73,28 @@ export class SearchService {
     private readonly library: LibraryService,
     @Optional() @Inject(TMDB_CATALOG) private readonly tmdb: TmdbResolver | null,
     @Optional() @Inject(TITLE_GUESSER) private readonly guesser: TitleGuesser | null,
+    @Optional() @Inject(OPENLIBRARY_CATALOG) private readonly books: OpenLibraryResolver | null = null,
   ) {}
 
-  async search(userId: string, q: string, kind?: 'movie' | 'series'): Promise<TitleSearchResponse> {
+  async search(userId: string, q: string, kind?: 'movie' | 'series' | 'book'): Promise<TitleSearchResponse> {
     if (!this.searchLimiter.take(userId)) throw tooMany();
+    // RF-48: livros só pela Open Library (sem TMDB, sem LLM)
+    if (kind === 'book' || (!kind && !this.tmdb && this.books)) return this.searchBooksOnly(userId, q);
     const tmdb = this.requireTmdb();
     const interp = interpretSearchQuery(q, kind);
+    // sem tipo: livros em paralelo (título/autor; gênero e descrição ficam no TMDB); a Open Library
+    // lenta não segura a busca de filmes/séries: depois de BOOKS_IN_MIXED_SEARCH_MS, segue sem livros
+    const booksPromise: Promise<BookHit[] | null> =
+      !kind && this.books && interp.type !== 'genre'
+        ? Promise.race([
+            this.books.searchBooks(interp.text, 6).catch(() => [] as BookHit[]),
+            new Promise<BookHit[]>((r) => setTimeout(() => r([]), BOOKS_IN_MIXED_SEARCH_MS).unref()),
+          ])
+        : Promise.resolve(null);
     let type: TitleSearchResponse['interpreted']['type'] = interp.type;
     let person: string | undefined;
     let aiUsed = false;
+    let aiBooks: BookHit[] = [];
     let hits: { hit: TmdbHit; matchedBy: TitleSearchResult['matchedBy'] }[] = [];
 
     try {
@@ -102,6 +119,7 @@ export class SearchService {
           type = 'description';
           const described = await this.byDescription(tmdb, userId, q, interp);
           aiUsed = described.aiUsed;
+          aiBooks = described.books;
           hits = described.hits.map((hit) => ({ hit, matchedBy: 'description' as const }));
         } else {
           hits = ranked.map((r) => ({ hit: r.hit, matchedBy: 'title' as const }));
@@ -115,8 +133,12 @@ export class SearchService {
     const unique = dedupeHits(hits).slice(0, MAX_RESULTS);
     const casts = await mapLimit(unique.slice(0, CAST_FOR), 4, (h) => tmdb.topCast(h.hit.mediaType, h.hit.tmdbId).catch(() => [] as string[]));
     const library = await this.libraryIndex(userId);
+    // livros palpitados pela IA (já conferidos na busca de livros) vêm antes dos da busca por texto
+    const searched = await booksPromise;
+    const bookHits = searched || aiBooks.length > 0 ? dedupeBooks([...aiBooks, ...(searched ?? [])]) : null;
     return {
       query: q,
+      ...(bookHits ? { books: bookResults(bookHits, interp.text, library) } : {}),
       interpreted: {
         type,
         ...(interp.year ? { year: interp.year } : {}),
@@ -153,10 +175,13 @@ export class SearchService {
   async import(userId: string, req: ImportTitlesRequest): Promise<ImportTitlesResponse> {
     if (!this.importLimiter.take(userId)) throw tooMany();
     if (req.listId && !req.approveNow) throw new BadRequestException('Entrada inválida: listId só vale com approveNow');
-    const tmdb = this.requireTmdb();
     const unique = [...new Map(req.items.map((i) => [`${i.mediaType}:${i.tmdbId}`, i])).values()];
+    const bookIds = [...new Set((req.books ?? []).map((b) => b.olWorkId))];
+    const tmdb = unique.length > 0 ? this.requireTmdb() : null;
+    const books = bookIds.length > 0 ? this.requireBooks() : null;
     // rede fora da transação
-    const resolved = await mapLimit(unique, 4, async (item) => ({ item, res: await tmdb.byId(item.mediaType, item.tmdbId).catch(() => null) }));
+    const resolved = await mapLimit(unique, 4, async (item) => ({ item, res: await tmdb!.byId(item.mediaType, item.tmdbId).catch(() => null) }));
+    const resolvedBooks = await mapLimit(bookIds, 2, async (olWorkId) => ({ olWorkId, res: await books!.byWorkId(olWorkId).catch(() => null) }));
 
     return withUser(this.db, userId, async (tx) => {
       const existing = await tx.select({ id: recommendations.id, key: recommendations.dedupKey, resolution: recommendations.resolution }).from(recommendations);
@@ -207,8 +232,78 @@ export class SearchService {
           created.push(...(await this.library.withLists(tx, [row!])));
         }
       }
-      return { created, skipped };
+      // RF-48: livros escolhidos na busca (Open Library), mesmo fluxo de revisão
+      const skippedBooks: NonNullable<ImportTitlesResponse['skippedBooks']> = [];
+      for (const { olWorkId, res } of resolvedBooks) {
+        if (!res) {
+          skippedBooks.push({ olWorkId, reason: 'not_found' });
+          continue;
+        }
+        const creator = res.authors?.[0] ?? null;
+        const key = dedupKey({ kind: 'book', title: res.title, creator });
+        const existingId = byExternal.get(res.externalId) ?? byKey.get(key);
+        if (existingId) {
+          skippedBooks.push({ olWorkId, reason: 'already_in_list', existingId });
+          continue;
+        }
+        const cols = columnsFromResolution(res);
+        const [row] = await tx
+          .insert(recommendations)
+          .values({
+            userId,
+            shareId: null,
+            kind: 'book',
+            title: res.title,
+            creator,
+            year: cols?.year ?? null,
+            confidence: 1,
+            extractor: 'heuristic',
+            resolution: res,
+            resolvedAt: new Date(),
+            genres: cols?.genres ?? [],
+            enrichment: 'openlibrary',
+            dedupKey: key,
+            decision: 'review_queue',
+            suggestedDecision: 'cataloged',
+            decisionReason: 'search_import',
+            matchScore: 1,
+          })
+          .returning();
+        byKey.set(key, row!.id);
+        byExternal.set(res.externalId, row!.id);
+        if (req.approveNow) {
+          created.push(await this.review.approveWithin(tx, userId, row!.id, req.listId ? { listIds: [req.listId] } : {}, null));
+        } else {
+          created.push(...(await this.library.withLists(tx, [row!])));
+        }
+      }
+      return { created, skipped, ...(bookIds.length > 0 ? { skippedBooks } : {}) };
     });
+  }
+
+  /** RF-48: busca só de livros (título ou autor, ex.: "Machado de Assis"). */
+  private async searchBooksOnly(userId: string, q: string): Promise<TitleSearchResponse> {
+    const books = this.requireBooks();
+    const text = q.trim();
+    let hits: BookHit[];
+    try {
+      hits = await books.searchBooks(text, MAX_RESULTS);
+    } catch {
+      throw new ServiceUnavailableException('Busca indisponível agora; tente de novo');
+    }
+    const library = await this.libraryIndex(userId);
+    const author = authorIn(text, hits);
+    return {
+      query: q,
+      interpreted: { type: author ? 'person' : 'title', ...(author ? { person: author } : {}), genres: [], aiUsed: false },
+      items: [],
+      books: bookResults(hits, text, library),
+    };
+  }
+
+  private requireBooks(): OpenLibraryResolver {
+    if (!this.books) throw new ServiceUnavailableException('Busca de livros indisponível');
+    return this.books;
   }
 
   private requireTmdb(): TmdbResolver {
@@ -234,12 +329,21 @@ export class SearchService {
 
   /**
    * Descrição livre: com a IA liberada e consentida, o LLM sugere títulos (só com o texto digitado)
-   * e cada palpite é conferido no TMDB. Sem IA: gêneros citados (discover) + palavras-chave.
+   * e cada palpite é conferido: filme/série no TMDB, livro na Open Library (RF-48). Palpite que não
+   * se confirma é descartado. Sem IA: gêneros citados (discover) + palavras-chave.
    */
-  private async byDescription(tmdb: TmdbResolver, userId: string, q: string, interp: SearchInterpretation): Promise<{ hits: TmdbHit[]; aiUsed: boolean }> {
+  private async byDescription(
+    tmdb: TmdbResolver,
+    userId: string,
+    q: string,
+    interp: SearchInterpretation,
+  ): Promise<{ hits: TmdbHit[]; books: BookHit[]; aiUsed: boolean }> {
     if (this.guesser && (await userAllowsAi(this.db, userId))) {
-      const guesses = await this.guesser.guess(llmSafeInput(q), userId);
-      if (guesses && guesses.length > 0) {
+      const all = await this.guesser.guess(llmSafeInput(q), userId);
+      const bookGuesses = (all ?? []).filter((g) => g.kind === 'book' && interp.kind === undefined);
+      const guesses = (all ?? []).filter((g) => g.kind !== 'book');
+      if (all && all.length > 0) {
+        const books = this.books ? await this.confirmBooks(this.books, bookGuesses) : [];
         const found = await mapLimit(guesses, 3, async (g) => {
           const multi = await tmdb.searchMulti(g.title).catch(() => null);
           const media = g.kind === 'series' ? 'tv' : 'movie';
@@ -248,14 +352,29 @@ export class SearchService {
             .sort((a, b) => b.score - a.score)[0];
           return best && best.score >= 0.6 ? best.hit : null;
         });
-        return { hits: found.filter((h): h is TmdbHit => h !== null), aiUsed: true };
+        return { hits: found.filter((h): h is TmdbHit => h !== null), books, aiUsed: true };
       }
     }
     const genres = genreTermsIn(q).genres;
     const lists: TmdbHit[][] = [];
     if (genres.length > 0) lists.push(await this.byGenre(tmdb, { ...interp, genres }));
     for (const k of interp.keywords.slice(0, 2)) lists.push((await tmdb.searchMulti(k)).titles);
-    return { hits: interleave(lists), aiUsed: false };
+    return { hits: interleave(lists), books: [], aiUsed: false };
+  }
+
+  /** Palpite de livro da IA → obra da Open Library com título parecido (e autor, quando veio). */
+  private async confirmBooks(books: OpenLibraryResolver, guesses: TitleGuess[]): Promise<BookHit[]> {
+    const found = await mapLimit(guesses, 2, async (g) => {
+      const hits = await books.searchBooks(g.author ? `${g.title} ${g.author}` : g.title, 3).catch(() => [] as BookHit[]);
+      return (
+        hits.find(
+          (h) =>
+            Math.max(similarity(g.title, h.title), h.ptTitle ? similarity(g.title, h.ptTitle) : 0) >= 0.6 &&
+            (!g.author || h.authors.some((a) => similarity(g.author!, a) >= PERSON_MATCH)),
+        ) ?? null
+      );
+    });
+    return found.filter((h): h is BookHit => h !== null);
   }
 
   private async libraryIndex(userId: string) {
@@ -271,6 +390,40 @@ export class SearchService {
       byKey: new Map<string, Ref>(rows.map((r) => [r.key, ref(r)])),
     };
   }
+}
+
+type LibraryIndex = Awaited<ReturnType<SearchService['libraryIndex']>>;
+
+function dedupeBooks(hits: BookHit[]): BookHit[] {
+  const seen = new Set<string>();
+  return hits.filter((h) => !seen.has(h.olWorkId) && seen.add(h.olWorkId));
+}
+
+/** Nome de autor dos resultados que corresponde ao texto digitado (busca por autor). */
+function authorIn(text: string, hits: BookHit[]): string | null {
+  for (const h of hits) for (const a of h.authors) if (similarity(text, a) >= PERSON_MATCH) return a;
+  return null;
+}
+
+function bookResults(hits: BookHit[], text: string, library: LibraryIndex): BookSearchResult[] {
+  const author = authorIn(text, hits);
+  return hits.map((h) => {
+    const mine =
+      library.byExternal.get(`ol:${h.olWorkId}`) ??
+      library.byKey.get(dedupKey({ kind: 'book', title: displayTitle(h), creator: null })) ??
+      library.byKey.get(dedupKey({ kind: 'book', title: h.title, creator: null }));
+    return {
+      olWorkId: h.olWorkId,
+      title: displayTitle(h),
+      authors: h.authors.slice(0, 5),
+      ...(h.year ? { year: h.year } : {}),
+      ...(h.coverUrl ? { coverUrl: h.coverUrl } : {}),
+      ...(h.pages ? { pages: h.pages } : {}),
+      url: `https://openlibrary.org/works/${h.olWorkId}`,
+      inLibrary: mine ?? null,
+      matchedBy: author && h.authors.some((a) => similarity(a, author) >= PERSON_MATCH) ? ('author' as const) : ('title' as const),
+    };
+  });
 }
 
 function titleSimilarity(text: string, h: TmdbHit): number {

@@ -9,11 +9,15 @@ const PLATFORM_LABEL: Record<Share['source']['platform'], string> = {
 
 /** Rótulo curto da origem: "Prints" para OCR de prints, senão o nome da plataforma. */
 export function sourceLabel(source: Share['source']): string {
+  if (source.origin === 'text_file') return 'Arquivo .txt';
+  if (source.origin === 'text') return 'Texto';
   return source.origin === 'screenshot' ? 'Prints' : PLATFORM_LABEL[source.platform];
 }
 
 /** Título do card/detalhe: para prints, "Prints (N)"; para links, o título do oEmbed ou a URL. */
 export function sourceTitle(source: Share['source']): string {
+  if (source.origin === 'text_file') return source.title ?? 'Lista em .txt';
+  if (source.origin === 'text') return source.title ?? 'Texto colado';
   if (source.origin === 'screenshot') {
     const n = source.pageCount;
     return n ? `Prints (${n})` : 'Prints';
@@ -28,14 +32,20 @@ export function plural(n: number, singular: string, pluralForm: string): string 
 // ---------- Catálogo ----------
 
 
-export const KIND_LABEL: Record<Recommendation['kind'], string> = {
+// Genérico de propósito: tipos novos no contrato (ex.: `book`) funcionam antes de ganharem rótulo aqui.
+export const KIND_LABEL: Record<string, string> = {
   movie: 'Filme',
   series: 'Série',
+  book: 'Livro',
   music_track: 'Música',
   music_album: 'Álbum',
   artist: 'Artista',
   other: 'Outro',
 };
+
+export function kindLabel(kind: string): string {
+  return KIND_LABEL[kind] ?? kind.charAt(0).toUpperCase() + kind.slice(1).replace(/_/g, ' ');
+}
 
 export const TITLE_STATUS_LABEL: Record<TitleStatus, string> = {
   to_watch: 'Quero ver',
@@ -62,8 +72,15 @@ export const REASON_OPTIONS: { key: string; label: string }[] = [
 ];
 
 /** "Filme · 2023 · Comédia, Romance" */
-export function titleMeta(t: { kind: Recommendation['kind']; year?: number; genres: { label: string }[] }): string {
-  return [KIND_LABEL[t.kind], t.year, t.genres.map((g) => g.label).join(', ') || undefined]
+export function titleMeta(t: { kind: string; year?: number; genres: { label: string }[] }): string {
+  return [kindLabel(t.kind), t.year, t.genres.map((g) => g.label).join(', ') || undefined]
     .filter(Boolean)
     .join(' · ');
+}
+
+// Fonte do metadado (link de volta + atribuição, TOS-REQ-01/10); genérico para fontes novas.
+const PROVIDER_LABEL: Record<string, string> = { tmdb: 'TMDB', spotify: 'Spotify', openlibrary: 'Open Library' };
+
+export function providerLabel(provider: string): string {
+  return PROVIDER_LABEL[provider] ?? provider;
 }

@@ -45,6 +45,7 @@ export default function Login() {
         <TextInput
           style={ui.input}
           placeholder="E-mail"
+          autoFocus
           autoCapitalize="none"
           autoComplete="email"
           keyboardType="email-address"

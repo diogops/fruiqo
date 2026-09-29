@@ -1,15 +1,18 @@
 import { DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { type BulkOperation, JUSTWATCH_ATTRIBUTION, type MoveTitleRequest, type RecommendationKind, TMDB_ATTRIBUTION, type Title, type TitleStatus, type WatchProvider } from '@fruiqo/contracts';
+import { type BulkOperation, JUSTWATCH_ATTRIBUTION, type MoveTitleRequest, TMDB_ATTRIBUTION, type Title, type TitleStatus, type WatchProvider } from '@fruiqo/contracts';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState, type FormEvent, type ReactElement } from 'react';
+import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { Link, useSearchParams } from 'react-router';
+import { AddTitle } from './AddTitle';
+import { ImportTxt, isTextFile } from './ImportTxt';
+import { DRAFT_KEY, PriorityDraftView } from './PriorityDraft';
 import { api, type LibraryFilters } from '../api/client';
 import { CorrectTitleForm, ErrorNote, Modal, useTaxonomy } from '../components/shared';
 import { useToast } from '../components/Toast';
 import { EmptyState, Icon, Menu, MQ, SkeletonRows, Thumb, useElementWidth, useMediaQuery } from '../components/ui';
-import { KIND_LABEL, KINDS, STATUS_LABEL, STATUSES } from '../labels';
+import { kindLabel, KINDS, STATUS_LABEL, STATUSES } from '../labels';
 import { shiftRanks, targetPosition } from '../rankQueue';
 
 const FILTER_KEYS = ['q', 'kind', 'status', 'genre', 'listId', 'shareId', 'review', 'sort'] as const;
@@ -29,6 +32,12 @@ export function Catalog() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openId, setOpenId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  // RF-47: import de .txt (botão ou arquivo solto na página)
+  const [importing, setImporting] = useState<{ file: File | null } | null>(null);
+  const [dropping, setDropping] = useState(false);
+  // RF-44: rascunho de priorização (persistido no servidor)
+  const [draftOpen, setDraftOpen] = useState(false);
+  const [draftBusy, setDraftBusy] = useState(false);
   // campo de busca controlado: acompanha a URL (ex.: busca global do cabeçalho com o catálogo aberto)
   const [searchText, setSearchText] = useState(filters.q ?? '');
   useEffect(() => {
@@ -48,6 +57,20 @@ export function Catalog() {
   const activeFilters =
     (['kind', 'status', 'genre', 'listId', 'review', 'shareId'] as const).filter((k) => Boolean(filters[k])).length +
     (filters.sort && filters.sort !== 'rank' ? 1 : 0);
+
+  const draft = useQuery({ queryKey: DRAFT_KEY, queryFn: api.draft });
+
+  async function suggestPriority(scope: 'all' | 'to_watch') {
+    setDraftBusy(true);
+    try {
+      qc.setQueryData(DRAFT_KEY, await api.createDraft({ scope }));
+      setDraftOpen(true);
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : 'Não foi possível sugerir a priorização.', { tone: 'error' });
+    } finally {
+      setDraftBusy(false);
+    }
+  }
 
   const taxonomy = useTaxonomy();
   const lists = useQuery({ queryKey: ['lists'], queryFn: api.lists });
@@ -166,193 +189,244 @@ export function Catalog() {
   const genres = taxonomy.data?.genres ?? [];
 
   return (
-    <section>
+    <section
+      className={dropping ? 'drop-target dragging' : 'drop-target'}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        setDropping(true);
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target) setDropping(false);
+      }}
+      onDrop={(e) => {
+        const f = e.dataTransfer.files[0];
+        setDropping(false);
+        if (!f) return;
+        e.preventDefault();
+        if (isTextFile(f)) setImporting({ file: f });
+        else toast.show('Solte um arquivo .txt para importar títulos.', { tone: 'error' });
+      }}
+    >
       <div className="page-head">
         <div>
           <h1>Catálogo</h1>
           <p className="page-sub">Sua fila de filmes, séries e músicas — #1 é o próximo da vez.</p>
         </div>
-        <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
-          <Icon name="plus" /> Adicionar título
-        </button>
+        <div className="head-actions">
+          <Menu label="Sugerir priorização" triggerClassName="btn" trigger={<><Icon name="sparkles" /> Sugerir priorização</>}>
+            {(close) => (
+              <>
+                <button type="button" className="menu-item" disabled={draftBusy} onClick={() => { close(); void suggestPriority('to_watch'); }}>
+                  Só o que quero ver
+                </button>
+                <button type="button" className="menu-item" disabled={draftBusy} onClick={() => { close(); void suggestPriority('all'); }}>
+                  A fila inteira
+                </button>
+              </>
+            )}
+          </Menu>
+          <button type="button" className="btn" onClick={() => setImporting({ file: null })}>
+            <Icon name="list" /> Importar .txt
+          </button>
+          <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
+            <Icon name="plus" /> Adicionar título
+          </button>
+        </div>
       </div>
 
-      <div className="filters" role="search">
-        <input
-          type="search"
-          aria-label="Buscar por título"
-          placeholder="Buscar título…"
-          value={searchText}
-          onChange={(e) => {
-            setSearchText(e.target.value);
-            setFilter('q', e.target.value.trim());
-          }}
-        />
-        {isMobile ? (
-          <button
-            type="button"
-            className="btn filters-toggle"
-            aria-haspopup="dialog"
-            aria-expanded={filtersOpen}
-            onClick={() => setFiltersOpen(true)}
-          >
-            <Icon name="filter" /> Filtros
-            {activeFilters > 0 && (
-              <span className="count-badge" aria-label={`${activeFilters} filtro(s) ativo(s)`}>
-                {activeFilters}
-              </span>
-            )}
+      {draft.data && !draftOpen && (
+        <div className="draft-pending" role="status">
+          <span className="grow">Você tem um rascunho de priorização salvo ({draft.data.items.length} títulos). Nada foi aplicado ainda.</span>
+          <button type="button" className="btn" onClick={() => setDraftOpen(true)}>
+            Abrir rascunho
           </button>
-        ) : (
-          <FilterFields filters={filters} setFilter={setFilter} genres={genres} lists={lists.data ?? []} />
-        )}
-      </div>
-      {isMobile && filtersOpen && (
-        <Modal title="Filtros" onClose={() => setFiltersOpen(false)}>
-          <div className="form filters-sheet">
-            <FilterFields stacked filters={filters} setFilter={setFilter} genres={genres} lists={lists.data ?? []} />
-            <div className="actions">
+        </div>
+      )}
+      {draft.data && draftOpen && <PriorityDraftView draft={draft.data} onExit={() => setDraftOpen(false)} />}
+
+      {/* modo rascunho: só o rascunho aparece, para não confundir com a fila real */}
+      {!(draft.data && draftOpen) && (
+        <>
+          <div className="filters" role="search">
+            <input
+              type="search"
+              aria-label="Buscar por título"
+              placeholder="Buscar título…"
+              value={searchText}
+              onChange={(e) => {
+                setSearchText(e.target.value);
+                setFilter('q', e.target.value.trim());
+              }}
+            />
+            {isMobile ? (
               <button
                 type="button"
-                className="btn"
-                onClick={() => {
-                  const next = new URLSearchParams();
-                  if (filters.q) next.set('q', filters.q);
-                  setParams(next, { replace: true });
-                }}
-                disabled={activeFilters === 0}
+                className="btn filters-toggle"
+                aria-haspopup="dialog"
+                aria-expanded={filtersOpen}
+                onClick={() => setFiltersOpen(true)}
               >
-                Limpar filtros
+                <Icon name="filter" /> Filtros
+                {activeFilters > 0 && (
+                  <span className="count-badge" aria-label={`${activeFilters} filtro(s) ativo(s)`}>
+                    {activeFilters}
+                  </span>
+                )}
               </button>
-              <button type="button" className="btn btn-primary" onClick={() => setFiltersOpen(false)}>
-                Ver resultados
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {selected.size > 0 && (
-        <BulkBar
-          compact={isMobile}
-          count={selected.size}
-          lists={lists.data ?? []}
-          genres={genres}
-          onRun={runBulk}
-          onClear={() => setSelected(new Set())}
-        />
-      )}
-
-      <ErrorNote error={library.error} />
-      {dragEnabled && items.length > 1 && (
-        <p className="muted small drag-hint">
-          {isMobile
-            ? 'Segure a alça ⠿ para arrastar, ou use ▲/▼. #1 é o mais prioritário.'
-            : 'Arraste pela alça ou use ▲/▼ para mudar a prioridade. #1 é o mais prioritário.'}
-        </p>
-      )}
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-        {isMobile ? (
-          <div className="catalog-cards-wrap">
-            {items.length > 0 && (
-              <label className="check select-all-row">
-                <input
-                  type="checkbox"
-                  aria-label="Selecionar todos"
-                  checked={allChecked}
-                  onChange={() => setSelected(allChecked ? new Set() : new Set(items.map((t) => t.id)))}
-                />
-                Selecionar todos ({items.length})
-              </label>
-            )}
-            <SortableContext items={items.map((t) => t.id)} strategy={verticalListSortingStrategy} disabled={!dragEnabled}>
-              <ul className="catalog-cards" aria-label="Títulos do catálogo">
-                {items.map((t) => (
-                  <CatalogCard
-                    key={t.id}
-                    t={t}
-                    draggable={dragEnabled && t.rank != null}
-                    selected={selected.has(t.id)}
-                    onToggle={() => toggle(t.id)}
-                    onOpen={() => setOpenId(t.id)}
-                    onPatch={(body) => void patch(t, body)}
-                    onMove={(req) => void move(t, req)}
-                  />
-                ))}
-              </ul>
-            </SortableContext>
-            {library.isLoading && <SkeletonRows />}
-            {!library.isLoading && items.length === 0 && (
-              <EmptyState title="Nenhum título com esses filtros.">Ajuste os filtros ou importe prints pelo app.</EmptyState>
+            ) : (
+              <FilterFields filters={filters} setFilter={setFilter} genres={genres} lists={lists.data ?? []} />
             )}
           </div>
-        ) : (
-          <div className="table-wrap catalog-wrap" ref={wrapRef}>
-            <table className="table catalog-table" style={{ minWidth: tableMinWidth }}>
-              <colgroup>
-                <col className="col-check" />
-                <col className="col-rank" style={{ width: rankWidth }} />
-                <col className="col-title" />
-                {cols.kind && <col className="col-kind" />}
-                {cols.genres && <col className="col-genres" />}
-                <col className="col-status" />
-                <col className="col-rating" />
-                {cols.origin && <col className="col-origin" />}
-              </colgroup>
-              <thead>
-                <tr>
-                  <th>
+          {isMobile && filtersOpen && (
+            <Modal title="Filtros" onClose={() => setFiltersOpen(false)}>
+              <div className="form filters-sheet">
+                <FilterFields stacked filters={filters} setFilter={setFilter} genres={genres} lists={lists.data ?? []} />
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => {
+                      const next = new URLSearchParams();
+                      if (filters.q) next.set('q', filters.q);
+                      setParams(next, { replace: true });
+                    }}
+                    disabled={activeFilters === 0}
+                  >
+                    Limpar filtros
+                  </button>
+                  <button type="button" className="btn btn-primary" onClick={() => setFiltersOpen(false)}>
+                    Ver resultados
+                  </button>
+                </div>
+              </div>
+            </Modal>
+          )}
+
+          {selected.size > 0 && (
+            <BulkBar
+              compact={isMobile}
+              count={selected.size}
+              lists={lists.data ?? []}
+              genres={genres}
+              onRun={runBulk}
+              onClear={() => setSelected(new Set())}
+            />
+          )}
+
+          <ErrorNote error={library.error} />
+          {dragEnabled && items.length > 1 && (
+            <p className="muted small drag-hint">
+              {isMobile
+                ? 'Segure a alça ⠿ para arrastar, ou use ▲/▼. #1 é o mais prioritário.'
+                : 'Arraste pela alça ou use ▲/▼ para mudar a prioridade. #1 é o mais prioritário.'}
+            </p>
+          )}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+            {isMobile ? (
+              <div className="catalog-cards-wrap">
+                {items.length > 0 && (
+                  <label className="check select-all-row">
                     <input
                       type="checkbox"
                       aria-label="Selecionar todos"
                       checked={allChecked}
                       onChange={() => setSelected(allChecked ? new Set() : new Set(items.map((t) => t.id)))}
                     />
-                  </th>
-                  <th aria-label="Posição na fila">#</th>
-                  <th>Título</th>
-                  {cols.kind && <th>Tipo</th>}
-                  {cols.genres && <th>Gêneros</th>}
-                  <th>Status</th>
-                  <th>Nota</th>
-                  {cols.origin && <th>Origem</th>}
-                </tr>
-              </thead>
-              <SortableContext items={items.map((t) => t.id)} strategy={verticalListSortingStrategy} disabled={!dragEnabled}>
-                <tbody>
-                  {items.map((t) => (
-                    <CatalogRow
-                      key={t.id}
-                      t={t}
-                      cols={cols}
-                      draggable={dragEnabled && t.rank != null}
-                      selected={selected.has(t.id)}
-                      onToggle={() => toggle(t.id)}
-                      onOpen={() => setOpenId(t.id)}
-                      onPatch={(body) => void patch(t, body)}
-                      onMove={(req) => void move(t, req)}
-                    />
-                  ))}
-                </tbody>
-              </SortableContext>
-            </table>
-            {library.isLoading && <SkeletonRows />}
-            {!library.isLoading && items.length === 0 && (
-              <EmptyState title="Nenhum título com esses filtros.">Ajuste os filtros ou importe prints pelo app.</EmptyState>
+                    Selecionar todos ({items.length})
+                  </label>
+                )}
+                <SortableContext items={items.map((t) => t.id)} strategy={verticalListSortingStrategy} disabled={!dragEnabled}>
+                  <ul className="catalog-cards" aria-label="Títulos do catálogo">
+                    {items.map((t) => (
+                      <CatalogCard
+                        key={t.id}
+                        t={t}
+                        draggable={dragEnabled && t.rank != null}
+                        selected={selected.has(t.id)}
+                        onToggle={() => toggle(t.id)}
+                        onOpen={() => setOpenId(t.id)}
+                        onPatch={(body) => void patch(t, body)}
+                        onMove={(req) => void move(t, req)}
+                      />
+                    ))}
+                  </ul>
+                </SortableContext>
+                {library.isLoading && <SkeletonRows />}
+                {!library.isLoading && items.length === 0 && (
+                  <EmptyState title="Nenhum título com esses filtros.">Ajuste os filtros ou importe prints pelo app.</EmptyState>
+                )}
+              </div>
+            ) : (
+              <div className="table-wrap catalog-wrap" ref={wrapRef}>
+                <table className="table catalog-table" style={{ minWidth: tableMinWidth }}>
+                  <colgroup>
+                    <col className="col-check" />
+                    <col className="col-rank" style={{ width: rankWidth }} />
+                    <col className="col-title" />
+                    {cols.kind && <col className="col-kind" />}
+                    {cols.genres && <col className="col-genres" />}
+                    <col className="col-status" />
+                    <col className="col-rating" />
+                    {cols.origin && <col className="col-origin" />}
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>
+                        <input
+                          type="checkbox"
+                          aria-label="Selecionar todos"
+                          checked={allChecked}
+                          onChange={() => setSelected(allChecked ? new Set() : new Set(items.map((t) => t.id)))}
+                        />
+                      </th>
+                      <th aria-label="Posição na fila">#</th>
+                      <th>Título</th>
+                      {cols.kind && <th>Tipo</th>}
+                      {cols.genres && <th>Gêneros</th>}
+                      <th>Status</th>
+                      <th>Nota</th>
+                      {cols.origin && <th>Origem</th>}
+                    </tr>
+                  </thead>
+                  <SortableContext items={items.map((t) => t.id)} strategy={verticalListSortingStrategy} disabled={!dragEnabled}>
+                    <tbody>
+                      {items.map((t) => (
+                        <CatalogRow
+                          key={t.id}
+                          t={t}
+                          cols={cols}
+                          draggable={dragEnabled && t.rank != null}
+                          selected={selected.has(t.id)}
+                          onToggle={() => toggle(t.id)}
+                          onOpen={() => setOpenId(t.id)}
+                          onPatch={(body) => void patch(t, body)}
+                          onMove={(req) => void move(t, req)}
+                        />
+                      ))}
+                    </tbody>
+                  </SortableContext>
+                </table>
+                {library.isLoading && <SkeletonRows />}
+                {!library.isLoading && items.length === 0 && (
+                  <EmptyState title="Nenhum título com esses filtros.">Ajuste os filtros ou importe prints pelo app.</EmptyState>
+                )}
+              </div>
             )}
-          </div>
-        )}
-      </DndContext>
-      {library.hasNextPage && (
-        <div className="load-more">
-          <button type="button" className="btn" onClick={() => void library.fetchNextPage()} disabled={library.isFetchingNextPage}>
-            Carregar mais
-          </button>
-        </div>
+          </DndContext>
+          {library.hasNextPage && (
+            <div className="load-more">
+              <button type="button" className="btn" onClick={() => void library.fetchNextPage()} disabled={library.isFetchingNextPage}>
+                Carregar mais
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       {openId && <TitleDetail id={openId} onClose={() => setOpenId(null)} />}
       {adding && <AddTitle onClose={() => setAdding(false)} />}
+      {importing && <ImportTxt initialFile={importing.file} onClose={() => setImporting(null)} />}
     </section>
   );
 }
@@ -515,7 +589,7 @@ function FilterFields({
           <option value="">Todos os tipos</option>
           {KINDS.map((k) => (
             <option key={k} value={k}>
-              {KIND_LABEL[k]}
+              {kindLabel(k)}
             </option>
           ))}
         </select>,
@@ -663,7 +737,7 @@ function TitleDetail({ id, onClose }: { id: string; onClose: () => void }) {
             {t.posterUrl && <img className="poster" src={t.posterUrl} alt="" width={120} height={180} />}
             <div>
               <p className="muted small">
-                {[KIND_LABEL[t.kind], t.year, t.creator].filter(Boolean).join(' · ')}
+                {[kindLabel(t.kind), t.year, t.creator, t.pages ? `${t.pages} págs.` : null].filter(Boolean).join(' · ')}
                 {t.rank != null && <span className="badge badge-status-watching">#{t.rank} na fila</span>}
               </p>
               {t.genres.length > 0 && (
@@ -680,6 +754,14 @@ function TitleDetail({ id, onClose }: { id: string; onClose: () => void }) {
                 <p className="small">
                   <button type="button" className="btn" onClick={() => void enrich()}>
                     {t.enrichment === 'tmdb' ? 'Atualizar dados do TMDB' : 'Buscar no TMDB'}
+                  </button>{' '}
+                  {enrichMsg && <span className="muted">{enrichMsg}</span>}
+                </p>
+              )}
+              {t.kind === 'book' && (
+                <p className="small">
+                  <button type="button" className="btn" onClick={() => void enrich()}>
+                    {t.enrichment === 'openlibrary' ? 'Atualizar dados da Open Library' : 'Buscar na Open Library'}
                   </button>{' '}
                   {enrichMsg && <span className="muted">{enrichMsg}</span>}
                 </p>
@@ -702,6 +784,17 @@ function TitleDetail({ id, onClose }: { id: string; onClose: () => void }) {
             </>
           )}
           {t.resolution?.provider === 'tmdb' && <p className="muted small">Dados de filmes e séries: TMDB. {TMDB_ATTRIBUTION}</p>}
+          {t.kind === 'book' && t.bookUrl && (
+            <>
+              <h3>Onde encontrar</h3>
+              <p>
+                <a href={t.bookUrl} target="_blank" rel="noopener noreferrer">
+                  Ver na Open Library
+                </a>
+              </p>
+            </>
+          )}
+          {t.enrichment === 'openlibrary' && <p className="muted small">Dados de livros: Open Library.</p>}
           <h3>Corrigir</h3>
           <CorrectTitleForm title={t} submit={(body) => api.correctTitle(t.id, body)} onDone={onClose} />
           <h3>Gêneros</h3>
@@ -723,79 +816,6 @@ function TitleDetail({ id, onClose }: { id: string; onClose: () => void }) {
           </p>
         </>
       )}
-    </Modal>
-  );
-}
-
-function AddTitle({ onClose }: { onClose: () => void }) {
-  const lists = useQuery({ queryKey: ['lists'], queryFn: api.lists });
-  const qc = useQueryClient();
-  const [title, setTitle] = useState('');
-  const [kind, setKind] = useState<RecommendationKind>('movie');
-  const [year, setYear] = useState('');
-  const [listId, setListId] = useState('');
-  const [error, setError] = useState<unknown>(null);
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    try {
-      await api.createTitle({
-        title: title.trim(),
-        kind,
-        year: year ? Number(year) : undefined,
-        listId: listId || undefined,
-      });
-      await qc.invalidateQueries();
-      onClose();
-    } catch (err) {
-      setError(err);
-    }
-  }
-
-  return (
-    <Modal title="Adicionar título" onClose={onClose}>
-      <form className="form" onSubmit={onSubmit}>
-        <label>
-          Título
-          <input value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={200} />
-        </label>
-        <div className="row">
-          <label>
-            Tipo
-            <select value={kind} onChange={(e) => setKind(e.target.value as RecommendationKind)}>
-              {KINDS.map((k) => (
-                <option key={k} value={k}>
-                  {KIND_LABEL[k]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Ano
-            <input value={year} onChange={(e) => setYear(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" />
-          </label>
-        </div>
-        <label>
-          Lista (opcional)
-          <select value={listId} onChange={(e) => setListId(e.target.value)}>
-            <option value="">Nenhuma</option>
-            {(lists.data ?? []).map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <ErrorNote error={error} />
-        <div className="actions">
-          <button type="button" className="btn" onClick={onClose}>
-            Cancelar
-          </button>
-          <button type="submit" className="btn btn-primary">
-            Adicionar
-          </button>
-        </div>
-      </form>
     </Modal>
   );
 }
@@ -865,7 +885,7 @@ function CatalogRow({
           </div>
         </div>
       </td>
-      {cols.kind && <td className="small">{KIND_LABEL[t.kind]}</td>}
+      {cols.kind && <td className="small">{kindLabel(t.kind)}</td>}
       {cols.genres && (
         <td>
           <GenreChips t={t} />
@@ -966,7 +986,7 @@ function CatalogCard({
         <div className="cc-main">
           <div className="cc-rankline">
             {t.rank == null ? <span className="badge badge-review_queue">revisão</span> : <strong className="rank-number">#{t.rank}</strong>}
-            <span className="muted small">{[KIND_LABEL[t.kind], t.year].filter(Boolean).join(' · ')}</span>
+            <span className="muted small">{[kindLabel(t.kind), t.year].filter(Boolean).join(' · ')}</span>
           </div>
           <button type="button" className="btn btn-link title-link cc-title" onClick={onOpen}>
             {t.title}

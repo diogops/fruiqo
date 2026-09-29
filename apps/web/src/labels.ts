@@ -1,14 +1,21 @@
 // Rótulos pt-BR para valores do contrato (só apresentação; nada de regra de negócio aqui).
-import type { PipelineStepName, RecommendationKind, TitleStatus } from '@fruiqo/contracts';
+import { RecommendationKindSchema, type PipelineStepName, type RecommendationKind, type TitleStatus } from '@fruiqo/contracts';
 
-export const KIND_LABEL: Record<RecommendationKind, string> = {
+// Mapa por string (não Record<RecommendationKind>) para aceitar tipos novos do contrato sem quebrar:
+// quando o contrato ganhar `book`, o rótulo já existe; tipos desconhecidos caem no fallback.
+export const KIND_LABEL: Record<string, string> = {
   movie: 'Filme',
   series: 'Série',
+  book: 'Livro',
   music_track: 'Música',
   music_album: 'Álbum',
   artist: 'Artista',
   other: 'Outro',
 };
+
+export function kindLabel(kind: string): string {
+  return KIND_LABEL[kind] ?? kind.charAt(0).toUpperCase() + kind.slice(1).replace(/_/g, ' ');
+}
 
 export const STATUS_LABEL: Record<TitleStatus, string> = {
   to_watch: 'Quero ver',
@@ -51,7 +58,8 @@ export const PLATFORM_LABEL: Record<string, string> = {
   other: 'Outro',
 };
 
-export const KINDS = Object.keys(KIND_LABEL) as RecommendationKind[];
+/** Tipos aceitos pelo contrato atual (inclui os novos automaticamente). */
+export const KINDS: RecommendationKind[] = [...RecommendationKindSchema.options];
 export const STATUSES = Object.keys(STATUS_LABEL) as TitleStatus[];
 
 export function formatDateTime(iso: string): string {

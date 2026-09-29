@@ -1,0 +1,30 @@
+{
+  "synthetic": true,
+  "recorded_at": "2026-09-28T00:00:00.000Z",
+  "request": {
+    "method": "GET",
+    "url": "https://openlibrary.org/search.json?q=key%3A%2Fworks%2FOL9990002W&lang=pt&limit=1&fields=key%2Ctitle%2Cauthor_name%2Cfirst_publish_year%2Ccover_i%2Cnumber_of_pages_median%2Csubject%2Cedition_count%2Ceditions%2Ceditions.title%2Ceditions.language"
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "docs": [
+        {
+          "key": "/works/OL9990002W",
+          "title": "Vento Sul",
+          "author_name": [
+            "Marta Quintela"
+          ],
+          "first_publish_year": 2004,
+          "edition_count": 12,
+          "cover_i": 9990002,
+          "number_of_pages_median": 180,
+          "subject": [
+            "Romance brasileiro"
+          ]
+        }
+      ]
+    }
+  }
+}

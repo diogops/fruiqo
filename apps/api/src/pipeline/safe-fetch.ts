@@ -10,6 +10,9 @@ export const ALLOWED_HOSTS = new Set([
   'api.themoviedb.org',
   'api.spotify.com',
   'accounts.spotify.com',
+  // RF-48 (D-21): livros
+  'openlibrary.org',
+  'covers.openlibrary.org',
 ]);
 
 export class SafeFetchError extends Error {

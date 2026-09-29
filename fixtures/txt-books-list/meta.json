@@ -1,0 +1,9 @@
+{
+  "id": "txt-books-list",
+  "kind": "text_file",
+  "description": "Arquivo .txt com cabeçalho 'Livros:', 'Título - Autor', ano entre parênteses (homônimo de outro ano), obra traduzida (título PT-BR vem da edição em português) e busca só pelo título (RF-48)",
+  "synthetic": true,
+  "origin": "escrito pelo time Fruiqo (sintético; obras e IDs da Open Library fictícios)",
+  "license": "CC0-1.0",
+  "version": 1
+}

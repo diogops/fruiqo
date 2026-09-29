@@ -27,6 +27,11 @@ const GENRE_TERMS: Record<GenreKey, string[]> = {
   war: ['guerra', 'guerras', 'militar'],
   western: ['faroeste', 'faroestes', 'western', 'velho oeste'],
   reality: ['reality', 'realities', 'reality show', 'reality shows'],
+  biography: ['biografia', 'biografias', 'memorias', 'autobiografia', 'autobiografias'],
+  nonfiction: ['nao ficcao', 'nao-ficcao', 'ensaio', 'ensaios', 'divulgacao cientifica', 'jornalismo'],
+  poetry: ['poesia', 'poesias', 'poemas', 'poeta', 'poetas'],
+  young_adult: ['infantojuvenil', 'infanto juvenil', 'juvenil', 'young adult', 'ya'],
+  self_help: ['autoajuda', 'auto ajuda', 'desenvolvimento pessoal', 'produtividade'],
 };
 
 const SUBGENRE_TERMS: Partial<Record<SubgenreKey, string[]>> = {

@@ -15,7 +15,7 @@ import {
 
 export interface RankItem {
   id: string;
-  kind: 'movie' | 'series' | 'music_track' | 'music_album' | 'artist' | 'other';
+  kind: 'movie' | 'series' | 'music_track' | 'music_album' | 'artist' | 'book' | 'other';
   status: 'to_watch' | 'watching' | 'watched' | 'dropped';
   /** posição na fila de prioridade do usuário (1 = mais prioritário) */
   rank: number;

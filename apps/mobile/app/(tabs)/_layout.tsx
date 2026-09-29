@@ -2,6 +2,7 @@ import { Tabs } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { ColorValue } from 'react-native';
 
+import { useReviewCount } from '../../src/catalog/reviewCount';
 import { colors } from '../../src/ui/theme';
 import { useTheme } from '../../src/ui/ThemeProvider';
 
@@ -16,6 +17,7 @@ function tabIcon(active: IconName, idle: IconName) {
 
 export default function TabsLayout() {
   useTheme(); // re-renderiza na troca de tema
+  const { count: pendingReview } = useReviewCount();
   return (
     <Tabs
       screenOptions={{
@@ -33,6 +35,16 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="home"
         options={{ title: 'Início', headerTitle: 'Fruiqo', tabBarIcon: tabIcon('home', 'home-outline') }}
+      />
+      <Tabs.Screen
+        name="catalog"
+        options={{
+          title: 'Catálogo',
+          tabBarIcon: tabIcon('film', 'film-outline'),
+          // RF-42: títulos importados esperando revisão
+          tabBarBadge: pendingReview > 0 ? (pendingReview > 99 ? '99+' : pendingReview) : undefined,
+          tabBarBadgeStyle: { backgroundColor: colors.primary, color: colors.primaryText, fontSize: 11 },
+        }}
       />
       <Tabs.Screen
         name="lists"

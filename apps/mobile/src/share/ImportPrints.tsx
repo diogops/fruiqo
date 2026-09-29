@@ -2,19 +2,34 @@
 // Galeria e Arquivos usam os seletores do sistema (Photo Picker no Android, PHPicker no iOS),
 // que entregam só o que o usuário escolhe: nenhuma permissão de galeria/armazenamento é pedida.
 // Câmera pede permissão só no momento do uso. As imagens seguem o mesmo caminho do share
-// (useImageIngestion → OCR no device → CreateShareRequest.pages).
+// (useImageIngestion → OCR no device → CreateShareRequest.pages). RF-47: arquivos .txt são lidos
+// no aparelho e enviados em `textFile`; tudo cai na Revisão (RF-42).
 import { MAX_SCREENSHOT_PAGES } from '@fruiqo/contracts';
+import { randomUUID } from 'expo-crypto';
 import * as DocumentPicker from 'expo-document-picker';
+import { File } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import { Alert, Modal, Pressable, Text, View } from 'react-native';
 
+import { buildTextFileRequest, isImageFile, isTextFile } from '../catalog/logic';
+import { useAppState } from '../state/AppState';
 import { Button } from '../ui/components';
 import { colors, ui } from '../ui/theme';
 import { selectPickedImages, type PickerAsset } from './ingestImages';
 import { OcrProgressModal, useImageIngestion } from './useImageIngestion';
 
-const PDF_MESSAGE = 'PDF chega na próxima versão. Por enquanto, importe prints (imagens).';
+const PDF_MESSAGE = 'PDF chega na próxima versão. Por enquanto, importe prints (imagens) ou uma lista em .txt.';
+
+/** Lê o .txt escolhido (cópia no cache do app). Fallback via fetch caso o módulo de arquivos falhe. */
+async function readText(uri: string): Promise<string> {
+  try {
+    return await new File(uri).text();
+  } catch {
+    const res = await fetch(uri);
+    return await res.text();
+  }
+}
 
 /** Pergunta se o usuário quer tirar outra foto. Resolve `true` para continuar. */
 function askAnother(count: number): Promise<boolean> {
@@ -33,9 +48,10 @@ function askAnother(count: number): Promise<boolean> {
   });
 }
 
-export function ImportPrints() {
+export function ImportPrints({ label = 'Importar', compact }: { label?: string; compact?: boolean } = {}) {
   const [open, setOpen] = useState(false);
   const { ingest, progress } = useImageIngestion();
+  const { setPendingShare } = useAppState();
 
   async function finish(assets: PickerAsset[]) {
     const selection = selectPickedImages(assets);
@@ -64,12 +80,34 @@ export function ImportPrints() {
   async function fromFiles() {
     setOpen(false);
     const res = await DocumentPicker.getDocumentAsync({
-      type: ['image/*', 'application/pdf'],
+      type: ['image/*', 'text/plain', 'application/pdf'],
       multiple: true,
       copyToCacheDirectory: true,
     });
     if (res.canceled) return;
-    const images = res.assets.filter((a) => a.mimeType?.toLowerCase().startsWith('image/'));
+    const texts = res.assets.filter(isTextFile);
+    const images = res.assets.filter(isImageFile);
+    if (texts.length > 0) {
+      // RF-47: um .txt por vez (um título por linha; cabeçalhos como "Series:" definem o tipo)
+      const file = texts[0]!;
+      let content: string;
+      try {
+        content = await readText(file.uri);
+      } catch {
+        Alert.alert('Não foi possível ler o arquivo', 'Tente salvar o arquivo como texto (.txt, UTF-8) e importar de novo.');
+        return;
+      }
+      const built = buildTextFileRequest(file.name ?? 'lista.txt', content, randomUUID);
+      if (built.kind === 'empty') {
+        Alert.alert('Arquivo vazio', 'Não encontrei títulos no arquivo.');
+        return;
+      }
+      if (built.truncated) Alert.alert('Arquivo grande', 'Só o começo do arquivo foi enviado (limite de tamanho).');
+      if (texts.length > 1 || images.length > 0) Alert.alert('Um arquivo por vez', `Importando só "${file.name ?? 'lista.txt'}".`);
+      // Mesmo caminho do share: envio pelo ShareIntentHandler, resultado vai para a Revisão.
+      setPendingShare(built.request);
+      return;
+    }
     if (images.length === 0) {
       Alert.alert('Ainda não suportado', PDF_MESSAGE);
       return;
@@ -100,17 +138,18 @@ export function ImportPrints() {
 
   return (
     <>
-      <Button title="Importar prints" icon="images-outline" onPress={() => setOpen(true)} />
+      <Button title={label} icon="cloud-upload-outline" compact={compact} onPress={() => setOpen(true)} />
       <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
         <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' }} onPress={() => setOpen(false)} />
         <View style={[ui.pad, { backgroundColor: colors.bg, borderTopLeftRadius: 16, borderTopRightRadius: 16 }]}>
-          <Text style={ui.h2}>Importar prints</Text>
+          <Text style={ui.h2}>Importar títulos</Text>
           <Text style={ui.muted}>
-            Até {MAX_SCREENSHOT_PAGES} imagens, na ordem escolhida. O texto é lido no seu aparelho; a imagem não sai do
-            celular.
+            Prints (até {MAX_SCREENSHOT_PAGES}, na ordem escolhida) são lidos no seu aparelho; a imagem não sai do celular. Uma
+            lista em .txt pode ter um título por linha, com cabeçalhos como "Series:" ou "Filmes:". Tudo passa pela Revisão
+            antes de entrar no catálogo.
           </Text>
           <Button title="Galeria" icon="images" onPress={fromGallery} />
-          <Button title="Arquivos" icon="folder-open-outline" variant="secondary" onPress={fromFiles} />
+          <Button title="Arquivos (.txt ou imagens)" icon="document-text-outline" variant="secondary" onPress={fromFiles} />
           <Button title="Câmera" icon="camera-outline" variant="secondary" onPress={fromCamera} />
           <Button title="Cancelar" variant="secondary" onPress={() => setOpen(false)} />
         </View>

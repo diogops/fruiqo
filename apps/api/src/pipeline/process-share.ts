@@ -2,7 +2,7 @@ import type { CandidateDecisionValue, PipelineMode, Resolution } from '@fruiqo/c
 import { and, eq, inArray, isNull, ne, or } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { type Db, type Tx, withUser } from '../db/client.js';
-import { candidateDecisions, type MatchAlternativeRow, pipelineStepLogs, recommendations, seenPages, shares, type ShareRow } from '../db/schema.js';
+import { candidateDecisions, type StoredAlternativeRow, pipelineStepLogs, recommendations, seenPages, shares, type ShareRow } from '../db/schema.js';
 import type { ShareJob } from '../queue/queue.js';
 import { dedupKey, mergePages, pageHash } from './dedup.js';
 import { listNameFromOcr } from '../library/list-name.js';
@@ -17,13 +17,14 @@ import type { SourceMetadata } from './oembed.js';
 import { preview, type Pricing, shortError, StepRecorder } from './steps.js';
 import { isUiNoise } from './ui-noise.js';
 import { STRONG_MATCH } from './resolvers/match.js';
+import type { DetailedBookResolution } from './resolvers/openlibrary.js';
 import type { DetailedResolution } from './resolvers/tmdb.js';
 
 export interface Resolver {
   supports(item: ExtractedItem): boolean;
   resolve(item: ExtractedItem): Promise<Resolution | null>;
   /** RF-47: resolução com aderência do match e alternativas (TMDB) */
-  resolveDetailed?(item: ExtractedItem): Promise<DetailedResolution>;
+  resolveDetailed?(item: ExtractedItem): Promise<DetailedResolution | DetailedBookResolution>;
 }
 
 export interface DecisionPolicy {
@@ -64,7 +65,7 @@ interface Candidate {
   resolution: Resolution | null;
   /** aderência do match ao texto (null sem resolver com pontuação) */
   matchScore: number | null;
-  alternatives: MatchAlternativeRow[];
+  alternatives: StoredAlternativeRow[];
   alreadyInList: boolean;
   /** decisão SUGERIDA pelo pipeline; todo item não descartado entra na revisão (RF-42) */
   decision: CandidateDecisionValue;
@@ -400,12 +401,12 @@ export class ShareProcessor {
         mapLimit(unique, RESOLVE_CONCURRENCY, async ({ item, key }) => {
           const resolver = this.deps.resolvers.find((r) => r.supports(item));
           const alreadyInList = existing.has(key);
-          const none = { matchScore: null, alternatives: [] as MatchAlternativeRow[] };
+          const none = { matchScore: null, alternatives: [] as StoredAlternativeRow[] };
           if (alreadyInList || !resolver || item.confidence < MIN_CONFIDENCE_TO_RESOLVE) {
             return { item, key, alreadyInList, resolverAvailable: Boolean(resolver), resolution: null, ...none };
           }
           try {
-            const detailed: DetailedResolution = resolver.resolveDetailed
+            const detailed: DetailedResolution | DetailedBookResolution = resolver.resolveDetailed
               ? await resolver.resolveDetailed(item)
               : { resolution: await resolver.resolve(item), score: null, alternatives: [] };
             const { resolution } = detailed;
@@ -541,7 +542,8 @@ export class ShareProcessor {
           userId: job.userId,
           kind: item.kind,
           title: item.title,
-          creator: item.creator ?? null,
+          // RF-48: livro sem autor no texto ganha o autor da Open Library
+          creator: item.creator ?? (resolution?.provider === 'openlibrary' ? (resolution.authors?.[0] ?? null) : null),
           confidence: item.confidence,
           extractor: result.extractor ?? 'heuristic',
           resolution,
@@ -587,7 +589,7 @@ function tmdbInsertColumns(resolution: Resolution | null, year: number | null) {
     year: year ?? cols.year,
     ...(cols.genres.length > 0 ? { genres: cols.genres } : {}),
     runtimeMin: cols.runtimeMin,
-    enrichment: 'tmdb' as const,
+    enrichment: cols.enrichment,
   };
 }
 

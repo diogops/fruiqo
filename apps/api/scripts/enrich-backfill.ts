@@ -1,7 +1,8 @@
-// Backfill do enriquecimento TMDB (2d):
+// Backfill do enriquecimento TMDB (2d) e Open Library (livros, RF-48):
 //   pnpm --filter @fruiqo/api enrich:backfill -- --email <email> [--include-demo] [--limit N] [--concurrency 2] [--delay-ms 250]
-// Reprocessa títulos de filme/série ainda sem enriquecimento (`none`; com --include-demo também os do
-// seed). Usa o PIPELINE_MODE do ambiente: `live` precisa de TMDB_API_KEY; `mock` usa as gravações
+// Reprocessa filmes, séries e livros ainda sem enriquecimento (`none`; com --include-demo também os do
+// seed). Usa o PIPELINE_MODE do ambiente: `live` precisa de TMDB_API_KEY para filmes/séries (livros
+// usam a Open Library, sem chave; User-Agent com OPENLIBRARY_CONTACT); `mock` usa as gravações
 // sintéticas de fixtures/. Nunca imprime a chave.
 import { sql } from 'drizzle-orm';
 import { loadEnv } from '../src/config/env.js';
@@ -19,7 +20,7 @@ async function main() {
   const email = arg('email')?.trim().toLowerCase();
   if (!email) throw new Error('uso: enrich:backfill -- --email <email> [--include-demo] [--limit N]');
   const lookup = createTitleLookup(env);
-  if (!lookup) throw new Error(`sem catálogo: defina TMDB_API_KEY (modo ${env.PIPELINE_MODE})`);
+  if (!env.TMDB_API_KEY) console.log(`sem TMDB_API_KEY (modo ${env.PIPELINE_MODE}): filmes/séries ficam indisponíveis; livros seguem`);
 
   const { db, pool } = createDb(env.DATABASE_URL);
   try {
@@ -39,7 +40,8 @@ async function main() {
         if (status === 'no_match') noMatch.push(title);
         if (status === 'enriched' && res && examples.length < 8) {
           const flat = (res.providers ?? []).filter((p) => p.type === 'flatrate').map((p) => p.name);
-          examples.push(`${title} → ${res.title}${res.year ? ` (${res.year})` : ''} · ${flat.length ? flat.join(', ') : 'sem streaming por assinatura no BR'}`);
+          const where = res.provider === 'openlibrary' ? `Open Library${res.authors?.length ? ` · ${res.authors[0]}` : ''}` : flat.length ? flat.join(', ') : 'sem streaming por assinatura no BR';
+          examples.push(`${title} → ${res.title}${res.year ? ` (${res.year})` : ''} · ${where}`);
         }
       },
     });

@@ -4,8 +4,8 @@
 //   pnpm eval [--set public|private|all] [--label v1] [--compare <arquivo.json>] [--check] [--write-baseline]
 //
 // --check falha (exit 1) se: recall de risco < 100% (RNF-07), F1 cair em relação à baseline, ou uma
-// checagem que passava na baseline passar a falhar. A baseline versionada é a `v1-review-txt` (RF-42/47;
-// a `v0-heuristic` fica como histórico).
+// checagem que passava na baseline passar a falhar. A baseline versionada é a `v3-music-order` (música "Música - Artista" em contexto musical pt-BR;
+// `v2-books`, `v1-review-txt` e `v0-heuristic` ficam como histórico).
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -307,7 +307,7 @@ async function main() {
   const pipeline = await runPipelineFixtures(pipelineFixtures, args.set);
   const report = buildReport(args, pipeline, mood);
 
-  const baselinePath = args.compare ?? join(BASELINE_DIR, 'v1-review-txt.json');
+  const baselinePath = args.compare ?? join(BASELINE_DIR, 'v3-music-order.json');
   const base = existsSync(baselinePath) && !args.writeBaseline ? (JSON.parse(readFileSync(baselinePath, 'utf8')) as EvalReport) : undefined;
 
   const reportsDir = join(REPO_ROOT, 'reports');

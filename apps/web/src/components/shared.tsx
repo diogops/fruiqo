@@ -2,7 +2,7 @@ import type { CandidateDecision, PipelineStep, RecommendationKind, Title } from 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { api, ApiError } from '../api/client';
-import { DECISION_LABEL, KIND_LABEL, KINDS, STEP_LABEL, formatUsd, percent } from '../labels';
+import { DECISION_LABEL, kindLabel, KINDS, STEP_LABEL, formatUsd, percent } from '../labels';
 import { useToast } from './Toast';
 import { useFocusTrap } from './ui';
 
@@ -16,7 +16,11 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
   useEffect(() => {
     // foca o primeiro campo; sem campo, o primeiro botão (o × do cabeçalho vem antes no DOM)
     const root = ref.current;
-    (root?.querySelector<HTMLElement>('input, select, textarea') ?? root?.querySelector<HTMLElement>('button'))?.focus();
+    (
+      root?.querySelector<HTMLElement>('[data-autofocus]') ??
+      root?.querySelector<HTMLElement>('input:not([type=hidden]):not([type=file]):not(:disabled), select, textarea') ??
+      root?.querySelector<HTMLElement>('button')
+    )?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
@@ -132,7 +136,7 @@ export function CorrectTitleForm({
           <select value={kind} onChange={(e) => setKind(e.target.value as RecommendationKind)}>
             {KINDS.map((k) => (
               <option key={k} value={k}>
-                {KIND_LABEL[k]}
+                {kindLabel(k)}
               </option>
             ))}
           </select>
@@ -251,7 +255,7 @@ export function DecisionsTable({
         {decisions.map((d, i) => (
           <tr key={`${d.rawTitle}-${i}`}>
             <td className="stack-title">{d.rawTitle}</td>
-            <td data-label="Tipo">{KIND_LABEL[d.kind]}</td>
+            <td data-label="Tipo">{kindLabel(d.kind)}</td>
             <td data-label="Confiança">{percent(d.confidenceScore)}</td>
             <td data-label="Decisão">
               <span className={`badge badge-${d.decision}`}>{DECISION_LABEL[d.decision] ?? d.decision}</span>

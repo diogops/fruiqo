@@ -152,6 +152,13 @@ export class ReviewController {
     return this.review.reject(auth.userId, id);
   }
 
+  /** Música lida ao contrário: troca título e artista e mantém o item na revisão. */
+  @Post(':id/swap-music')
+  @HttpCode(200)
+  swapMusic(@CurrentAuth() auth: AccessClaims, @Param('id', new ParseUUIDPipe()) id: string): Promise<Title> {
+    return this.review.swapMusic(auth.userId, id);
+  }
+
   @Post(':id/rematch')
   @HttpCode(200)
   rematch(

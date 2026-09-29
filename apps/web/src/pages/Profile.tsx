@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { ErrorNote } from '../components/shared';
 import { useToast } from '../components/Toast';
 import { formatDateTime } from '../labels';
+import { DeclaredTasteSection } from './DeclaredTaste';
 
 const SOURCE_LABEL = { signals: 'pelo que você assistiu/avaliou', pinned: 'fixado por você', excluded: 'excluído por você' } as const;
 
@@ -85,6 +86,10 @@ export function Profile() {
         gosta ou exclua o que nunca quer ver sugerido.
       </p>
       <ErrorNote error={taste.error ?? subs.error ?? mood.error ?? error} />
+
+      <DeclaredTasteSection />
+
+      <h2>O que aprendemos com você</h2>
 
       {taste.data && (
         <>

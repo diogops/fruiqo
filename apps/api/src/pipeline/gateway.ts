@@ -24,6 +24,8 @@ const DAY_MS = 24 * 3600 * 1000;
 export const RECORDING_TTL_DAYS: Record<string, number> = {
   'api.themoviedb.org': 180,
   'www.youtube.com': 30,
+  // TOS-REQ-62: cache próprio de 30 dias para a Open Library
+  'openlibrary.org': 30,
 };
 
 const CREDENTIAL_PARAMS = new Set(['api_key', 'access_token', 'key', 'token', 'client_secret']);

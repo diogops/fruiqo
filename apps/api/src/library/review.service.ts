@@ -11,13 +11,25 @@ import type {
 } from '@fruiqo/contracts';
 import { and, asc, eq, inArray, isNotNull, isNull, ne, or } from 'drizzle-orm';
 import { DB, type Db, type Tx, withUser } from '../db/client.js';
-import { candidateDecisions, listItems, lists, type MatchAlternativeRow, recommendations, shares, type RecommendationRow } from '../db/schema.js';
+import {
+  type BookAlternativeRow,
+  candidateDecisions,
+  isBookAlternative,
+  listItems,
+  lists,
+  type MatchAlternativeRow,
+  recommendations,
+  shares,
+  type RecommendationRow,
+} from '../db/schema.js';
 import { dedupKey } from '../pipeline/dedup.js';
+import type { OpenLibraryResolver } from '../pipeline/resolvers/openlibrary.js';
 import type { TmdbResolver } from '../pipeline/resolvers/tmdb.js';
 import { CatalogService } from './catalog.service.js';
 import { fitScore, type FitContext, positionReason, type QueueEntry, suggestPosition } from './fit.js';
 import { loadFitContext } from './fit-context.js';
 import { LibraryService } from './library.service.js';
+import { OPENLIBRARY_CATALOG } from './openlibrary-catalog.js';
 import { moveTitle } from './rank-queue.js';
 import { columnsFromResolution } from './tmdb-enrichment.js';
 import { TMDB_CATALOG } from './tmdb-catalog.js';
@@ -34,6 +46,7 @@ export class ReviewService {
     private readonly catalog: CatalogService,
     private readonly library: LibraryService,
     @Optional() @Inject(TMDB_CATALOG) private readonly tmdb: TmdbResolver | null,
+    @Optional() @Inject(OPENLIBRARY_CATALOG) private readonly books: OpenLibraryResolver | null = null,
   ) {}
 
   async list(userId: string): Promise<ReviewListResponse> {
@@ -67,6 +80,8 @@ export class ReviewService {
         const fit = fitScore(fitInput(r), ctx);
         const pos = suggestPosition(fit, queue);
         const dup = r.resolution?.externalId ? byExternal.get(r.resolution.externalId) : undefined;
+        const stored = r.matchAlternatives ?? [];
+        const bookAlternatives = stored.filter(isBookAlternative).slice(0, 3);
         const listId = s?.proposedList?.listId && liveLists.has(s.proposedList.listId) ? s.proposedList.listId : null;
         return {
           title: titles[i]!,
@@ -77,7 +92,8 @@ export class ReviewService {
             reasons: [positionReason(pos), ...fit.reasons],
             ...(pos.before ? { before: pos.before } : {}),
           },
-          alternatives: (r.matchAlternatives ?? []).slice(0, 3),
+          alternatives: stored.filter((a): a is MatchAlternativeRow => !isBookAlternative(a)).slice(0, 3),
+          ...(bookAlternatives.length ? { bookAlternatives: bookAlternatives.map(({ provider: _p, ...b }) => b) } : {}),
           proposedList: s?.proposedList ? { name: s.proposedList.name, shareId: s.id, listId } : null,
           duplicateOf: dup && dup.id !== r.id ? { id: dup.id, title: dup.title, rank: dup.rank } : null,
           candidate: d ? { rawTitle: d.rawTitle, confidenceScore: d.confidenceScore, reason: d.reason } : null,
@@ -94,7 +110,12 @@ export class ReviewService {
     if (opts.alternative) {
       const alt = opts.alternative;
       const stored = await withUser(this.db, userId, async (tx) => (await this.catalog.findReview(tx, id)).matchAlternatives ?? []);
-      alternative = await this.fetchAlternative(alt, stored.find((a) => a.tmdbId === alt.tmdbId && a.mediaType === alt.mediaType));
+      const tmdbStored = stored.filter((a): a is MatchAlternativeRow => !isBookAlternative(a));
+      alternative = await this.fetchAlternative(alt, tmdbStored.find((a) => a.tmdbId === alt.tmdbId && a.mediaType === alt.mediaType));
+    } else if (opts.alternativeBook) {
+      const olWorkId = opts.alternativeBook.olWorkId;
+      const stored = await withUser(this.db, userId, async (tx) => (await this.catalog.findReview(tx, id)).matchAlternatives ?? []);
+      alternative = await this.fetchBookAlternative(olWorkId, stored.filter(isBookAlternative).find((a) => a.olWorkId === olWorkId));
     }
     return withUser(this.db, userId, (tx) => this.approveWithin(tx, userId, id, opts, alternative));
   }
@@ -114,6 +135,21 @@ export class ReviewService {
       const updated = await this.catalog.applyCorrection(tx, row, input, 'cataloged');
       await this.catalog.logAction(tx, userId, id, 'rematch', matchOf(row), matchOf(updated));
       if (row.shareId) await this.addToProposedList(tx, userId, { id, shareId: row.shareId, sourcePosition: row.sourcePosition });
+      return (await this.library.withLists(tx, [await this.catalog.findTitle(tx, id)]))[0]!;
+    });
+  }
+
+  /**
+   * Música com título e artista trocados ("Aquarela - Toquinho" lido ao contrário): inverte
+   * title/creator e mantém o item na revisão. A dedup_key é recalculada (409 se colidir).
+   */
+  async swapMusic(userId: string, id: string): Promise<Title> {
+    return withUser(this.db, userId, async (tx) => {
+      const row = await this.catalog.findReview(tx, id);
+      if (!MUSIC_KINDS.has(row.kind)) throw new BadRequestException('Só dá para trocar música/artista em itens de música');
+      if (!row.creator) throw new BadRequestException('Este item não tem artista para trocar');
+      const updated = await this.catalog.applyCorrection(tx, row, { title: row.creator, creator: row.title }, 'review_queue');
+      await this.catalog.logAction(tx, userId, id, 'correct', matchOf(row), matchOf(updated));
       return (await this.library.withLists(tx, [await this.catalog.findTitle(tx, id)]))[0]!;
     });
   }
@@ -181,10 +217,13 @@ export class ReviewService {
     return (await this.library.withLists(tx, [final]))[0]!;
   }
 
-  /** Troca o match pela alternativa escolhida (TMDB): título, tipo, ano, gêneros e resolução. */
+  /** Troca o match pela alternativa escolhida (TMDB ou Open Library): título, tipo, ano, gêneros e resolução. */
   private async applyAlternative(tx: Tx, row: RecommendationRow, res: Resolution): Promise<RecommendationRow> {
     const cols = columnsFromResolution(res);
-    const next = { kind: (res.mediaType === 'tv' ? 'series' : 'movie') as RecommendationRow['kind'], title: res.title, creator: row.creator };
+    const book = res.provider === 'openlibrary';
+    const next = book
+      ? { kind: 'book' as RecommendationRow['kind'], title: res.title, creator: res.authors?.[0] ?? row.creator }
+      : { kind: (res.mediaType === 'tv' ? 'series' : 'movie') as RecommendationRow['kind'], title: res.title, creator: row.creator };
     const key = dedupKey(next);
     if (key !== row.dedupKey) await this.catalog.assertNoClash(tx, key, row.id, true);
     const manual = row.enrichment === 'manual';
@@ -198,7 +237,7 @@ export class ReviewService {
         year: cols?.year ?? row.year,
         genres: manual || !cols?.genres.length ? row.genres : cols.genres,
         runtimeMin: cols?.runtimeMin ?? row.runtimeMin,
-        enrichment: manual ? 'manual' : 'tmdb',
+        enrichment: manual ? 'manual' : (cols?.enrichment ?? 'tmdb'),
         matchScore: null,
         updatedAt: new Date(),
       })
@@ -227,6 +266,30 @@ export class ReviewService {
       throw new BadRequestException('Não foi possível buscar essa opção agora');
     }
     if (!res) throw new NotFoundException('Título não encontrado no catálogo');
+    return res;
+  }
+
+  /** RF-48: obra alternativa da Open Library; a alternativa guardada serve de base (sem nova busca). */
+  private async fetchBookAlternative(olWorkId: string, stored?: BookAlternativeRow): Promise<Resolution> {
+    if (!this.books) throw new BadRequestException('Catálogo de livros indisponível');
+    const hint = stored
+      ? {
+          olWorkId,
+          title: stored.title,
+          authors: stored.authors ?? [],
+          ...(stored.year ? { year: stored.year } : {}),
+          ...(stored.coverUrl ? { coverUrl: stored.coverUrl } : {}),
+          subjects: [],
+          editionCount: 0,
+        }
+      : undefined;
+    let res: Resolution | null;
+    try {
+      res = await this.books.byWorkId(olWorkId, hint);
+    } catch {
+      throw new BadRequestException('Não foi possível buscar essa opção agora');
+    }
+    if (!res) throw new NotFoundException('Livro não encontrado no catálogo');
     return res;
   }
 
@@ -282,6 +345,8 @@ export function queueEntries(rows: RecommendationRow[], ctx: FitContext): QueueE
     .filter((r) => r.rank != null)
     .map((r) => ({ id: r.id, title: r.title, rank: r.rank!, status: r.status, score: fitScore(fitInput(r), ctx).score }));
 }
+
+const MUSIC_KINDS = new Set<string>(['music_track', 'music_album', 'artist']);
 
 function matchOf(r: RecommendationRow): Record<string, unknown> {
   return { title: r.title, kind: r.kind, year: r.year, creator: r.creator, decision: r.decision, dedupKey: r.dedupKey, match: r.resolution?.externalId ?? null };

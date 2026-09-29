@@ -24,6 +24,12 @@ export const GENRE_KEYS = [
   'war',
   'western',
   'reality',
+  // RF-48: gêneros literários (sem ID do TMDB; entram pelos assuntos da Open Library, books.ts)
+  'biography',
+  'nonfiction',
+  'poetry',
+  'young_adult',
+  'self_help',
 ] as const;
 export type GenreKey = (typeof GENRE_KEYS)[number];
 
@@ -58,6 +64,11 @@ export const GENRES: readonly GenreDef[] = [
   { key: 'war', label: 'Guerra', tmdbMovie: [10752], tmdbTv: [10768] },
   { key: 'western', label: 'Faroeste', tmdbMovie: [37], tmdbTv: [37] },
   { key: 'reality', label: 'Reality', tmdbMovie: [], tmdbTv: [10764] },
+  { key: 'biography', label: 'Biografia/Memórias', tmdbMovie: [], tmdbTv: [] },
+  { key: 'nonfiction', label: 'Não ficção', tmdbMovie: [], tmdbTv: [] },
+  { key: 'poetry', label: 'Poesia', tmdbMovie: [], tmdbTv: [] },
+  { key: 'young_adult', label: 'Infantojuvenil', tmdbMovie: [], tmdbTv: [] },
+  { key: 'self_help', label: 'Autoajuda', tmdbMovie: [], tmdbTv: [] },
 ];
 
 /**

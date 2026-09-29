@@ -56,8 +56,10 @@ export function normalizeForKey(value: string): string {
  * - `music`: faixa, álbum e artista (o criador entra na chave);
  * - `other`: sem classificação.
  */
-export function kindGroup(kind: RecommendationKind): 'screen' | 'music' | 'other' {
+export function kindGroup(kind: RecommendationKind): 'screen' | 'music' | 'book' | 'other' {
   if (kind === 'movie' || kind === 'series') return 'screen';
+  // RF-48: livro tem grupo próprio (a adaptação para filme não é o mesmo item)
+  if (kind === 'book') return 'book';
   if (kind === 'music_track' || kind === 'music_album' || kind === 'artist') return 'music';
   return 'other';
 }
