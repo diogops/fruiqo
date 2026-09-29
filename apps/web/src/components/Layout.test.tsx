@@ -84,3 +84,17 @@ describe('layout responsivo', () => {
     expect(screen.queryByRole('searchbox', { name: 'Buscar no catálogo' })).toBeNull();
   });
 });
+
+describe('dica de instalação no iPhone', () => {
+  const IPHONE_SAFARI = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+  it('só no Safari do iPhone/iPad e fora do modo instalado', async () => {
+    const { shouldShowInstallTip } = await import('./Layout');
+    expect(shouldShowInstallTip({ userAgent: IPHONE_SAFARI }, false)).toBe(true);
+    expect(shouldShowInstallTip({ userAgent: IPHONE_SAFARI, standalone: true }, false)).toBe(false);
+    expect(shouldShowInstallTip({ userAgent: IPHONE_SAFARI }, true)).toBe(false);
+    expect(shouldShowInstallTip({ userAgent: IPHONE_SAFARI.replace('Version/18.0', 'CriOS/129.0') }, false)).toBe(false);
+    // iPad em modo desktop se apresenta como Mac com toque
+    expect(shouldShowInstallTip({ userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15', platform: 'MacIntel', maxTouchPoints: 5 }, false)).toBe(true);
+    expect(shouldShowInstallTip({ userAgent: 'Mozilla/5.0 (Windows NT 10.0) Chrome/129 Safari/537.36' }, false)).toBe(false);
+  });
+});

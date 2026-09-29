@@ -275,9 +275,54 @@ export function Layout() {
           )}
         </header>
         <main className="content" ref={mainRef}>
+          <InstallTip />
           <Outlet />
         </main>
       </div>
+    </div>
+  );
+}
+
+const INSTALL_TIP_KEY = 'fruiqo-install-tip-dismissed';
+
+/** Safari do iPhone/iPad fora do modo instalado: não há prompt de instalação, então ensinamos o caminho. */
+export function shouldShowInstallTip(nav: { userAgent: string; platform?: string; maxTouchPoints?: number; standalone?: boolean }, standaloneMode: boolean): boolean {
+  const ios = /iPhone|iPad|iPod/.test(nav.userAgent) || (nav.platform === 'MacIntel' && (nav.maxTouchPoints ?? 0) > 1);
+  // outros navegadores no iOS (Chrome, Firefox) também instalam hoje, mas o caminho descrito é o do Safari
+  const safari = /Safari/.test(nav.userAgent) && !/CriOS|FxiOS|EdgiOS/.test(nav.userAgent);
+  return ios && safari && !nav.standalone && !standaloneMode;
+}
+
+function InstallTip() {
+  const [show, setShow] = useState(() => {
+    try {
+      if (localStorage.getItem(INSTALL_TIP_KEY)) return false;
+    } catch {
+      /* sem storage: mostra */
+    }
+    return shouldShowInstallTip(navigator as Navigator & { standalone?: boolean }, window.matchMedia?.('(display-mode: standalone)').matches ?? false);
+  });
+  if (!show) return null;
+  return (
+    <div className="install-tip" role="note">
+      <span>
+        Use como app: toque em <strong>Compartilhar</strong> <span aria-hidden="true">⬆︎</span> e em <strong>Adicionar à Tela de Início</strong>.
+      </span>
+      <button
+        type="button"
+        className="btn btn-icon"
+        aria-label="Fechar dica"
+        onClick={() => {
+          setShow(false);
+          try {
+            localStorage.setItem(INSTALL_TIP_KEY, '1');
+          } catch {
+            /* ignora */
+          }
+        }}
+      >
+        ×
+      </button>
     </div>
   );
 }

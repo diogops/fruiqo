@@ -992,3 +992,6 @@ details[open] > summary { margin-bottom: 0.6rem; }
   .discover-row .btn-primary { width: 100%; min-height: var(--touch, 44px); }
   .suggestion .actions .btn { flex: 1 1 auto; min-height: var(--touch, 44px); }
 }
+
+/* dica de instalação no Safari do iPhone */
+.install-tip { display: flex; align-items: center; gap: 0.5rem; justify-content: space-between; margin-bottom: 0.75rem; padding: 0.55rem 0.8rem; border-radius: 12px; border: 1px solid var(--border); background: var(--primary-soft); font-size: 0.88rem; }
