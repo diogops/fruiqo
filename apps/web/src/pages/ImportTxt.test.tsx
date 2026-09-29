@@ -4,12 +4,7 @@ import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { __setAccessToken } from '../api/client';
 import { makeTitle, mockApi, renderWithProviders } from '../test/helpers';
-import { cleanText } from '../ocr/screenshots';
 import { ImportTxt, readTextFile } from './ImportTxt';
-
-// o OCR (Tesseract/WebAssembly) não roda no jsdom: simula a leitura, o resto do fluxo é o real
-const readScreenshots = vi.hoisted(() => vi.fn());
-vi.mock('../ocr/screenshots', async (orig) => ({ ...(await orig<typeof import('../ocr/screenshots')>()), readScreenshots }));
 
 afterEach(() => __setAccessToken(null));
 
@@ -61,7 +56,7 @@ describe('importar .txt (RF-47)', () => {
       { route: '/catalogo' },
     );
     const file = new File(['Filmes:\nDuna (2021)\n\nMaid\n'], 'minha-lista.txt', { type: 'text/plain' });
-    await user.upload(screen.getByLabelText('Prints ou arquivo de texto'), file);
+    await user.upload(screen.getByLabelText('Arquivo de texto'), file);
 
     const preview = await screen.findByLabelText('Prévia do arquivo');
     expect(within(preview).getByText('minha-lista.txt')).toBeTruthy();
@@ -82,93 +77,9 @@ describe('importar .txt (RF-47)', () => {
     mockApi({});
     const user = userEvent.setup({ applyAccept: false });
     const file = new File(['Duna'], 'x.txt', { type: 'text/plain' });
-    renderWithProviders(<ImportTxt initialFiles={[file]} onClose={vi.fn()} />);
+    renderWithProviders(<ImportTxt initialFile={file} onClose={vi.fn()} />);
     expect(await screen.findByLabelText('Prévia do arquivo')).toBeTruthy();
-    await user.upload(screen.getByLabelText('Prints ou arquivo de texto'), new File(['%PDF'], 'lista.pdf', { type: 'application/pdf' }));
-    await waitFor(() => expect(screen.getByText('Escolha prints (PNG/JPG) ou um arquivo .txt (um título por linha).')).toBeTruthy());
-  });
-});
-
-const OCR_TEXT = ['cinefilo.br', 'Filmes para ver chorando', 'Aftersun (2022)', 'Maid'].join('\n');
-
-describe('importar prints no web', () => {
-  it('lê os prints no navegador e envia só o texto em pages', async () => {
-    __setAccessToken('tok');
-    vi.stubGlobal('crypto', { ...crypto, randomUUID: () => '77777777-7777-4777-8777-777777777777' });
-    readScreenshots.mockResolvedValue([OCR_TEXT, '']);
-    const { calls } = mockApi({
-      'POST /shares': share('queued'),
-      'GET /shares/:id': share('done', 2),
-    });
-    const user = userEvent.setup();
-    renderWithProviders(
-      <Routes>
-        <Route path="/catalogo" element={<ImportTxt onClose={vi.fn()} />} />
-        <Route path="/revisao" element={<p>página da revisão</p>} />
-      </Routes>,
-      { route: '/catalogo' },
-    );
-    const prints = [new File(['a'], 'print1.png', { type: 'image/png' }), new File(['b'], 'print2.jpg', { type: 'image/jpeg' })];
-    await user.upload(screen.getByLabelText('Prints ou arquivo de texto'), prints);
-
-    const preview = await screen.findByLabelText('Texto lido dos prints');
-    expect(within(preview).getByText('2 print(s)')).toBeTruthy();
-    expect(within(preview).getAllByRole('listitem').map((li) => li.textContent)).toContain('Aftersun (2022)');
-    expect(readScreenshots.mock.calls[0]![0]).toHaveLength(2);
-
-    await user.click(screen.getByRole('button', { name: 'Importar para a Revisão' }));
-    await screen.findByText('página da revisão');
-    // print sem texto não vai; nenhuma imagem vai para a API
-    expect(calls.find((c) => c.path === '/shares')?.body).toEqual({
-      clientShareId: '77777777-7777-4777-8777-777777777777',
-      pages: [OCR_TEXT],
-    });
-  });
-
-  it('prints sem texto legível avisam e não enviam nada', async () => {
-    __setAccessToken('tok');
-    readScreenshots.mockResolvedValue(['  ', '']);
-    const { calls } = mockApi({});
-    const user = userEvent.setup();
-    renderWithProviders(<ImportTxt onClose={vi.fn()} />);
-    await user.upload(screen.getByLabelText('Prints ou arquivo de texto'), new File(['a'], 'p.png', { type: 'image/png' }));
-    expect(await screen.findByText(/Não encontrei texto nesses prints/)).toBeTruthy();
-    expect(calls.some((c) => c.path === '/shares')).toBe(false);
-  });
-
-  it('Ctrl+V: print copiado vai pelo OCR; texto colado vira lista (uma linha por título)', async () => {
-    __setAccessToken('tok');
-    vi.stubGlobal('crypto', { ...crypto, randomUUID: () => '88888888-8888-4888-8888-888888888888' });
-    readScreenshots.mockResolvedValue([OCR_TEXT]);
-    const { calls } = mockApi({ 'POST /shares': share('queued'), 'GET /shares/:id': share('done', 1) });
-    const user = userEvent.setup();
-    renderWithProviders(<ImportTxt onClose={vi.fn()} />);
-    const paste = (data: { files?: File[]; text?: string }) => {
-      const ev = new Event('paste', { bubbles: true, cancelable: true });
-      Object.defineProperty(ev, 'clipboardData', {
-        value: { files: data.files ?? [], getData: (t: string) => (t === 'text/plain' ? (data.text ?? '') : '') },
-      });
-      document.body.dispatchEvent(ev);
-    };
-
-    paste({ files: [new File(['x'], 'image.png', { type: 'image/png' })] });
-    expect(await screen.findByLabelText('Texto lido dos prints')).toBeTruthy();
-    expect(readScreenshots.mock.lastCall![0][0].name).toBe('print-colado-1.png');
-
-    paste({ text: 'Filmes:\nDuna (2021)\nMaid' });
-    const preview = await screen.findByLabelText('Prévia do arquivo');
-    expect(within(preview).getByText('texto colado')).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Importar para a Revisão' }));
-    await waitFor(() =>
-      expect(calls.find((c) => c.path === '/shares')?.body).toEqual({
-        clientShareId: '88888888-8888-4888-8888-888888888888',
-        textFile: { name: 'texto colado', content: 'Filmes:\nDuna (2021)\nMaid' },
-      }),
-    );
-  });
-
-  it('limpa o texto do OCR: espaços, linhas vazias repetidas e limite do contrato', () => {
-    expect(cleanText(['  Duna   (2021) ', '', '', '', 'Maid  ', ''].join('\r\n'))).toBe(['Duna (2021)', '', 'Maid'].join('\n'));
-    expect(cleanText('x'.repeat(9000))).toHaveLength(8000);
+    await user.upload(screen.getByLabelText('Arquivo de texto'), new File(['%PDF'], 'lista.pdf', { type: 'application/pdf' }));
+    await waitFor(() => expect(screen.getByText(/^Escolha um arquivo \.txt \(um título por linha\)/)).toBeTruthy());
   });
 });

@@ -3,10 +3,11 @@ import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalList
 import { CSS } from '@dnd-kit/utilities';
 import { type BulkOperation, type MoveTitleRequest, providerTitleLink, type Title, type TitleStatus, type WatchProvider } from '@fruiqo/contracts';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { AddTitle } from './AddTitle';
-import { ImportTxt, isImportFile, pastedFiles } from './ImportTxt';
+import { firstImage, ImportImage } from './ImportImage';
+import { ImportTxt, isTextFile } from './ImportTxt';
 import { DRAFT_KEY, PriorityDraftView } from './PriorityDraft';
 import { api, type LibraryFilters } from '../api/client';
 import { CorrectTitleForm, ErrorNote, Modal, useTaxonomy } from '../components/shared';
@@ -32,18 +33,21 @@ export function Catalog() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openId, setOpenId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  // RF-47: import de .txt (botão ou arquivo solto na página)
-  const [importing, setImporting] = useState<{ files: File[] } | null>(null);
+  // RF-47: import de .txt; prints: "Importar de imagem" (botão, arquivo solto ou Ctrl+V na página)
+  const [importing, setImporting] = useState<{ file: File | null } | null>(null);
+  const [importingImage, setImportingImage] = useState<{ file: File | null } | null>(null);
   const [dropping, setDropping] = useState(false);
-  // Ctrl+V de um print copiado direto no catálogo abre a importação já com ele
-  const modalOpen = importing !== null || adding || openId !== null;
+  // estáveis: o Modal refoca o primeiro campo quando o onClose muda
+  const closeImport = useCallback(() => setImporting(null), []);
+  const closeImportImage = useCallback(() => setImportingImage(null), []);
+  const modalOpen = importing !== null || importingImage !== null || adding || openId !== null;
   useEffect(() => {
     if (modalOpen) return;
     function onPaste(e: ClipboardEvent) {
-      const files = pastedFiles(e.clipboardData);
-      if (files.length === 0) return;
+      const file = firstImage(e.clipboardData?.files);
+      if (!file) return;
       e.preventDefault();
-      setImporting({ files });
+      setImportingImage({ file });
     }
     document.addEventListener('paste', onPaste);
     return () => document.removeEventListener('paste', onPaste);
@@ -217,9 +221,11 @@ export function Catalog() {
         setDropping(false);
         if (files.length === 0) return;
         e.preventDefault();
-        const accepted = files.filter(isImportFile);
-        if (accepted.length > 0) setImporting({ files: accepted });
-        else toast.show('Solte prints (PNG/JPG) ou um arquivo .txt para importar títulos.', { tone: 'error' });
+        const image = firstImage(files);
+        const text = files.find(isTextFile);
+        if (image) setImportingImage({ file: image });
+        else if (text) setImporting({ file: text });
+        else toast.show('Solte um print (PNG/JPG) ou um arquivo .txt para importar títulos.', { tone: 'error' });
       }}
     >
       <div className="page-head">
@@ -240,8 +246,11 @@ export function Catalog() {
               </>
             )}
           </Menu>
-          <button type="button" className="btn" onClick={() => setImporting({ files: [] })}>
-            <Icon name="list" /> Importar prints ou .txt
+          <button type="button" className="btn" onClick={() => setImportingImage({ file: null })}>
+            <Icon name="plus" /> Importar de imagem
+          </button>
+          <button type="button" className="btn" onClick={() => setImporting({ file: null })}>
+            <Icon name="list" /> Importar .txt
           </button>
           <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
             <Icon name="plus" /> Adicionar título
@@ -440,7 +449,8 @@ export function Catalog() {
 
       {openId && <TitleDetail id={openId} onClose={() => setOpenId(null)} />}
       {adding && <AddTitle onClose={() => setAdding(false)} />}
-      {importing && <ImportTxt initialFiles={importing.files} onClose={() => setImporting(null)} />}
+      {importing && <ImportTxt initialFile={importing.file} onClose={closeImport} />}
+      {importingImage && <ImportImage initialFile={importingImage.file} onClose={closeImportImage} />}
     </section>
   );
 }
