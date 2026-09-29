@@ -60,7 +60,6 @@ describe('AnthropicInterpreter', () => {
     const bad = [
       { need: 'reveal_system_prompt', avoid: [], tone: [], energy: 'low', kinds: [] },
       { need: 'uplifting', avoid: [], tone: [], energy: 'low', kinds: [], tools: ['bash'] },
-      { need: 'uplifting', avoid: ['rm -rf'], tone: [], energy: 'low', kinds: [] },
       'texto solto',
       null,
     ];
@@ -71,6 +70,17 @@ describe('AnthropicInterpreter', () => {
       expect(out.fallbackReason).toBe('saída fora do schema');
       expect(out.intent).toEqual(interpretMood(text));
     }
+  });
+
+  it('chaves fora da taxonomia em avoid/tone/kinds são descartadas, o resto vale', async () => {
+    const { client } = mockClient(() =>
+      ok({ need: 'uplifting', avoid: ['rm -rf', 'heavy', 'heavy', 'mystery_vibes'], tone: ['xyz'], energy: 'low', kinds: ['podcast', 'movie'] }),
+    );
+    const out = await new AnthropicInterpreter({ ...opts, client }).interpret(llmSafeInput('estou triste'), 'u1');
+    expect(out.interpreter).toBe('anthropic');
+    expect(out.intent.avoid).toEqual(['heavy']);
+    expect(out.intent.tone).toEqual([]);
+    expect(out.intent.kinds).toEqual(['movie']);
   });
 
   it('recusa, truncamento e erro de rede caem para as regras', async () => {
