@@ -45,6 +45,17 @@ export function isImportFile(file: File): boolean {
   return isTextFile(file) || isImageFile(file);
 }
 
+/** Arquivos colados (Ctrl+V de um print copiado); o navegador nomeia todos "image.png": renomeia. */
+export function pastedFiles(data: DataTransfer | null | undefined): File[] {
+  return [...(data?.files ?? [])]
+    .filter(isImportFile)
+    .map((f, i) => (isImageFile(f) ? new File([f], `print-colado-${i + 1}.${f.type.split('/')[1] || 'png'}`, { type: f.type }) : f));
+}
+
+function isEditable(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable);
+}
+
 async function waitShare(id: string): Promise<Share> {
   for (let i = 0; i < POLL_MAX; i++) {
     const s = await api.share(id);
@@ -119,6 +130,62 @@ export function ImportTxt({ initialFiles, onClose }: { initialFiles?: File[] | n
     }
   }
 
+  /** Texto colado (lista copiada de uma legenda, nota, site): vai como um .txt, uma linha por título. */
+  function loadPastedText(text: string) {
+    const content = text.replace(/\r\n?/g, '\n');
+    setError(null);
+    if (content.length > MAX_TEXT_FILE_CHARS) {
+      setError(new Error(`Texto grande demais (máximo ${MAX_TEXT_FILE_CHARS.toLocaleString('pt-BR')} caracteres). Cole em partes.`));
+      return;
+    }
+    setFile({ type: 'txt', name: 'texto colado', content });
+  }
+
+  // Ctrl+V com o modal aberto: prints (imagens copiadas) ou texto de uma lista
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  useEffect(() => {
+    function onPaste(e: ClipboardEvent) {
+      if (busyRef.current) return;
+      const files = pastedFiles(e.clipboardData);
+      if (files.length > 0) {
+        e.preventDefault();
+        void load(files);
+        return;
+      }
+      const text = e.clipboardData?.getData('text/plain') ?? '';
+      if (text.trim() && !isEditable(e.target)) {
+        e.preventDefault();
+        loadPastedText(text);
+      }
+    }
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Botão "Colar": lê a área de transferência (o navegador pede permissão na primeira vez). */
+  async function pasteFromClipboard() {
+    setError(null);
+    try {
+      const items = await navigator.clipboard.read();
+      const files: File[] = [];
+      for (const item of items) {
+        const type = item.types.find((t) => t.startsWith('image/'));
+        if (type) {
+          const blob = await item.getType(type);
+          files.push(new File([blob], `print-colado-${files.length + 1}.${type.split('/')[1]}`, { type }));
+        }
+      }
+      if (files.length > 0) return void load(files);
+      const text = await navigator.clipboard.readText();
+      if (text.trim()) return loadPastedText(text);
+      setError(new Error('A área de transferência está vazia. Copie um print ou uma lista de títulos.'));
+    } catch {
+      setError(new Error('O navegador não deixou ler a área de transferência. Use Ctrl+V (ou ⌘V) aqui na janela.'));
+    }
+  }
+
   // arquivo solto direto no catálogo (arrastar e soltar) já abre carregado
   useEffect(() => {
     if (initialFiles?.length && !started.current) {
@@ -187,10 +254,15 @@ export function ImportTxt({ initialFiles, onClose }: { initialFiles?: File[] | n
           }}
         >
           <Icon name="plus" size={22} />
-          <span>Arraste os prints ou o .txt aqui ou</span>
-          <button type="button" className="btn" data-autofocus disabled={busy === 'reading'} onClick={() => inputRef.current?.click()}>
-            Escolher arquivos
-          </button>
+          <span>Arraste os prints ou o .txt aqui, cole com Ctrl+V ou</span>
+          <span className="dropzone-actions">
+            <button type="button" className="btn" data-autofocus disabled={busy === 'reading'} onClick={() => inputRef.current?.click()}>
+              Escolher arquivos
+            </button>
+            <button type="button" className="btn" disabled={busy === 'reading'} onClick={() => void pasteFromClipboard()}>
+              Colar
+            </button>
+          </span>
           <input
             ref={inputRef}
             type="file"

@@ -6,7 +6,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { AddTitle } from './AddTitle';
-import { ImportTxt, isImportFile } from './ImportTxt';
+import { ImportTxt, isImportFile, pastedFiles } from './ImportTxt';
 import { DRAFT_KEY, PriorityDraftView } from './PriorityDraft';
 import { api, type LibraryFilters } from '../api/client';
 import { CorrectTitleForm, ErrorNote, Modal, useTaxonomy } from '../components/shared';
@@ -35,6 +35,19 @@ export function Catalog() {
   // RF-47: import de .txt (botão ou arquivo solto na página)
   const [importing, setImporting] = useState<{ files: File[] } | null>(null);
   const [dropping, setDropping] = useState(false);
+  // Ctrl+V de um print copiado direto no catálogo abre a importação já com ele
+  const modalOpen = importing !== null || adding || openId !== null;
+  useEffect(() => {
+    if (modalOpen) return;
+    function onPaste(e: ClipboardEvent) {
+      const files = pastedFiles(e.clipboardData);
+      if (files.length === 0) return;
+      e.preventDefault();
+      setImporting({ files });
+    }
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }, [modalOpen]);
   // RF-44: rascunho de priorização (persistido no servidor)
   const [draftOpen, setDraftOpen] = useState(false);
   const [draftBusy, setDraftBusy] = useState(false);

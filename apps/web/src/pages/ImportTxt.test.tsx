@@ -136,6 +136,37 @@ describe('importar prints no web', () => {
     expect(calls.some((c) => c.path === '/shares')).toBe(false);
   });
 
+  it('Ctrl+V: print copiado vai pelo OCR; texto colado vira lista (uma linha por título)', async () => {
+    __setAccessToken('tok');
+    vi.stubGlobal('crypto', { ...crypto, randomUUID: () => '88888888-8888-4888-8888-888888888888' });
+    readScreenshots.mockResolvedValue([OCR_TEXT]);
+    const { calls } = mockApi({ 'POST /shares': share('queued'), 'GET /shares/:id': share('done', 1) });
+    const user = userEvent.setup();
+    renderWithProviders(<ImportTxt onClose={vi.fn()} />);
+    const paste = (data: { files?: File[]; text?: string }) => {
+      const ev = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(ev, 'clipboardData', {
+        value: { files: data.files ?? [], getData: (t: string) => (t === 'text/plain' ? (data.text ?? '') : '') },
+      });
+      document.body.dispatchEvent(ev);
+    };
+
+    paste({ files: [new File(['x'], 'image.png', { type: 'image/png' })] });
+    expect(await screen.findByLabelText('Texto lido dos prints')).toBeTruthy();
+    expect(readScreenshots.mock.lastCall![0][0].name).toBe('print-colado-1.png');
+
+    paste({ text: 'Filmes:\nDuna (2021)\nMaid' });
+    const preview = await screen.findByLabelText('Prévia do arquivo');
+    expect(within(preview).getByText('texto colado')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Importar para a Revisão' }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.path === '/shares')?.body).toEqual({
+        clientShareId: '88888888-8888-4888-8888-888888888888',
+        textFile: { name: 'texto colado', content: 'Filmes:\nDuna (2021)\nMaid' },
+      }),
+    );
+  });
+
   it('limpa o texto do OCR: espaços, linhas vazias repetidas e limite do contrato', () => {
     expect(cleanText(['  Duna   (2021) ', '', '', '', 'Maid  ', ''].join('\r\n'))).toBe(['Duna (2021)', '', 'Maid'].join('\n'));
     expect(cleanText('x'.repeat(9000))).toHaveLength(8000);

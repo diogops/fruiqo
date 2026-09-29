@@ -799,6 +799,7 @@ html.has-docked-bulkbar .toasts { bottom: calc(5.75rem + env(safe-area-inset-bot
 
 /* importar .txt */
 .dropzone { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.6rem; padding: 1.5rem 1rem; border: 2px dashed var(--border-strong); border-radius: var(--radius-lg); color: var(--muted); text-align: center; }
+.dropzone-actions { display: inline-flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center; }
 .dropzone.dragging { border-color: var(--primary-2); background: var(--primary-soft); color: var(--text); }
 .txt-preview { border: 1px solid var(--border); border-radius: 12px; padding: 0.75rem 0.9rem; background: var(--surface-2); max-height: 40vh; overflow: auto; }
 .txt-preview ol { margin: 0.5rem 0 0; padding-left: 1.6rem; font-size: 0.86rem; }
