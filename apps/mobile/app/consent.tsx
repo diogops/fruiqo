@@ -19,7 +19,7 @@ export default function Consent() {
       <Text style={ui.h1}>Como o Fruiqo usa o que você compartilha</Text>
       <Text style={ui.body}>
         Quando você compartilha um post ou vídeo com o Fruiqo, o link e o texto recebidos são enviados ao servidor do
-        Fruiqo para identificar filmes, séries e músicas citados.
+        Fruiqo para identificar filmes, séries, livros e músicas citados.
       </Text>
       <Text style={ui.body}>
         Quando a análise por inteligência artificial estiver habilitada, esse conteúdo também é enviado à Anthropic

@@ -215,7 +215,7 @@ export function Layout() {
                 ref={searchRef}
                 type="search"
                 aria-label="Buscar no catálogo"
-                placeholder="Buscar filmes, séries e músicas…"
+                placeholder="Buscar filmes, séries, livros e músicas…"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 onKeyDown={(e) => {

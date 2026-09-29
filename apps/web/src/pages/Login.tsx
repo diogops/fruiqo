@@ -102,7 +102,7 @@ export function Login() {
         </div>
         <div>
           <h2>Seu cinema, organizado.</h2>
-          <p>Tudo o que você salvou dos posts vira uma fila de filmes, séries e músicas — priorizada do seu jeito.</p>
+          <p>Tudo o que você salvou dos posts vira uma fila de filmes, séries, livros e músicas — priorizada do seu jeito.</p>
         </div>
         <span className="login-foot">Dados de filmes e séries: TMDB · Disponibilidade: JustWatch</span>
       </section>
@@ -119,7 +119,7 @@ export function Login() {
           <div>
             <h1>{signup ? 'Criar conta' : 'Entrar'}</h1>
             <p className="page-sub">
-              {signup ? 'Crie seu acesso para organizar seu catálogo.' : 'Organize seu catálogo de filmes, séries e músicas.'}
+              {signup ? 'Crie seu acesso para organizar seu catálogo.' : 'Organize seu catálogo de filmes, séries, livros e músicas.'}
             </p>
           </div>
           <label>

@@ -211,7 +211,7 @@ export function Catalog() {
       <div className="page-head">
         <div>
           <h1>Catálogo</h1>
-          <p className="page-sub">Sua fila de filmes, séries e músicas — #1 é o próximo da vez.</p>
+          <p className="page-sub">Sua fila de filmes, séries, livros e músicas — #1 é o próximo da vez.</p>
         </div>
         <div className="head-actions">
           <Menu label="Sugerir priorização" triggerClassName="btn" trigger={<><Icon name="sparkles" /> Sugerir priorização</>}>
