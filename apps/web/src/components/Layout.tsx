@@ -9,6 +9,7 @@ import { BrandMark, Icon, Menu, MQ, ThemeToggle, useFocusTrap, useMediaQuery, ty
 
 const NAV: { to: string; label: string; icon: IconName }[] = [
   { to: '/catalogo', label: 'Catálogo', icon: 'film' },
+  { to: '/como-estou', label: 'Como estou', icon: 'sparkles' },
   { to: '/listas', label: 'Listas', icon: 'list' },
   { to: '/revisao', label: 'Revisão', icon: 'review' },
   { to: '/atividade', label: 'Atividade', icon: 'activity' },

@@ -69,7 +69,7 @@ export function Profile() {
     if (
       next &&
       !window.confirm(
-        'Permitir IA externa? O texto que você escrever no "Como estou" será enviado à Anthropic (provedora do Claude), com servidores fora do Brasil, só para interpretar o pedido. Ele não é guardado nem usado para treinar modelos.',
+        'Permitir IA externa? O texto que você escrever no "Como estou" e nas buscas por descrição será enviado à Anthropic (provedora do Claude), com servidores fora do Brasil, só para interpretar o pedido. Ele não é guardado nem usado para treinar modelos.',
       )
     )
       return;
@@ -211,7 +211,7 @@ export function Profile() {
           </label>
           <label className="check">
             <input type="checkbox" checked={settings.data.aiConsent} onChange={(e) => toggleAi(e.target.checked)} /> Permitir
-            IA externa no "Como estou"
+            IA externa no "Como estou" e na busca por descrição
             <span className="muted small">
               {' '}
               ·{' '}

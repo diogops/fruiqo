@@ -3,6 +3,11 @@
 // navegador manda sozinho com `credentials: 'include'`. O cabeçalho X-Fruiqo-Client identifica o
 // web e protege o refresh por cookie contra CSRF.
 import {
+  DiscoverResponseSchema,
+  FeedbackResponseSchema,
+  HomeResponseSchema,
+  type DiscoverRequest,
+  type FeedbackRequest,
   DELETE_ACCOUNT_CONFIRMATION,
   EnrichResponseSchema,
   ActivityResponseSchema,
@@ -196,6 +201,11 @@ export type LibraryFilters = Partial<Omit<LibraryQuery, 'cursor'>>;
 
 export const api = {
   taxonomy: () => request(TaxonomyResponseSchema, '/taxonomy/genres'),
+
+  // "Como estou" e "Surpreenda-me" (RF-31..37): ranking local; IA só com consentimento (D-08)
+  home: () => request(HomeResponseSchema, '/home'),
+  discover: (body: DiscoverRequest) => request(DiscoverResponseSchema, '/discover', 'POST', body),
+  feedback: (body: FeedbackRequest) => request(FeedbackResponseSchema, '/feedback', 'POST', body),
 
   library: (filters: LibraryFilters, cursor?: string) =>
     request(LibraryResponseSchema, `/library${qs({ ...filters, cursor })}`),

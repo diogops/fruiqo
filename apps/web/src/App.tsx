@@ -8,6 +8,7 @@ import { Activity, ActivityDetail } from './pages/Activity';
 import { Catalog } from './pages/Catalog';
 import { ListDetail, Lists } from './pages/Lists';
 import { Login } from './pages/Login';
+import { Discover } from './pages/Discover';
 import { Profile } from './pages/Profile';
 import { Review } from './pages/Review';
 import { Sandbox } from './pages/Sandbox';
@@ -22,6 +23,7 @@ function Gate() {
       <Route element={<Layout />}>
         <Route index element={<Navigate to="/catalogo" replace />} />
         <Route path="catalogo" element={<Catalog />} />
+        <Route path="como-estou" element={<Discover />} />
         <Route path="listas" element={<Lists />} />
         <Route path="listas/:id" element={<ListDetail />} />
         <Route path="revisao" element={<Review />} />
