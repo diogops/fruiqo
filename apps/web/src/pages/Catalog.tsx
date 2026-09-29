@@ -1,7 +1,7 @@
 import { DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { type BulkOperation, type MoveTitleRequest, providerSiteUrl, type Title, type TitleStatus, type WatchProvider } from '@fruiqo/contracts';
+import { type BulkOperation, type MoveTitleRequest, providerTitleLink, type Title, type TitleStatus, type WatchProvider } from '@fruiqo/contracts';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Link, useSearchParams } from 'react-router';
@@ -661,7 +661,14 @@ const RATINGS = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
 const PROVIDER_TYPE: Record<WatchProvider['type'], string> = { flatrate: 'Assinatura', rent: 'Aluguel', buy: 'Compra' };
 
 /** Um logo por serviço e tipo (o TMDB repete variantes como "com anúncios"). Com `fallbackUrl`, cada logo vira link. */
-export function ProviderLogos({ providers, fallbackUrl }: { providers: WatchProvider[]; fallbackUrl?: string }) {
+export function ProviderLogos({
+  providers,
+  link,
+}: {
+  providers: WatchProvider[];
+  /** com `link`, cada logo abre o título no serviço (D-22): direto, busca ou página inicial; senão a página do TMDB */
+  link?: { title: string; titleLinks?: Partial<Record<string, string>>; fallbackUrl?: string };
+}) {
   const groups = (['flatrate', 'rent', 'buy'] as const)
     .map((type) => {
       const seen = new Set<string>();
@@ -679,9 +686,17 @@ export function ProviderLogos({ providers, fallbackUrl }: { providers: WatchProv
             ) : (
               <span className="provider-name">{p.name}</span>
             );
-            const href = fallbackUrl !== undefined ? (providerSiteUrl(p.name) ?? (fallbackUrl || undefined)) : undefined;
+            const target = link ? providerTitleLink(p.name, link.title, link.titleLinks) : undefined;
+            const href = link ? (target?.url ?? link.fallbackUrl) : undefined;
+            const label = !link
+              ? p.name
+              : target?.kind === 'title'
+                ? `Abrir "${link.title}" no ${p.name}`
+                : target?.kind === 'search'
+                  ? `Buscar "${link.title}" no ${p.name}`
+                  : `Abrir ${p.name}`;
             return href ? (
-              <a key={p.name} href={href} target="_blank" rel="noopener noreferrer" className="provider-link" aria-label={`Abrir ${p.name}`}>
+              <a key={p.name} href={href} target="_blank" rel="noopener noreferrer" className="provider-link" aria-label={label} title={label}>
                 {content}
               </a>
             ) : (
@@ -817,7 +832,7 @@ function TitleDetail({ id, onClose }: { id: string; onClose: () => void }) {
                 {/* TOS-REQ-38: crédito à JustWatch em cada exibição de onde assistir */}
                 {(t.watchProvidersBR?.length ?? 0) > 0 && <span className="muted small watch-credit">via JustWatch</span>}
               </h3>
-              <ProviderLogos providers={t.watchProvidersBR ?? []} fallbackUrl={t.watchUrl ?? ''} />
+              <ProviderLogos providers={t.watchProvidersBR ?? []} link={{ title: t.title, titleLinks: t.resolution?.titleLinks, fallbackUrl: t.watchUrl }} />
               {t.watchUrl && (
                 <p className="small">
                   <a href={t.watchUrl} target="_blank" rel="noopener noreferrer">

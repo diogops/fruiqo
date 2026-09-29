@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { providerKeyFromTmdbName } from '../../library/providers.js';
 import type { MatchAlternativeRow } from '../../db/schema.js';
 import type { ExtractedItem } from '../extractors/types.js';
+import { fetchTitleLinks } from './wikidata.js';
 import { safeFetchJson, type SafeFetchOptions } from '../safe-fetch.js';
 import { type MatchCandidate, matchScore, STRONG_MATCH } from './match.js';
 
@@ -186,7 +187,11 @@ export class TmdbResolver {
       if (!base && !title) return null;
       const year = yearOf(d.release_date || d.first_air_date);
       const head = base ?? baseResolution({ tmdbId: d.id, mediaType, title: title!, ...(year ? { year } : {}) });
-      return { ...head, ...detailFields(d) };
+      const details = detailFields(d);
+      // D-22: link direto ao título em cada serviço, só quando há onde assistir no Brasil
+      const titleLinks = details.providers?.length ? await fetchTitleLinks(mediaType, id, this.fetchImpl) : {};
+      // vazio também é gravado: marca que o Wikidata já foi consultado (não repete a cada abertura)
+      return { ...head, ...details, ...(details.providers?.length ? { titleLinks } : {}) };
     } catch {
       // detalhes são opcionais: a correspondência continua válida sem eles
       return base;

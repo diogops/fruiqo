@@ -13,6 +13,8 @@ export const ALLOWED_HOSTS = new Set([
   // RF-48 (D-21): livros
   'openlibrary.org',
   'covers.openlibrary.org',
+  // D-22: IDs dos serviços de streaming por título (Wikidata, CC0)
+  'query.wikidata.org',
 ]);
 
 export class SafeFetchError extends Error {

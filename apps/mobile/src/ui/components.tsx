@@ -1,4 +1,4 @@
-import { JUSTWATCH_ATTRIBUTION, providerSiteUrl, type ShareStatus, TMDB_ATTRIBUTION, type Title, type WatchProvider } from '@fruiqo/contracts';
+import { JUSTWATCH_ATTRIBUTION, providerTitleLink, type ShareStatus, TMDB_ATTRIBUTION, type Title, type WatchProvider } from '@fruiqo/contracts';
 import { ActivityIndicator, Image, Linking, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -198,7 +198,7 @@ export function groupProviders(providers: WatchProvider[]): [WatchProvider['type
  * RF-38 / TOS-REQ-01: onde assistir no Brasil (dados do TMDB, fonte JustWatch). O botão abre a
  * página pública do TMDB, nunca um deep link para o app de streaming (TOS-REQ-17).
  */
-export function WatchProviders({ title, compact }: { title: Pick<Title, 'watchProvidersBR' | 'watchUrl' | 'resolution'>; compact?: boolean }) {
+export function WatchProviders({ title, compact }: { title: Pick<Title, 'title' | 'watchProvidersBR' | 'watchUrl' | 'resolution'>; compact?: boolean }) {
   const providers = title.watchProvidersBR ?? [];
   if (providers.length === 0 && !title.watchUrl) return null;
   const groups = groupProviders(providers);
@@ -213,10 +213,14 @@ export function WatchProviders({ title, compact }: { title: Pick<Title, 'watchPr
             ) : (
               <Text style={styles.providerName}>{p.name}</Text>
             );
-            // toque no logo abre o site do serviço (URL pública, TOS-REQ-17); desconhecido → página do TMDB
-            const url = providerSiteUrl(p.name) ?? title.watchUrl;
+            // D-22: toque no logo abre o título no site do serviço (direto pelo Wikidata, senão a busca,
+            // senão a página inicial); serviço desconhecido → página do TMDB
+            const target = providerTitleLink(p.name, title.title, title.resolution?.titleLinks);
+            const url = target?.url ?? title.watchUrl;
+            const label =
+              target?.kind === 'title' ? `Abrir "${title.title}" no ${p.name}` : target?.kind === 'search' ? `Buscar "${title.title}" no ${p.name}` : `Abrir ${p.name}`;
             return url ? (
-              <Pressable key={p.name} accessibilityRole="link" accessibilityLabel={`Abrir ${p.name}`} onPress={() => openExternal(url)} hitSlop={4}>
+              <Pressable key={p.name} accessibilityRole="link" accessibilityLabel={label} onPress={() => openExternal(url)} hitSlop={4}>
                 {logo}
               </Pressable>
             ) : (

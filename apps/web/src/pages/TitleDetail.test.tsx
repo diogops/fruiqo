@@ -16,8 +16,16 @@ describe('detalhe do título', () => {
       rank: 1,
       overview: 'A história da explosão na usina.',
       watchUrl: 'https://www.themoviedb.org/tv/87108/watch?locale=BR',
+      resolution: {
+        provider: 'tmdb',
+        externalId: 'tv:87108',
+        title: 'Chernobyl',
+        url: 'https://www.themoviedb.org/tv/87108',
+        titleLinks: { max: 'https://play.hbomax.com/series/urn:hbo:series:GXJvkMAU0JIG6gAEAAAIo' },
+      },
       watchProvidersBR: [
         { name: 'Max', type: 'flatrate', logoUrl: 'https://image.tmdb.org/t/p/w92/max.png' },
+        { name: 'Netflix', type: 'flatrate', logoUrl: 'https://image.tmdb.org/t/p/w92/nf.png' },
         { name: 'Serviço Novo', type: 'flatrate', logoUrl: 'https://image.tmdb.org/t/p/w92/novo.png' },
       ],
     });
@@ -36,8 +44,13 @@ describe('detalhe do título', () => {
     // TOS-REQ-38: crédito à JustWatch junto do onde assistir; o texto do TMDB fica nos Créditos
     expect(await within(dialog).findByText('via JustWatch')).toBeTruthy();
     expect(within(dialog).queryByText(/not endorsed/)).toBeNull();
-    // serviço conhecido abre o site dele; desconhecido cai na página do TMDB
-    expect(within(dialog).getByRole('link', { name: 'Abrir Max' }).getAttribute('href')).toBe('https://www.max.com/br/pt');
+    // D-22: título direto (Wikidata) → busca no serviço → página do TMDB para serviço desconhecido
+    expect(within(dialog).getByRole('link', { name: 'Abrir "Chernobyl" no Max' }).getAttribute('href')).toBe(
+      'https://play.hbomax.com/series/urn:hbo:series:GXJvkMAU0JIG6gAEAAAIo',
+    );
+    expect(within(dialog).getByRole('link', { name: 'Buscar "Chernobyl" no Netflix' }).getAttribute('href')).toBe(
+      'https://www.netflix.com/search?q=Chernobyl',
+    );
     expect(within(dialog).getByRole('link', { name: 'Abrir Serviço Novo' }).getAttribute('href')).toBe(t.watchUrl);
 
     // o resto fica em "Edição avançada", fechado por padrão

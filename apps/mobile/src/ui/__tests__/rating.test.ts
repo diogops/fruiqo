@@ -20,11 +20,11 @@ describe('nota em estrelas (meia em meia)', () => {
   });
 });
 
-describe('site do serviço (TOS-REQ-17: só a página inicial pública)', () => {
+describe('site do serviço (D-22)', () => {
   it('conhecidos vão para o site; desconhecido fica sem URL', () => {
     expect(providerSiteUrl('Netflix Standard with Ads')).toBe('https://www.netflix.com/br/');
     expect(providerSiteUrl('Amazon Prime Video')).toBe('https://www.primevideo.com/');
-    expect(providerSiteUrl('HBO Max')).toBe('https://www.max.com/br/pt');
+    expect(providerSiteUrl('HBO Max')).toBe('https://www.hbomax.com/br/pt');
     expect(providerSiteUrl('Maxplus Qualquer')).toBeUndefined();
     expect(providerSiteUrl('Serviço Novo')).toBeUndefined();
   });

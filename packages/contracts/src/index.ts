@@ -128,8 +128,13 @@ export const ResolutionSchema = z.object({
   genreIds: z.array(z.number().int()).optional(),
   /** disponibilidade BR detalhada (fonte: TMDB, dados da JustWatch) */
   providers: z.array(z.lazy(() => WatchProviderSchema)).optional(),
-  /** página pública "onde assistir" do TMDB (sem deep link para os apps de streaming, TOS-REQ-17) */
+  /** página pública "onde assistir" do TMDB */
   watchUrl: z.url().optional(),
+  /**
+   * D-22: página pública do título em cada serviço (chave de `STREAMING_LINK_KEYS`), montada a partir
+   * dos IDs do Wikidata (CC0) por modelos fixos no servidor. Só https do site do serviço.
+   */
+  titleLinks: z.record(z.string().max(32), z.url()).optional(),
   // ---- livros (RF-48, D-21): Open Library; cache de 30 dias (TOS-REQ-62); capa nunca vai ao LLM (TOS-REQ-66) ----
   /** ID da obra na Open Library (ex.: OL45883W) */
   olWorkId: z.string().max(40).optional(),
@@ -155,28 +160,58 @@ export const TMDB_ATTRIBUTION = 'This product uses the TMDB API but is not endor
 export const JUSTWATCH_ATTRIBUTION = 'Dados de disponibilidade: JustWatch';
 
 /**
- * Página inicial pública de cada serviço de streaming, pelo nome que o TMDB devolve. TOS-REQ-17: só
- * URL pública padrão, nunca deep link para o título. Serviço fora da lista: quem chama cai para a
- * página "onde assistir" do TMDB.
+ * Serviços de streaming pelo nome que o TMDB devolve (D-22). Todo link é página pública do site do
+ * serviço (nunca esquema de app): o título direto quando o Wikidata tem o ID (`titleLinks`), senão
+ * a busca do serviço com o nome do título, senão a página inicial.
  */
-const PROVIDER_SITES: [RegExp, string][] = [
-  [/^netflix/i, 'https://www.netflix.com/br/'],
-  [/^(amazon )?prime video/i, 'https://www.primevideo.com/'],
-  [/^disney/i, 'https://www.disneyplus.com/pt-br'],
-  [/^(hbo )?max\b/i, 'https://www.max.com/br/pt'],
-  [/^globoplay/i, 'https://globoplay.globo.com/'],
-  [/^apple tv/i, 'https://tv.apple.com/br'],
-  [/^paramount/i, 'https://www.paramountplus.com/br/'],
-  [/^mubi/i, 'https://mubi.com/pt/br'],
-  [/^crunchyroll/i, 'https://www.crunchyroll.com/pt-br'],
-  [/^telecine/i, 'https://www.telecine.com.br/'],
-  [/^claro tv/i, 'https://www.clarotvmais.com.br/'],
-  [/^google play/i, 'https://play.google.com/store/movies'],
-  [/^youtube/i, 'https://www.youtube.com/'],
+export const STREAMING_LINK_KEYS = ['netflix', 'prime_video', 'disney_plus', 'max', 'globoplay', 'apple_tv', 'mubi', 'crunchyroll'] as const;
+export type StreamingLinkKey = (typeof STREAMING_LINK_KEYS)[number];
+
+const SERVICES: { match: RegExp; key?: StreamingLinkKey; home: string; search?: string }[] = [
+  { match: /^netflix/i, key: 'netflix', home: 'https://www.netflix.com/br/', search: 'https://www.netflix.com/search?q=' },
+  { match: /^(amazon )?(prime )?video/i, key: 'prime_video', home: 'https://www.primevideo.com/', search: 'https://www.primevideo.com/search/?phrase=' },
+  { match: /^disney/i, key: 'disney_plus', home: 'https://www.disneyplus.com/pt-br', search: 'https://www.disneyplus.com/pt-br/search?q=' },
+  { match: /^(hbo )?max\b/i, key: 'max', home: 'https://www.hbomax.com/br/pt', search: 'https://play.hbomax.com/search?q=' },
+  { match: /^globoplay/i, key: 'globoplay', home: 'https://globoplay.globo.com/', search: 'https://globoplay.globo.com/busca/?q=' },
+  { match: /^apple tv/i, key: 'apple_tv', home: 'https://tv.apple.com/br', search: 'https://tv.apple.com/br/search?term=' },
+  { match: /^mubi/i, key: 'mubi', home: 'https://mubi.com/pt/br', search: 'https://mubi.com/pt/br/search/films?query=' },
+  { match: /^crunchyroll/i, key: 'crunchyroll', home: 'https://www.crunchyroll.com/pt-br', search: 'https://www.crunchyroll.com/pt-br/search?q=' },
+  { match: /^paramount/i, home: 'https://www.paramountplus.com/br/' },
+  { match: /^telecine/i, home: 'https://www.telecine.com.br/' },
+  { match: /^claro tv/i, home: 'https://www.clarotvmais.com.br/' },
+  { match: /^google play/i, home: 'https://play.google.com/store/movies', search: 'https://play.google.com/store/search?c=movies&q=' },
+  { match: /^youtube/i, home: 'https://www.youtube.com/', search: 'https://www.youtube.com/results?search_query=' },
 ];
 
+function serviceOf(name: string) {
+  return SERVICES.find((s) => s.match.test(name.trim()));
+}
+
+/** Página inicial pública do serviço. */
 export function providerSiteUrl(name: string): string | undefined {
-  return PROVIDER_SITES.find(([re]) => re.test(name.trim()))?.[1];
+  return serviceOf(name)?.home;
+}
+
+/** Chave do link direto (Wikidata) para o nome do provedor do TMDB. */
+export function streamingLinkKey(name: string): StreamingLinkKey | undefined {
+  return serviceOf(name)?.key;
+}
+
+/**
+ * Melhor link para abrir o título no serviço: direto (`title`), busca com o nome (`search`) ou a
+ * página inicial (`home`). Serviço desconhecido: undefined (quem chama cai para a página do TMDB).
+ */
+export function providerTitleLink(
+  name: string,
+  title: string,
+  titleLinks?: Partial<Record<string, string>>,
+): { url: string; kind: 'title' | 'search' | 'home' } | undefined {
+  const s = serviceOf(name);
+  if (!s) return undefined;
+  const direct = s.key ? titleLinks?.[s.key] : undefined;
+  if (direct) return { url: direct, kind: 'title' };
+  if (s.search && title.trim()) return { url: s.search + encodeURIComponent(title.trim()), kind: 'search' };
+  return { url: s.home, kind: 'home' };
 }
 
 export const RecommendationSchema = z.object({

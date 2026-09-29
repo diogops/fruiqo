@@ -6,6 +6,7 @@ import { DB, type Db, withUser } from '../db/client.js';
 import { recommendations, type RecommendationRow } from '../db/schema.js';
 import { GatewayError, PipelineGateway } from '../pipeline/gateway.js';
 import type { TmdbQuery } from '../pipeline/resolvers/tmdb.js';
+import { fetchTitleLinks, type TitleLinks } from '../pipeline/resolvers/wikidata.js';
 import { createOpenLibraryCatalog } from './openlibrary-catalog.js';
 import { createTmdbCatalog } from './tmdb-catalog.js';
 import { enrichmentUpdate } from './tmdb-enrichment.js';
@@ -23,6 +24,8 @@ export interface LookupQuery {
 /** Busca de título num catálogo externo: TMDB (filmes/séries) e Open Library (livros, RF-48). */
 export interface TitleLookup {
   lookup(q: LookupQuery): Promise<Resolution | null>;
+  /** D-22: links diretos do título nos serviços (Wikidata) */
+  titleLinks?(mediaType: 'movie' | 'tv', tmdbId: number): Promise<TitleLinks>;
 }
 
 /** Catálogos pelo PipelineGateway do modo configurado; em `mock` usa as gravações sintéticas. */
@@ -41,6 +44,7 @@ export function createTitleLookup(
       if (!tmdb) throw new GatewayError('TMDB indisponível (sem chave)');
       return tmdb.lookup({ title: q.title, kind: q.kind, ...(q.year ? { year: q.year } : {}) });
     },
+    titleLinks: (mediaType, tmdbId) => fetchTitleLinks(mediaType, tmdbId, gw.fetchImpl),
   };
 }
 
@@ -77,6 +81,24 @@ export class EnrichmentService {
     @Inject(DB) private readonly db: Db,
     @Optional() @Inject(TITLE_LOOKUP) private readonly lookup: TitleLookup | null,
   ) {}
+
+  /**
+   * D-22: títulos enriquecidos antes dos links diretos ganham os links na primeira abertura. Consulta
+   * o Wikidata uma vez só (grava `titleLinks`, mesmo vazio); falha de rede não impede abrir o título.
+   */
+  async ensureTitleLinks(userId: string, id: string): Promise<void> {
+    if (!this.lookup?.titleLinks) return;
+    const row = await withUser(this.db, userId, async (tx) => (await tx.select().from(recommendations).where(eq(recommendations.id, id)))[0]);
+    const res = row?.resolution;
+    if (!res || res.provider !== 'tmdb' || res.titleLinks !== undefined || !res.tmdbId || !res.mediaType || !res.providers?.length) return;
+    const titleLinks = await this.lookup.titleLinks(res.mediaType, res.tmdbId);
+    await withUser(this.db, userId, (tx) =>
+      tx
+        .update(recommendations)
+        .set({ resolution: { ...res, titleLinks } })
+        .where(eq(recommendations.id, id)),
+    );
+  }
 
   get available(): boolean {
     return this.lookup != null;

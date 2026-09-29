@@ -43,7 +43,9 @@ export class LibraryController {
   }
 
   @Get(':id')
-  get(@CurrentAuth() auth: AccessClaims, @Param('id', new ParseUUIDPipe()) id: string): Promise<Title> {
+  async get(@CurrentAuth() auth: AccessClaims, @Param('id', new ParseUUIDPipe()) id: string): Promise<Title> {
+    // D-22: links diretos nos serviços para títulos enriquecidos antes deles (uma vez por título)
+    await this.enrichment.ensureTitleLinks(auth.userId, id).catch(() => undefined);
     return this.library.get(auth.userId, id);
   }
 
