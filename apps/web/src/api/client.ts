@@ -146,6 +146,13 @@ export async function login(email: string, password: string): Promise<void> {
   accessToken = WebSessionResponseSchema.parse(await res.json()).accessToken;
 }
 
+/** Cadastro pelo fluxo web: a API devolve a sessão (refresh em cookie), então já entra. */
+export async function register(email: string, password: string): Promise<void> {
+  const res = await send('/auth/register', 'POST', { email, password, deviceName: 'Navegador (web)' }, false);
+  if (!res.ok) throw await toError(res);
+  accessToken = WebSessionResponseSchema.parse(await res.json()).accessToken;
+}
+
 export async function logout(): Promise<void> {
   try {
     if (accessToken) await send('/auth/logout', 'POST', undefined, true);

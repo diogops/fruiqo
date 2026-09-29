@@ -725,3 +725,21 @@ html.has-docked-bulkbar .toasts { bottom: calc(5.75rem + env(safe-area-inset-bot
   .login-panel { padding: 1rem; }
   .login .card { padding: 1.35rem; }
 }
+
+/* login: alternância Entrar/Criar conta, senha e força */
+.auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 0.25rem; padding: 0.25rem; border-radius: 12px; background: rgb(148 163 184 / 0.12); }
+.auth-tabs button { border: 0; background: transparent; color: var(--text-2); font: inherit; font-weight: 600; padding: 0.6rem; border-radius: 9px; cursor: pointer; min-height: 40px; }
+.auth-tabs button.active { background: var(--grad-brand); color: #fff; box-shadow: 0 4px 14px rgb(37 99 235 / 0.35); }
+.auth-tabs button:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
+.password-field { display: flex; gap: 0.5rem; align-items: stretch; }
+.password-field input { flex: 1; min-width: 0; }
+.password-toggle { white-space: nowrap; }
+.pw-strength { display: flex; align-items: center; gap: 0.6rem; font-size: 0.8rem; color: var(--text-2); margin-top: -0.4rem; }
+.pw-bar { display: inline-flex; gap: 3px; }
+.pw-bar i { width: 26px; height: 5px; border-radius: 3px; background: rgb(148 163 184 / 0.25); }
+.pw-1 .pw-bar i:nth-child(-n+1) { background: var(--danger); }
+.pw-2 .pw-bar i:nth-child(-n+2) { background: #f59e0b; }
+.pw-3 .pw-bar i { background: #22c55e; }
+.form p.error:empty { display: none; }
+.form .field { display: flex; flex-direction: column; gap: 0.35rem; }
+.form .field > label { font-size: 0.86rem; font-weight: 600; color: var(--text-2); }

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { login as apiLogin, logout as apiLogout, onSessionLost, refreshSession } from '../api/client';
+import { login as apiLogin, logout as apiLogout, onSessionLost, refreshSession, register as apiRegister } from '../api/client';
 
 type AuthState = 'checking' | 'signed_out' | 'signed_in';
 
@@ -7,6 +7,7 @@ interface AuthValue {
   state: AuthState;
   email: string | null;
   signIn: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -51,6 +52,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState('signed_in');
   }, []);
 
+  const signUp = useCallback(async (e: string, password: string) => {
+    await apiRegister(e, password);
+    const normalized = e.trim().toLowerCase();
+    writeEmail(normalized);
+    setEmail(normalized);
+    setState('signed_in');
+  }, []);
+
   const signOut = useCallback(async () => {
     await apiLogout();
     writeEmail(null);
@@ -58,7 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState('signed_out');
   }, []);
 
-  const value = useMemo(() => ({ state, email, signIn, signOut }), [state, email, signIn, signOut]);
+  const value = useMemo(() => ({ state, email, signIn, signUp, signOut }), [state, email, signIn, signUp, signOut]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
