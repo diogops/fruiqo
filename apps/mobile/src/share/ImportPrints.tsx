@@ -3,7 +3,8 @@
 // que entregam só o que o usuário escolhe: nenhuma permissão de galeria/armazenamento é pedida.
 // Câmera pede permissão só no momento do uso. As imagens seguem o mesmo caminho do share
 // (useImageIngestion → OCR no device → CreateShareRequest.pages). RF-47: arquivos .txt são lidos
-// no aparelho e enviados em `textFile`; tudo cai na Revisão (RF-42).
+// no aparelho e enviados em `textFile`; tudo cai na Revisão (RF-42). "Colar" lê a área de transferência:
+// print copiado vai pelo mesmo OCR; texto copiado vira um .txt (src/share/clipboard.ts).
 import { MAX_SCREENSHOT_PAGES } from '@fruiqo/contracts';
 import { randomUUID } from 'expo-crypto';
 import * as DocumentPicker from 'expo-document-picker';
@@ -16,6 +17,7 @@ import { buildTextFileRequest, isImageFile, isTextFile } from '../catalog/logic'
 import { useAppState } from '../state/AppState';
 import { Button } from '../ui/components';
 import { colors, ui } from '../ui/theme';
+import { readClipboard } from './clipboard';
 import { selectPickedImages, type PickerAsset } from './ingestImages';
 import { OcrProgressModal, useImageIngestion } from './useImageIngestion';
 
@@ -116,6 +118,33 @@ export function ImportPrints({ label = 'Importar', compact }: { label?: string; 
     await finish(images);
   }
 
+  /** Print copiado → OCR no aparelho; texto copiado (lista) → mesmo caminho do .txt. */
+  async function fromClipboard() {
+    setOpen(false);
+    let content: Awaited<ReturnType<typeof readClipboard>>;
+    try {
+      content = await readClipboard();
+    } catch {
+      Alert.alert('Não foi possível colar', 'Não consegui ler a área de transferência. Tente copiar de novo.');
+      return;
+    }
+    if (content.kind === 'image') {
+      await finish([{ uri: content.uri, mimeType: 'image/png', type: 'image' }]);
+      return;
+    }
+    if (content.kind === 'text') {
+      const built = buildTextFileRequest('texto colado', content.text, randomUUID);
+      if (built.kind === 'empty') {
+        Alert.alert('Nada para importar', 'O texto copiado não tem títulos.');
+        return;
+      }
+      if (built.truncated) Alert.alert('Texto grande', 'Só o começo do texto foi enviado (limite de tamanho).');
+      setPendingShare(built.request);
+      return;
+    }
+    Alert.alert('Área de transferência vazia', 'Copie um print ou uma lista de títulos e toque em Colar.');
+  }
+
   async function fromCamera() {
     setOpen(false);
     const perm = await ImagePicker.requestCameraPermissionsAsync();
@@ -149,6 +178,7 @@ export function ImportPrints({ label = 'Importar', compact }: { label?: string; 
             antes de entrar no catálogo.
           </Text>
           <Button title="Galeria" icon="images" onPress={fromGallery} />
+          <Button title="Colar (print ou lista copiada)" icon="clipboard-outline" variant="secondary" onPress={fromClipboard} />
           <Button title="Arquivos (.txt ou imagens)" icon="document-text-outline" variant="secondary" onPress={fromFiles} />
           <Button title="Câmera" icon="camera-outline" variant="secondary" onPress={fromCamera} />
           <Button title="Cancelar" variant="secondary" onPress={() => setOpen(false)} />
