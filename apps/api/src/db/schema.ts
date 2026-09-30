@@ -130,7 +130,15 @@ export const recommendations = pgTable(
     /** ordem do item no conteúdo importado (posição na lista proposta) */
     sourcePosition: integer('source_position'),
     // ---- catálogo (a recomendação catalogada é o "título" do usuário; ver README) ----
-    status: text('status', { enum: ['to_watch', 'watching', 'watched', 'dropped'] }).notNull().default('to_watch'),
+    /**
+     * D-23: `catalog` = está no catálogo do usuário sem intenção de ver agora; Minha Área =
+     * `to_watch` (Quero assistir), `watching` (com `watchOn`) e `watched`.
+     */
+    status: text('status', { enum: ['catalog', 'to_watch', 'watching', 'watched', 'dropped'] }).notNull().default('to_watch'),
+    /** onde está assistindo (chave de STREAMING_PROVIDERS ou texto livre do usuário) */
+    watchOn: text('watch_on'),
+    /** nota automática 0.5..5, calculada localmente do gosto do usuário (sem LLM, ARB-REQ-06) */
+    autoRating: real('auto_rating'),
     /**
      * posição na fila de prioridade do usuário (1 = mais prioritário), única e contínua entre os
      * catalogados; null na fila de revisão. Mantida por triggers + unicidade DEFERRABLE (0008_title_rank.sql).

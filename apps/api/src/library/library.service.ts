@@ -17,6 +17,7 @@ import type {
   Title,
   UpdateTitleRequest,
 } from '@fruiqo/contracts';
+import { MY_AREA_STATUSES } from '@fruiqo/contracts';
 import {
   GENRE_KEYS,
   type GenreKey,
@@ -31,7 +32,8 @@ import {
   interpretTasteStatement,
   matchesRule,
 } from '@fruiqo/taxonomy';
-import { and, asc, desc, eq, gte, ilike, inArray, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { recomputeAutoRatings } from './auto-rating.js';
 import { ENV, type Env } from '../config/env.js';
 import { DB, type Db, type Tx, withUser } from '../db/client.js';
 import {
@@ -105,6 +107,8 @@ export class LibraryService {
         eq(recommendations.decision, q.review === 'pending' ? 'review_queue' : 'cataloged'),
         q.status ? eq(recommendations.status, q.status) : undefined,
         !q.status && q.hideWatched ? ne(recommendations.status, 'watched') : undefined,
+        // D-23: Minha Área = Quero assistir, Assistindo, Assistido
+        !q.status && q.area ? inArray(recommendations.status, [...MY_AREA_STATUSES]) : undefined,
         q.shareId ? eq(recommendations.shareId, q.shareId) : undefined,
         q.kind ? eq(recommendations.kind, q.kind) : undefined,
         q.genre ? sql`${q.genre} = ANY(${recommendations.genres})` : undefined,
@@ -116,12 +120,9 @@ export class LibraryService {
             )
           : undefined,
       );
-      const order =
-        q.sort === 'recent'
-          ? [desc(recommendations.createdAt), desc(recommendations.id)]
-          : q.sort === 'title'
-            ? [asc(recommendations.title), asc(recommendations.id)]
-            : [sql`${recommendations.rank} asc nulls last`, asc(recommendations.createdAt), asc(recommendations.id)];
+      // notas automáticas que faltam (títulos novos): preenche antes de ordenar
+      await this.fillMissingAutoRatings(tx);
+      const order = libraryOrder(q.sort);
       const rows = await tx
         .select()
         .from(recommendations)
@@ -135,6 +136,21 @@ export class LibraryService {
         nextCursor: rows.length > q.limit ? encodeCursor(offset + q.limit) : null,
       };
     });
+  }
+
+  private async fillMissingAutoRatings(tx: Tx): Promise<void> {
+    const missing = await tx
+      .select({ id: recommendations.id })
+      .from(recommendations)
+      .where(
+        and(
+          eq(recommendations.decision, 'cataloged'),
+          isNull(recommendations.autoRating),
+          // só quem tem base (gêneros ou nota geral): sem base continua nulo e não é recalculado sempre
+          sql`(cardinality(${recommendations.genres}) > 0 OR ${recommendations.resolution}->>'voteAverage' IS NOT NULL)`,
+        ),
+      );
+    if (missing.length > 0) await recomputeAutoRatings(tx, missing.map((m) => m.id));
   }
 
   async get(userId: string, id: string): Promise<Title> {
@@ -184,6 +200,7 @@ export class LibraryService {
           ...(patch.year !== undefined ? { year: patch.year } : {}),
           ...(patch.status ? { status: patch.status } : {}),
           ...(patch.rating !== undefined ? { rating: patch.rating } : {}),
+          ...(patch.watchOn !== undefined ? { watchOn: patch.watchOn } : {}),
           ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
           ...(patch.genres ? { genres: [...new Set(patch.genres)], enrichment: 'manual' as const } : {}),
           updatedAt: now,
@@ -194,6 +211,8 @@ export class LibraryService {
       const signals: { signal: Signal; value: number }[] = [];
       if (patch.status === 'watched' && row.status !== 'watched') signals.push({ signal: 'watched', value: 1 });
       if (patch.status === 'dropped' && row.status !== 'dropped') signals.push({ signal: 'dropped', value: 1 });
+      // D-23: escolher "Quero assistir" é uma escolha de gosto (como adicionar a uma lista)
+      if (patch.status === 'to_watch' && (row.status === 'catalog' || row.status === 'dropped')) signals.push({ signal: 'added_to_list', value: 1 });
       if (patch.rating !== undefined && patch.rating !== row.rating) {
         // vale só a nota mais recente: a anterior deixa de pesar no gosto (o perfil é refeito dos sinais)
         await tx.delete(tasteSignals).where(and(eq(tasteSignals.recommendationId, id), eq(tasteSignals.signal, 'rated')));
@@ -202,8 +221,11 @@ export class LibraryService {
       if (signals.length > 0) {
         await tx.insert(tasteSignals).values(signals.map((s) => ({ userId, recommendationId: id, ...s })));
       }
+      // o gosto mudou (nota, status ou gêneros): as notas automáticas acompanham
+      if (signals.length > 0 || patch.rating !== undefined || patch.genres) await recomputeAutoRatings(tx);
       await this.touchListsOf(tx, [id], now);
-      return (await this.withLists(tx, [updated!]))[0]!;
+      // relê: o recálculo pode ter mudado a nota automática deste título
+      return (await this.withLists(tx, [(await this.findTitle(tx, updated!.id))]))[0]!;
     });
   }
 
@@ -623,3 +645,33 @@ function decodeCursor(cursor: string | undefined): number {
 }
 
 export type { SubgenreKey };
+
+const GENERAL = sql`(${recommendations.resolution}->>'voteAverage')::real`;
+
+/**
+ * D-23: ordem padrão (`score`) = fila manual → minhas estrelas → nota automática → nota geral. As
+ * demais começam pela nota escolhida e desempatam pela mesma sequência.
+ */
+export function libraryOrder(sort: LibraryQuery['sort']) {
+  const byRank = sql`${recommendations.rank} asc nulls last`;
+  const byMine = sql`${recommendations.rating} desc nulls last`;
+  const byAuto = sql`${recommendations.autoRating} desc nulls last`;
+  const byGeneral = sql`${GENERAL} desc nulls last`;
+  const tail = [desc(recommendations.createdAt), asc(recommendations.id)];
+  switch (sort) {
+    case 'recent':
+      return [desc(recommendations.createdAt), desc(recommendations.id)];
+    case 'title':
+      return [asc(recommendations.title), asc(recommendations.id)];
+    case 'mine':
+      return [byMine, byAuto, byGeneral, ...tail];
+    case 'auto':
+      return [byAuto, byGeneral, ...tail];
+    case 'general':
+      return [byGeneral, byAuto, ...tail];
+    case 'rank':
+    case 'score':
+    default:
+      return [byRank, byMine, byAuto, byGeneral, ...tail];
+  }
+}

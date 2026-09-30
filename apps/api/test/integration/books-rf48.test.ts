@@ -50,12 +50,15 @@ interface ReviewBookItem {
   bookAlternatives?: { olWorkId: string; title: string; authors?: string[]; score: number }[];
 }
 
-describe('RF-48: .txt de livros vai para a revisão com match da Open Library', () => {
-  it('tipo, autor, capa (só URL), link da obra e alternativas; aprovar com outra obra', async () => {
+describe('RF-48: .txt de livros vai direto para a Minha Área com match da Open Library (D-23)', () => {
+  it('tipo, autor, capa (só URL), link da obra, páginas e gêneros', async () => {
     const user = await newUser();
     const share = await post(user, '/shares', { clientShareId: randomUUID(), textFile: { name: 'livros para ler.txt', content: BOOKS_TXT } }).expect(201);
     await processor.process({ shareId: share.body.id, userId: user.userId });
-    const items = (await get(user, '/review').expect(200)).body.items as ReviewBookItem[];
+    expect((await get(user, '/review').expect(200)).body.items).toEqual([]);
+    const titles = (await get(user, '/library?area=1&sort=rank').expect(200)).body.items as (ReviewBookItem['title'] & { status: string })[];
+    expect(titles.every((t) => t.status === 'to_watch')).toBe(true);
+    const items = titles.map((title) => ({ title }));
     expect(items.map((i) => [i.title.kind, i.title.title])).toEqual([
       ['book', 'O Relógio de Areia'],
       ['book', 'Vento Sul'],
@@ -73,26 +76,11 @@ describe('RF-48: .txt de livros vai para a revisão com match da Open Library', 
     expect(items[3]!.title.genres.map((g) => g.key)).toEqual(expect.arrayContaining(['fantasy', 'young_adult']));
     expect(items[3]!.title.genres.find((g) => g.key === 'young_adult')?.label).toBe('Infantojuvenil');
 
-    const vento = items[1]!;
-    expect(vento.alternatives).toEqual([]);
-    expect(vento.bookAlternatives).toEqual([expect.objectContaining({ olWorkId: 'OL9990003W', title: 'Vento Sul e Outras Histórias' })]);
-    expect(vento.bookAlternatives![0]).not.toHaveProperty('provider');
-
-    const approved = (await post(user, `/review/${vento.title.id}/approve`, { alternativeBook: { olWorkId: 'OL9990003W' } }).expect(200)).body;
-    expect(approved).toMatchObject({
-      kind: 'book',
-      title: 'Vento Sul e Outras Histórias',
-      creator: 'Autor Inventado',
-      decision: 'cataloged',
-      bookUrl: 'https://openlibrary.org/works/OL9990003W',
-    });
-    // alternativa de livro que não estava guardada ainda é buscada por id; id inválido é 400
-    await post(user, `/review/${items[2]!.title.id}/approve`, { alternativeBook: { olWorkId: 'nada' } }).expect(400);
   });
 });
 
 describe('RF-48: busca e import de livros', () => {
-  it('busca por autor (kind=book), marca o que já está na biblioteca e importa para a revisão', async () => {
+  it('busca por autor (kind=book), marca o que já está na biblioteca e importa para "Quero assistir"', async () => {
     const user = await newUser();
     const res = (await get(user, '/search/titles?kind=book&q=Marta%20Quintela').expect(200)).body;
     expect(res.interpreted).toMatchObject({ type: 'person', person: 'Marta Quintela', aiUsed: false });
@@ -108,15 +96,15 @@ describe('RF-48: busca e import de livros', () => {
     });
 
     const imported = (await post(user, '/library/import', { books: [{ olWorkId: 'OL9990002W' }] }).expect(200)).body;
-    expect(imported.created[0]).toMatchObject({ kind: 'book', title: 'Vento Sul', creator: 'Marta Quintela', decision: 'review_queue', rank: null });
+    expect(imported.created[0]).toMatchObject({ kind: 'book', title: 'Vento Sul', creator: 'Marta Quintela', decision: 'cataloged', status: 'to_watch', rank: 1 });
     expect(imported.skippedBooks).toEqual([]);
     const again = (await get(user, '/search/titles?kind=book&q=Marta%20Quintela').expect(200)).body;
-    expect(again.books[0].inLibrary).toMatchObject({ id: imported.created[0].id, decision: 'review_queue' });
+    expect(again.books[0].inLibrary).toMatchObject({ id: imported.created[0].id, decision: 'cataloged' });
 
     const dup = (await post(user, '/library/import', { books: [{ olWorkId: 'OL9990002W' }] }).expect(200)).body;
     expect(dup.skippedBooks).toEqual([{ olWorkId: 'OL9990002W', reason: 'already_in_list', existingId: imported.created[0].id }]);
     const now = (await post(user, '/library/import', { books: [{ olWorkId: 'OL9990001W' }], approveNow: true }).expect(200)).body;
-    expect(now.created[0]).toMatchObject({ kind: 'book', title: 'O Relógio de Areia', decision: 'cataloged', rank: 1 });
+    expect(now.created[0]).toMatchObject({ kind: 'book', title: 'O Relógio de Areia', decision: 'cataloged', status: 'to_watch', rank: 2 });
     await post(user, '/library/import', { items: [] }).expect(400);
   });
 

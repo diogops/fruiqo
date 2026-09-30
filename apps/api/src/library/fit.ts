@@ -168,7 +168,7 @@ export interface QueueEntry {
   id: string;
   title: string;
   rank: number;
-  status: 'to_watch' | 'watching' | 'watched' | 'dropped';
+  status: 'catalog' | 'to_watch' | 'watching' | 'watched' | 'dropped';
   score: number;
 }
 

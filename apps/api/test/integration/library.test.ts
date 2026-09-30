@@ -56,6 +56,55 @@ describe('seed de demonstração', () => {
   });
 });
 
+describe('D-23: Minha Área, onde assistir e as três notas', () => {
+  it('Minha Área filtra Quero assistir/Assistindo/Assistido; catálogo fica fora e sem posição na fila', async () => {
+    const { user, ids } = await demoUser();
+    const id = ids.get('Intocáveis')!;
+    const patchT = (body: object) => ctx.http().patch(`/library/${id}`).set(...auth(user)).send(body);
+    await patchT({ status: 'catalog' }).expect(200);
+    const area = (await get(user, '/library?area=1&limit=200').expect(200)).body.items as { id: string; status: string }[];
+    expect(area.some((t) => t.id === id)).toBe(false);
+    expect(area.every((t) => ['to_watch', 'watching', 'watched'].includes(t.status))).toBe(true);
+    expect((await get(user, `/library/${id}`).expect(200)).body.rank).toBeNull();
+
+    // volta para a Minha Área no fim da fila, e "assistindo em" fica guardado
+    const back = (await patchT({ status: 'watching', watchOn: 'Netflix' }).expect(200)).body;
+    expect(back).toMatchObject({ status: 'watching', watchOn: 'Netflix' });
+    const queue = (await get(user, '/library?area=1&sort=rank&limit=200').expect(200)).body.items.filter((t: { rank: number | null }) => t.rank != null);
+    expect(queue.at(-1).id).toBe(id);
+    await patchT({ watchOn: 'x'.repeat(61) }).expect(400);
+    expect((await patchT({ watchOn: null }).expect(200)).body.watchOn).toBeUndefined();
+  });
+
+  it('ordem padrão: fila manual, minhas estrelas, nota automática, nota geral; estrela recalcula a automática', async () => {
+    const { user, ids } = await demoUser();
+    const list = async (sort?: string) =>
+      (await get(user, `/library?limit=200${sort ? `&sort=${sort}` : ''}`).expect(200)).body.items as {
+        id: string; rank: number | null; rating?: number; autoRating?: number;
+      }[];
+    const items = await list();
+    // quem tem posição vem primeiro, na ordem da fila
+    const ranked = items.filter((t) => t.rank != null);
+    expect(items.slice(0, ranked.length)).toEqual(ranked);
+    expect(ranked.map((t) => t.rank)).toEqual(ranked.map((_, i) => i + 1));
+    // fora da fila: estrelas antes das automáticas
+    const rest = items.slice(ranked.length);
+    const firstWithout = rest.findIndex((t) => t.rating == null);
+    if (firstWithout >= 0) expect(rest.slice(firstWithout).every((t) => t.rating == null)).toBe(true);
+    // "mine": só pelas estrelas (desc), sem a fila
+    const mine = await list('mine');
+    const rated = mine.filter((t) => t.rating != null).map((t) => t.rating!);
+    expect(rated).toEqual([...rated].sort((a, b) => b - a));
+
+    // dar 5 estrelas a um drama puxa a nota automática dos outros dramas
+    const drama = ids.get('Intocáveis')!;
+    const before = (await list('auto')).find((t) => t.id !== drama && t.autoRating != null);
+    await ctx.http().patch(`/library/${drama}`).set(...auth(user)).send({ rating: 5 }).expect(200);
+    const after = (await list('auto')).find((t) => t.id === before!.id);
+    expect(after!.autoRating).toBeDefined();
+  });
+});
+
 describe('GET /home: Continuar (RF-31)', () => {
   it('retoma a maratona em andamento no próximo item, na ordem da lista', async () => {
     const { user } = await demoUser();
@@ -304,53 +353,38 @@ describe('lista automática a partir de prints (RF-26)', () => {
     'Curtido por joao.silva e outras 1.234 pessoas',
   ].join('\n');
 
-  it('RF-42: share de prints propõe a lista (nome do cabeçalho); ela nasce na primeira aprovação, na ordem extraída', async () => {
+  it('D-23: share de prints vai direto para "Quero assistir" e a lista do post nasce no import, na ordem extraída', async () => {
     const user = await newUser();
     const shareId = (await post(user, '/shares', { clientShareId: randomUUID(), pages: [PRINT] }).expect(201)).body.id;
     await processor.process({ shareId, userId: user.userId });
-    // nada entra em lista nem na fila antes da aprovação
-    expect((await get(user, '/lists').expect(200)).body).toHaveLength(0);
-    const review = (await get(user, '/review').expect(200)).body.items as {
-      title: { id: string; title: string; rank: number | null };
-      proposedList: { name: string; shareId: string; listId: string | null } | null;
-    }[];
-    expect(review.map((i) => i.title.title)).toEqual(['Oppenheimer', 'Cidade de Deus', 'Parasita']);
-    expect(review.every((i) => i.title.rank === null)).toBe(true);
-    expect(review[0]!.proposedList).toEqual({ name: '5 filmes para ver no domingo', shareId, listId: null });
-
-    // aprova o 2º primeiro: a lista nasce só com ele; os outros entram na posição do post
-    await post(user, `/review/${review[1]!.title.id}/approve`, {}).expect(200);
-    let lists = (await get(user, '/lists').expect(200)).body;
+    // sem revisão: tudo na Minha Área, na fila (fim), em "Quero assistir"
+    expect((await get(user, '/review').expect(200)).body.items).toHaveLength(0);
+    const area = (await get(user, '/library?area=1&sort=rank').expect(200)).body.items as { title: string; status: string; rank: number | null }[];
+    expect(area.map((t) => [t.title, t.status])).toEqual([
+      ['Oppenheimer', 'to_watch'],
+      ['Cidade de Deus', 'to_watch'],
+      ['Parasita', 'to_watch'],
+    ]);
+    expect(area.map((t) => t.rank)).toEqual([1, 2, 3]);
+    const lists = (await get(user, '/lists').expect(200)).body;
     expect(lists).toHaveLength(1);
-    expect(lists[0]).toMatchObject({ name: '5 filmes para ver no domingo', sourceShareId: shareId, itemCount: 1 });
-    await post(user, '/review/batch', { ids: [review[2]!.title.id, review[0]!.title.id], action: 'approve' }).expect(200);
-    lists = (await get(user, '/lists').expect(200)).body;
+    expect(lists[0]).toMatchObject({ name: '5 filmes para ver no domingo', sourceShareId: shareId, itemCount: 3 });
     const detail = (await get(user, `/lists/${lists[0].id}`).expect(200)).body;
     expect(detail.items.map((t: { title: string }) => t.title)).toEqual(['Oppenheimer', 'Cidade de Deus', 'Parasita']);
   });
 
-  it('item que o usuário já tinha entra na lista do post; share com 1 item não propõe lista; useProposedList=false não cria', async () => {
-    const { user } = await demoUser(); // já tem Cidade de Deus
+  it('título que já estava no catálogo vai para "Quero assistir" e entra na lista do post; share com 1 item não cria lista', async () => {
+    const { user, ids } = await demoUser(); // já tem Cidade de Deus
+    await ctx.http().patch(`/library/${ids.get('Cidade de Deus')}`).set(...auth(user)).send({ status: 'catalog' }).expect(200);
     const shareId = (await post(user, '/shares', { clientShareId: randomUUID(), pages: [PRINT] }).expect(201)).body.id;
     await processor.process({ shareId, userId: user.userId });
-    const pending = ((await get(user, '/review').expect(200)).body.items as { title: { id: string; shareId: string } }[]).filter(
-      (i) => i.title.shareId === shareId,
-    );
-    expect(pending).toHaveLength(2);
-    await post(user, `/review/${pending[0]!.title.id}/approve`, { useProposedList: false }).expect(200);
-    expect((await get(user, '/lists').expect(200)).body.some((l: { sourceShareId: string | null }) => l.sourceShareId === shareId)).toBe(false);
-    await post(user, `/review/${pending[1]!.title.id}/approve`, {}).expect(200);
+    const cdd = (await get(user, `/library/${ids.get('Cidade de Deus')}`).expect(200)).body;
+    expect(cdd.status).toBe('to_watch');
     const auto = (await get(user, '/lists').expect(200)).body.find((l: { sourceShareId: string | null }) => l.sourceShareId === shareId);
-    // Cidade de Deus (que ele já tinha) + o aprovado agora; o aprovado sem lista não entra sozinho
-    expect(auto.itemCount).toBe(2);
+    expect(auto.itemCount).toBe(3);
 
     const single = (await post(user, '/shares', { clientShareId: randomUUID(), pages: ['1. Aftersun (2022)'] }).expect(201)).body.id;
     await processor.process({ shareId: single, userId: user.userId });
-    const item = ((await get(user, '/review').expect(200)).body.items as { title: { id: string; shareId: string }; proposedList: unknown }[]).find(
-      (i) => i.title.shareId === single,
-    )!;
-    expect(item.proposedList).toBeNull();
-    await post(user, `/review/${item.title.id}/approve`, {}).expect(200);
     const again = (await get(user, '/lists').expect(200)).body;
     expect(again.some((l: { sourceShareId: string | null }) => l.sourceShareId === single)).toBe(false);
   });

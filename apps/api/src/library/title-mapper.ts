@@ -16,6 +16,11 @@ export function toTitle(r: RecommendationRow, lists: { id: string; name: string 
     status: r.status,
     rank: r.rank,
     ...(r.rating != null ? { rating: r.rating } : {}),
+    ...(r.watchOn ? { watchOn: r.watchOn } : {}),
+    ...(r.autoRating != null ? { autoRating: r.autoRating } : {}),
+    // D-23: nota geral = TMDB vote_average (dentro da resolução; some com ela na purga)
+    ...(r.resolution?.provider === 'tmdb' && r.resolution.voteAverage != null ? { generalRating: r.resolution.voteAverage } : {}),
+    ...(r.resolution?.provider === 'tmdb' && r.resolution.voteCount != null ? { generalVotes: r.resolution.voteCount } : {}),
     ...(r.notes ? { notes: r.notes } : {}),
     genres: genres.map((key) => ({ key, label: GENRE_LABEL.get(key)! })),
     subgenres: subgenresFromGenres(genres).map((key) => ({ key, label: SUBGENRE_LABEL.get(key)! })),

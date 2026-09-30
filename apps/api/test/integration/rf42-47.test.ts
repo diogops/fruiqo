@@ -64,8 +64,9 @@ async function importTxt(user: User) {
   const res = await post(user, '/shares', { clientShareId: randomUUID(), textFile: { name: 'lista series.txt', content: SERIES_TXT } }).expect(201);
   expect(res.body.source).toMatchObject({ origin: 'text_file', title: 'lista series.txt' });
   await processor.process({ shareId: res.body.id, userId: user.userId });
-  const items = (await get(user, '/review').expect(200)).body.items as ReviewItemBody[];
-  return { shareId: res.body.id as string, items };
+  // D-23: sem revisão, o import cai direto na Minha Área (Quero assistir), na ordem do arquivo
+  const titles = (await get(user, '/library?area=1&sort=rank&limit=100').expect(200)).body.items as ReviewItemBody['title'][];
+  return { shareId: res.body.id as string, items: titles.map((title) => ({ title })) };
 }
 
 async function queue(user: User) {
@@ -73,101 +74,28 @@ async function queue(user: User) {
   return (body.items as { id: string; title: string; rank: number }[]).filter((t) => t.rank != null).sort((a, b) => a.rank - b.rank);
 }
 
-describe('RF-47 + RF-42: .txt vai inteiro para a revisão, com match, alternativas e lista proposta', () => {
-  it('17 itens na ordem do arquivo, nenhum catalogado; erro de digitação e homônimo resolvidos', async () => {
+describe('RF-47 + D-23: .txt vai inteiro para "Quero assistir", com match e lista do arquivo', () => {
+  it('17 itens na ordem do arquivo, na fila; erro de digitação e homônimo resolvidos', async () => {
     const user = await newUser();
     const { shareId, items } = await importTxt(user);
     expect(items).toHaveLength(17);
     expect(items.map((i) => i.title.title).slice(0, 3)).toEqual(['Bebe Lontra', 'Olhos que julgam', 'Chernoville']);
-    expect(items.every((i) => i.title.decision === 'review_queue' && i.title.rank === null)).toBe(true);
+    expect(items.every((i) => i.title.decision === 'cataloged')).toBe(true);
+    expect(items.map((i) => i.title.rank)).toEqual(items.map((_, i) => i + 1));
     expect(items.every((i) => i.title.resolution?.externalId.startsWith('tv:'))).toBe(true);
 
     const heron = items.find((i) => i.title.title === 'Back Heron')!;
     expect(heron.title.resolution).toMatchObject({ externalId: 'tv:9910010', title: 'Black Heron' });
-    expect(heron.alternatives.map((a) => a.tmdbId)).toEqual([9910110]);
     const monstra = items.find((i) => i.title.title === 'Monstra')!;
     expect(monstra.title.resolution?.externalId).toBe('tv:9910017');
-    expect(monstra.alternatives[0]).toMatchObject({ tmdbId: 9910117, year: 2026 });
-    expect(monstra.alternatives[0]!.score).toBeLessThanOrEqual(0.55);
     expect(monstra.title.suggestedDecision).toBe('cataloged');
 
-    expect(items[0]!.proposedList).toEqual({ name: 'lista series', shareId, listId: null });
-    expect(items[0]!.fit).toMatchObject({ position: 1, total: 1 });
-    // nada entrou em lista nem na fila
-    expect((await get(user, '/lists').expect(200)).body).toHaveLength(0);
-    expect(await queue(user)).toHaveLength(0);
+    // a lista do arquivo nasce no import, com os 17 na ordem
+    const lists = (await get(user, '/lists').expect(200)).body;
+    expect(lists).toHaveLength(1);
+    expect(lists[0]).toMatchObject({ name: 'lista series', sourceShareId: shareId, itemCount: 17 });
+    expect(await queue(user)).toHaveLength(17);
   });
-
-  it('aprovar ajusta match (alternativa), posição e listas; rejeitar e lote', async () => {
-    const user = await newUser();
-    const { items } = await importTxt(user);
-    const byTitle = (t: string) => items.find((i) => i.title.title === t)!.title.id;
-
-    // trocar o match pela alternativa: título/ano/resolução do catálogo
-    const alt = await post(user, `/review/${byTitle('Monstra')}/approve`, { alternative: { tmdbId: 9910117, mediaType: 'tv' }, placement: 'end' }).expect(200);
-    expect(alt.body).toMatchObject({ title: 'Monstra', year: 2026, decision: 'cataloged', rank: 1 });
-    expect(alt.body.resolution.externalId).toBe('tv:9910117');
-
-    const top = await post(user, `/review/${byTitle('Mindcatcher')}/approve`, { placement: 'top' }).expect(200);
-    expect(top.body.rank).toBe(1);
-    const own = (await post(user, '/lists', { name: 'Minha lista' }).expect(201)).body;
-    const at = await post(user, `/review/${byTitle('Criada')}/approve`, { position: 2, listIds: [own.id], title: 'Criada (minissérie)' }).expect(200);
-    expect(at.body).toMatchObject({ rank: 2, title: 'Criada (minissérie)' });
-    expect(at.body.lists.map((l: { name: string }) => l.name)).toEqual(expect.arrayContaining(['Minha lista', 'lista series']));
-
-    await post(user, `/review/${byTitle('O pacto')}/reject`).expect(204);
-    const batch = await post(user, '/review/batch', { ids: [byTitle('Chernoville'), byTitle('O pacto'), byTitle('Amor e Luto')], action: 'approve', placement: 'end' }).expect(200);
-    expect(batch.body.approved.map((t: { title: string }) => t.title)).toEqual(['Chernoville', 'Amor e Luto']);
-    expect(batch.body.failed).toEqual([{ id: byTitle('O pacto'), message: 'Título não encontrado' }]);
-
-    const q = await queue(user);
-    expect(q.map((t) => t.rank)).toEqual([1, 2, 3, 4, 5]);
-    expect(q.map((t) => t.title)).toEqual(['Mindcatcher', 'Criada (minissérie)', 'Monstra', 'Chernoville', 'Amor e Luto']);
-    // a lista proposta respeita a ordem do arquivo
-    const list = (await get(user, '/lists').expect(200)).body.find((l: { name: string }) => l.name === 'lista series');
-    const detail = (await get(user, `/lists/${list.id}`).expect(200)).body;
-    expect(detail.items.map((t: { title: string }) => t.title)).toEqual(['Chernoville', 'Criada (minissérie)', 'Amor e Luto', 'Mindcatcher', 'Monstra']);
-
-    // restante segue na revisão; a lista agora aparece como criada
-    const rest = (await get(user, '/review').expect(200)).body.items as ReviewItemBody[];
-    expect(rest).toHaveLength(11);
-    expect(rest[0]!.proposedList?.listId).toBe(list.id);
-  });
-
-  it('lote com placement top mantém a ordem enviada (#1, #2, #3), acima da fila', async () => {
-    const user = await newUser();
-    const { items } = await importTxt(user);
-    const byTitle = (t: string) => items.find((i) => i.title.title === t)!.title.id;
-    await post(user, `/review/${byTitle('Mindcatcher')}/approve`, { placement: 'end' }).expect(200);
-    const ids = [byTitle('Monstra'), byTitle('Chernoville'), byTitle('Amor e Luto')];
-    await post(user, '/review/batch', { ids, action: 'approve', placement: 'top' }).expect(200);
-    const q = await queue(user);
-    expect(q.map((t) => t.title)).toEqual(['Monstra', 'Chernoville', 'Amor e Luto', 'Mindcatcher']);
-    expect(q.map((t) => t.rank)).toEqual([1, 2, 3, 4]);
-  });
-
-  it('duplicado: o mesmo match no TMDB de um título já catalogado sugere mesclar', async () => {
-    const user = await newUser();
-    const first = await importTxt(user);
-    await post(user, `/review/${first.items.find((i) => i.title.title === 'Back Heron')!.title.id}/approve`).expect(200);
-    // outra grafia do mesmo título, com o mesmo match
-    await withUser(db, user.userId, (tx) =>
-      tx.insert(recommendations).values({
-        userId: user.userId,
-        kind: 'series',
-        title: 'Blak Heron',
-        confidence: 0.6,
-        extractor: 'heuristic',
-        dedupKey: 'screen|blak heron',
-        decision: 'review_queue',
-        resolution: { provider: 'tmdb', externalId: 'tv:9910010', title: 'Black Heron', url: 'https://www.themoviedb.org/tv/9910010' },
-      }),
-    );
-    const items = (await get(user, '/review').expect(200)).body.items as ReviewItemBody[];
-    const dup = items.find((i) => i.title.title === 'Blak Heron')!;
-    expect(dup.duplicateOf).toMatchObject({ id: expect.any(String) });
-  });
-});
 
 describe('RF-43: perfil declarado', () => {
   it('resumo interpretado por regras, favoritos e o encaixe explicando', async () => {
@@ -192,10 +120,9 @@ describe('RF-43: perfil declarado', () => {
     expect(taste.genres.find((g: { key: string }) => g.key === 'crime').declaredScore).toBeGreaterThan(0.5);
 
     const { items } = await importTxt(user);
-    const heron = items.find((i) => i.title.title === 'Back Heron')!;
-    expect(heron.fit!.reasons).toEqual(expect.arrayContaining(['Você declarou gostar de Crime e Drama']));
-    expect(heron.fit!.reasons.some((r) => r.startsWith('Parecido com Mindcatcher'))).toBe(true);
-    expect(heron.fit!.score).toBeGreaterThan(0.3);
+    // D-23: a nota automática sobe com o gosto declarado (Crime/Drama) e o favorito parecido
+    const heron = (await get(user, `/library/${items.find((i) => i.title.title === 'Back Heron')!.title.id}`).expect(200)).body;
+    expect(heron.autoRating).toBeGreaterThan(3.4);
 
     await put(user, '/profile/summary', { summary: 'x'.repeat(2001) }).expect(400);
     const cleared = (await put(user, '/profile/summary', { summary: '' }).expect(200)).body;
@@ -263,14 +190,14 @@ describe('RF-46: busca e importação', () => {
     expect(res.items[0]).toMatchObject({ kind: 'series', year: 2022, inLibrary: null, matchedBy: 'title', cast: [] });
 
     const imported = (await post(user, '/library/import', { items: [{ tmdbId: 9910017, mediaType: 'tv' }] }).expect(200)).body;
-    expect(imported.created[0]).toMatchObject({ decision: 'review_queue', rank: null, kind: 'series' });
+    expect(imported.created[0]).toMatchObject({ decision: 'cataloged', status: 'to_watch', rank: 1, kind: 'series' });
     const again = (await get(user, '/search/titles?q=Monstra%202022').expect(200)).body;
-    expect(again.items[0].inLibrary).toMatchObject({ id: imported.created[0].id, rank: null, decision: 'review_queue' });
+    expect(again.items[0].inLibrary).toMatchObject({ id: imported.created[0].id, rank: 1, decision: 'cataloged' });
 
     const dup = (await post(user, '/library/import', { items: [{ tmdbId: 9910017, mediaType: 'tv' }] }).expect(200)).body;
     expect(dup.skipped).toEqual([{ tmdbId: 9910017, mediaType: 'tv', reason: 'already_in_list', existingId: imported.created[0].id }]);
     const now = (await post(user, '/library/import', { items: [{ tmdbId: 9910010, mediaType: 'tv' }], approveNow: true }).expect(200)).body;
-    expect(now.created[0]).toMatchObject({ decision: 'cataloged', rank: 1, title: 'Black Heron' });
+    expect(now.created[0]).toMatchObject({ decision: 'cataloged', status: 'to_watch', rank: 2, title: 'Black Heron' });
     await post(user, '/library/import', { items: [{ tmdbId: 9910016, mediaType: 'tv' }], listId: randomUUID() }).expect(400);
   });
 
@@ -350,35 +277,22 @@ describe('RF-46: busca e importação', () => {
   });
 });
 
-describe('Música "Música - Artista" e troca na revisão', () => {
+describe('Música "Música - Artista"', () => {
   async function importText(user: User, name: string, content: string) {
     const res = await post(user, '/shares', { clientShareId: randomUUID(), textFile: { name, content } }).expect(201);
     await processor.process({ shareId: res.body.id, userId: user.userId });
-    const items = (await get(user, '/review').expect(200)).body.items as ReviewItemBody[];
-    return items.map((i) => i.title as unknown as { id: string; title: string; creator?: string; kind: string });
+    const items = (await get(user, '/library?area=1&sort=rank').expect(200)).body.items;
+    return items as { id: string; title: string; creator?: string; kind: string }[];
   }
 
-  it('"Músicas:" lê "Aquarela - Toquinho" como título Aquarela, artista Toquinho; swap-music inverte e mantém na revisão', async () => {
+  it('"Músicas:" lê "Aquarela - Toquinho" como título Aquarela, artista Toquinho', async () => {
     const user = await newUser();
     const items = await importText(user, 'musicas.txt', 'Músicas:\nAquarela - Toquinho\nÁguas de Março - Tom Jobim');
     expect(items.map((i) => [i.kind, i.title, i.creator])).toEqual([
       ['music_track', 'Aquarela', 'Toquinho'],
       ['music_track', 'Águas de Março', 'Tom Jobim'],
     ]);
-    const swapped = (await post(user, `/review/${items[0]!.id}/swap-music`).expect(200)).body;
-    expect(swapped).toMatchObject({ title: 'Toquinho', creator: 'Aquarela' });
-    const after = (await get(user, '/review').expect(200)).body.items as ReviewItemBody[];
-    expect(after.find((i) => i.title.id === items[0]!.id)?.title.title).toBe('Toquinho');
-    // desfaz trocando de novo
-    expect((await post(user, `/review/${items[0]!.id}/swap-music`).expect(200)).body).toMatchObject({ title: 'Aquarela', creator: 'Toquinho' });
   });
 
-  it('troca que colide com outro item responde 409; item que não é música responde 400', async () => {
-    const user = await newUser();
-    const items = await importText(user, 'mix.txt', 'Músicas:\nAquarela - Toquinho\nToquinho - Aquarela\nFilmes:\nFilme Um (2020)');
-    const reversed = items.find((i) => i.title === 'Toquinho')!;
-    await post(user, `/review/${reversed.id}/swap-music`).expect(409);
-    const movie = items.find((i) => i.kind === 'movie')!;
-    await post(user, `/review/${movie.id}/swap-music`).expect(400);
-  });
+});
 });

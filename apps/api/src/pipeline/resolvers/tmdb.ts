@@ -23,6 +23,8 @@ const SearchHit = z.object({
   overview: z.string().nullable().optional(),
   popularity: z.number().optional(),
   genre_ids: z.array(z.number().int()).optional(),
+  vote_average: z.number().optional(),
+  vote_count: z.number().int().optional(),
 });
 type Hit = z.infer<typeof SearchHit>;
 const SearchSchema = z.object({ results: z.array(SearchHit) });
@@ -70,6 +72,8 @@ const DetailsSchema = z.object({
   runtime: z.number().int().nullable().optional(),
   episode_run_time: z.array(z.number().int()).optional(),
   genres: z.array(z.object({ id: z.number().int() })).optional(),
+  vote_average: z.number().optional(),
+  vote_count: z.number().int().optional(),
   external_ids: z.object({ imdb_id: z.string().nullable().optional() }).optional(),
   'watch/providers': z.object({ results: z.record(z.string(), ProvidersRegion) }).optional(),
   credits: z.object({ cast: z.array(z.object({ name: z.string(), order: z.number().optional() })).optional() }).optional(),
@@ -100,6 +104,9 @@ export interface TmdbHit {
   overview?: string;
   popularity: number;
   genreIds: number[];
+  /** D-23: nota geral do TMDB (0..10) e votos */
+  voteAverage?: number;
+  voteCount?: number;
 }
 
 const MAX_ALTERNATIVES = 3;
@@ -337,7 +344,12 @@ function toHit(r: Hit): TmdbHit | null {
     ...(r.overview ? { overview: r.overview } : {}),
     popularity: r.popularity ?? 0,
     genreIds: r.genre_ids ?? [],
+    ...(r.vote_count ? { voteAverage: round1(r.vote_average ?? 0), voteCount: r.vote_count } : {}),
   };
+}
+
+function round1(n: number): number {
+  return Math.round(Math.max(0, Math.min(10, n)) * 10) / 10;
 }
 
 function baseResolution(hit: Pick<TmdbHit, 'tmdbId' | 'mediaType' | 'title' | 'year' | 'posterUrl'>): Resolution {
@@ -360,6 +372,10 @@ function detailFields(d: z.infer<typeof DetailsSchema>): Partial<Resolution> {
   const runtime = d.runtime ?? d.episode_run_time?.[0];
   if (runtime && runtime > 0) out.runtimeMin = runtime;
   if (d.genres?.length) out.genreIds = d.genres.map((g) => g.id);
+  if (d.vote_count) {
+    out.voteAverage = round1(d.vote_average ?? 0);
+    out.voteCount = d.vote_count;
+  }
   if (d.external_ids?.imdb_id) out.imdbId = d.external_ids.imdb_id;
 
   const br = d['watch/providers']?.results.BR;

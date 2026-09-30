@@ -58,7 +58,7 @@ const GENRE_SET = new Set<string>(GENRE_KEYS);
 const GENRE_LABEL = new Map(GENRES.map((g) => [g.key, g.label]));
 const UNDO_TTL_MS = 10 * 60 * 1000;
 const ACTIVITY_PAGE = 30;
-const STATUS_ORDER = { to_watch: 0, watching: 1, watched: 2, dropped: 2 } as const;
+const STATUS_ORDER = { catalog: -1, to_watch: 0, watching: 1, watched: 2, dropped: 2 } as const;
 
 export { STREAMING_PROVIDERS } from './providers.js';
 const PROVIDER_SET = new Set<string>(STREAMING_PROVIDERS.map((p) => p.key));

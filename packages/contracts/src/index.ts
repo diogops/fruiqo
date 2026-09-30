@@ -124,6 +124,9 @@ export const ResolutionSchema = z.object({
   imdbId: z.string().max(20).optional(),
   overview: z.string().max(4000).optional(),
   runtimeMin: z.number().int().optional(),
+  /** D-23: nota geral do TMDB (0..10) e votos */
+  voteAverage: z.number().min(0).max(10).optional(),
+  voteCount: z.number().int().min(0).optional(),
   /** IDs de gênero do TMDB, convertidos para a taxonomia própria no servidor */
   genreIds: z.array(z.number().int()).optional(),
   /** disponibilidade BR detalhada (fonte: TMDB, dados da JustWatch) */
@@ -372,7 +375,13 @@ export type ShareStepsResponse = z.infer<typeof ShareStepsResponseSchema>;
 // Chaves de gênero/subgênero/intenção vêm de `@fruiqo/taxonomy` (validadas na API). Aqui ficam como
 // string para o contrato não depender do pacote de taxonomia (o app só exibe `label`).
 
-export const TitleStatusSchema = z.enum(['to_watch', 'watching', 'watched', 'dropped']);
+/**
+ * D-23: `catalog` = está no catálogo, sem intenção de ver agora. Minha Área = `to_watch`
+ * (Quero assistir), `watching` (Assistindo, com `watchOn`) e `watched` (Assistido).
+ */
+export const TitleStatusSchema = z.enum(['catalog', 'to_watch', 'watching', 'watched', 'dropped']);
+/** status da Minha Área */
+export const MY_AREA_STATUSES = ['to_watch', 'watching', 'watched'] as const;
 export type TitleStatus = z.infer<typeof TitleStatusSchema>;
 
 /**
@@ -402,6 +411,13 @@ export const TitleSchema = z.object({
   status: TitleStatusSchema,
   rank: TitleRankSchema.nullable(),
   rating: RatingSchema.optional(),
+  /** D-23: onde estou assistindo (chave de plataforma ou texto livre) */
+  watchOn: z.string().optional(),
+  /** D-23: nota geral 0..10 (TMDB) e votos */
+  generalRating: z.number().min(0).max(10).optional(),
+  generalVotes: z.number().int().min(0).optional(),
+  /** D-23: nota automática 0..5, calculada do meu gosto (local, sem LLM) */
+  autoRating: z.number().min(0).max(5).optional(),
   notes: z.string().optional(),
   genres: z.array(TaxonomyTagSchema),
   /** derivados dos gêneros pela regra R da taxonomia */
@@ -442,7 +458,11 @@ export const EnrichResponseSchema = z.object({
 });
 export type EnrichResponse = z.infer<typeof EnrichResponseSchema>;
 
-export const LibrarySortSchema = z.enum(['rank', 'recent', 'title']);
+/**
+ * D-23: `score` (padrão) ordena pela minha nota, senão a automática, senão a geral; `mine`,
+ * `auto` e `general` ordenam por uma nota só; `rank` é a fila de prioridade.
+ */
+export const LibrarySortSchema = z.enum(['score', 'mine', 'auto', 'general', 'rank', 'recent', 'title']);
 
 /** Query string de GET /library (valores chegam como string). */
 export const LibraryQuerySchema = z.object({
@@ -456,8 +476,10 @@ export const LibraryQuerySchema = z.object({
   review: z.enum(['pending']).optional(),
   /** `1`: esconde os já assistidos (ignorado quando `status` é informado) */
   hideWatched: z.enum(['1']).optional(),
+  /** D-23: `1` = só a Minha Área (Quero assistir, Assistindo, Assistido) */
+  area: z.enum(['1']).optional(),
   q: z.string().trim().min(1).max(100).optional(),
-  sort: LibrarySortSchema.default('rank'),
+  sort: LibrarySortSchema.default('score'),
   cursor: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
@@ -477,6 +499,8 @@ export const UpdateTitleRequestSchema = z
     creator: z.string().trim().max(200).nullable().optional(),
     status: TitleStatusSchema.optional(),
     rating: RatingSchema.nullable().optional(),
+    /** onde estou assistindo: plataforma comum ou texto livre (null limpa) */
+    watchOn: z.string().trim().min(1).max(60).nullable().optional(),
     notes: z.string().max(500).nullable().optional(),
     /** gêneros manuais (chaves da taxonomia); marca `enrichment = manual` */
     genres: z.array(z.string().max(32)).max(6).optional(),

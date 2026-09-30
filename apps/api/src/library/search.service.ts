@@ -9,8 +9,10 @@ import type {
   TitleSearchResult,
 } from '@fruiqo/contracts';
 import { GENRES, genreTermsIn } from '@fruiqo/taxonomy';
-import { DB, type Db, withUser } from '../db/client.js';
-import { recommendations } from '../db/schema.js';
+import { eq, inArray } from 'drizzle-orm';
+import { DB, type Db, type Tx, withUser } from '../db/client.js';
+import { recommendations, tasteSignals } from '../db/schema.js';
+import { recomputeAutoRatings } from './auto-rating.js';
 import { dedupKey } from '../pipeline/dedup.js';
 import { matchScore, similarity } from '../pipeline/resolvers/match.js';
 import { type BookHit, displayTitle, type OpenLibraryResolver } from '../pipeline/resolvers/openlibrary.js';
@@ -205,7 +207,10 @@ export class SearchService {
         const key = dedupKey({ kind, title: res.title, creator: null });
         const existingId = byExternal.get(res.externalId) ?? byKey.get(key);
         if (existingId) {
-          skipped.push({ ...item, reason: 'already_in_list', existingId });
+          // D-23: já estava no catálogo → vai para a Minha Área; já na Minha Área → nada a fazer
+          const moved = await this.toMyArea(tx, userId, existingId, req.listId);
+          if (moved) created.push(moved);
+          else skipped.push({ ...item, reason: 'already_in_list', existingId });
           continue;
         }
         const cols = columnsFromResolution(res);
@@ -225,7 +230,9 @@ export class SearchService {
             runtimeMin: cols?.runtimeMin ?? null,
             enrichment: 'tmdb',
             dedupKey: key,
-            decision: 'review_queue',
+            // D-23: sem revisão; escolhido na busca = Quero assistir (fim da fila)
+            decision: 'cataloged',
+            status: 'to_watch',
             suggestedDecision: 'cataloged',
             decisionReason: 'search_import',
             matchScore: 1,
@@ -233,11 +240,7 @@ export class SearchService {
           .returning();
         byKey.set(key, row!.id);
         byExternal.set(res.externalId, row!.id);
-        if (req.approveNow) {
-          created.push(await this.review.approveWithin(tx, userId, row!.id, req.listId ? { listIds: [req.listId] } : {}, null));
-        } else {
-          created.push(...(await this.library.withLists(tx, [row!])));
-        }
+        created.push(await this.addedToMyArea(tx, userId, row!.id, req.listId));
       }
       // RF-48: livros escolhidos na busca (Open Library), mesmo fluxo de revisão
       const skippedBooks: NonNullable<ImportTitlesResponse['skippedBooks']> = [];
@@ -250,7 +253,9 @@ export class SearchService {
         const key = dedupKey({ kind: 'book', title: res.title, creator });
         const existingId = byExternal.get(res.externalId) ?? byKey.get(key);
         if (existingId) {
-          skippedBooks.push({ olWorkId, reason: 'already_in_list', existingId });
+          const moved = await this.toMyArea(tx, userId, existingId, req.listId);
+          if (moved) created.push(moved);
+          else skippedBooks.push({ olWorkId, reason: 'already_in_list', existingId });
           continue;
         }
         const cols = columnsFromResolution(res);
@@ -270,7 +275,9 @@ export class SearchService {
             genres: cols?.genres ?? [],
             enrichment: 'openlibrary',
             dedupKey: key,
-            decision: 'review_queue',
+            // D-23: sem revisão; escolhido na busca = Quero assistir (fim da fila)
+            decision: 'cataloged',
+            status: 'to_watch',
             suggestedDecision: 'cataloged',
             decisionReason: 'search_import',
             matchScore: 1,
@@ -278,14 +285,30 @@ export class SearchService {
           .returning();
         byKey.set(key, row!.id);
         byExternal.set(res.externalId, row!.id);
-        if (req.approveNow) {
-          created.push(await this.review.approveWithin(tx, userId, row!.id, req.listId ? { listIds: [req.listId] } : {}, null));
-        } else {
-          created.push(...(await this.library.withLists(tx, [row!])));
-        }
+        created.push(await this.addedToMyArea(tx, userId, row!.id, req.listId));
       }
-      return { created, skipped, ...(bookIds.length > 0 ? { skippedBooks } : {}) };
+      // escolher é sinal de gosto: as notas automáticas acompanham
+      if (created.length > 0) await recomputeAutoRatings(tx);
+      const fresh = created.length > 0 ? await this.library.withLists(tx, await tx.select().from(recommendations).where(inArray(recommendations.id, created.map((c) => c.id)))) : [];
+      const byId = new Map(fresh.map((t) => [t.id, t]));
+      return { created: created.map((c) => byId.get(c.id) ?? c), skipped, ...(bookIds.length > 0 ? { skippedBooks } : {}) };
     });
+  }
+
+  /** Título novo na Minha Área: sinal de gosto, lista opcional. */
+  private async addedToMyArea(tx: Tx, userId: string, id: string, listId?: string): Promise<Title> {
+    await tx.insert(tasteSignals).values({ userId, recommendationId: id, signal: 'added_to_list' });
+    if (listId) await this.review.appendToList(tx, userId, listId, [id]);
+    const [row] = await tx.select().from(recommendations).where(eq(recommendations.id, id));
+    return (await this.library.withLists(tx, [row!]))[0]!;
+  }
+
+  /** Título que já existe: sai do catálogo para "Quero assistir"; null se já estava na Minha Área. */
+  private async toMyArea(tx: Tx, userId: string, id: string, listId?: string): Promise<Title | null> {
+    const [row] = await tx.select({ status: recommendations.status }).from(recommendations).where(eq(recommendations.id, id));
+    if (!row || (row.status !== 'catalog' && row.status !== 'dropped')) return null;
+    await tx.update(recommendations).set({ status: 'to_watch', updatedAt: new Date() }).where(eq(recommendations.id, id));
+    return this.addedToMyArea(tx, userId, id, listId);
   }
 
   /** RF-48: busca só de livros (título ou autor, ex.: "Machado de Assis"). */

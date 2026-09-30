@@ -28,8 +28,11 @@ async function seeded() {
   const userId = userIdOf(user);
   await seedDemo(db, userId);
   const auth = { authorization: `Bearer ${user.accessToken}` };
+  // D-23: a fila é só de quem está para ver (Quero assistir/Assistindo); assistidos ficam fora
   const queue = async () =>
-    ((await ctx.http().get('/library?sort=rank&limit=200').set(auth).expect(200)).body.items as { id: string; rank: number; title: string }[]);
+    ((await ctx.http().get('/library?sort=rank&limit=200').set(auth).expect(200)).body.items as { id: string; rank: number | null; title: string }[]).filter(
+      (t): t is { id: string; rank: number; title: string } => t.rank != null,
+    );
   const move = (id: string, body: object) => ctx.http().post(`/library/${id}/move`).set(auth).send(body);
   return { user, userId, auth, queue, move };
 }

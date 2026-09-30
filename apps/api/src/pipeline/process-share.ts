@@ -1,8 +1,8 @@
-import type { CandidateDecisionValue, PipelineMode, Resolution } from '@fruiqo/contracts';
+import { IMPORT_FILE_NAME, type CandidateDecisionValue, type PipelineMode, type Resolution } from '@fruiqo/contracts';
 import { and, eq, inArray, isNull, ne, or } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { type Db, type Tx, withUser } from '../db/client.js';
-import { candidateDecisions, type StoredAlternativeRow, pipelineStepLogs, recommendations, seenPages, shares, type ShareRow } from '../db/schema.js';
+import { candidateDecisions, listItems, lists, tasteSignals, type StoredAlternativeRow, pipelineStepLogs, recommendations, seenPages, shares, type ShareRow } from '../db/schema.js';
 import type { ShareJob } from '../queue/queue.js';
 import { dedupKey, mergePages, pageHash } from './dedup.js';
 import { listNameFromOcr } from '../library/list-name.js';
@@ -496,7 +496,25 @@ export class ShareProcessor {
           updatedAt: now,
         })
         .where(eq(shares.id, job.shareId));
+      // D-23: sem revisão, a lista do post nasce no próprio import, na ordem extraída
+      if (proposedList) await this.createProposedList(tx, job, proposedList, now);
     });
+  }
+
+  private async createProposedList(tx: Tx, job: ShareJob, proposed: { name: string; keys: string[] }, now: Date) {
+    const rows = await tx
+      .select({ id: recommendations.id, key: recommendations.dedupKey })
+      .from(recommendations)
+      .where(and(inArray(recommendations.dedupKey, proposed.keys), eq(recommendations.decision, 'cataloged')));
+    if (rows.length < 2) return;
+    const [list] = await tx.insert(lists).values({ userId: job.userId, name: proposed.name.slice(0, 80), sourceShareId: job.shareId }).returning({ id: lists.id });
+    await tx.insert(listItems).values(
+      rows
+        .map((r) => ({ id: r.id, pos: proposed.keys.indexOf(r.key) }))
+        .sort((a, b) => a.pos - b.pos)
+        .map((r, position) => ({ listId: list!.id, recommendationId: r.id, userId: job.userId, position })),
+    );
+    await tx.update(shares).set({ proposedList: { ...proposed, listId: list!.id }, updatedAt: now }).where(eq(shares.id, job.shareId));
   }
 
   /** Grava só as etapas (usado quando o processamento lança e o job vai ser tentado de novo). */
@@ -551,8 +569,10 @@ export class ShareProcessor {
           // 2d: gêneros/duração vindos do TMDB (TTL de 180 dias pela purga; TOS-REQ-02)
           ...tmdbInsertColumns(resolution, item.year ?? null),
           dedupKey: key,
-          // RF-42: todo import entra na revisão; a sugestão do pipeline fica guardada
-          decision: 'review_queue' as const,
+          // D-23: sem revisão; o que o usuário importou entra direto na Minha Área (Quero assistir).
+          // A sugestão do pipeline fica guardada (inspector/eval).
+          decision: 'cataloged' as const,
+          status: 'to_watch' as const,
           suggestedDecision: decision as 'cataloged' | 'review_queue',
           decisionReason: reason,
           matchScore,
@@ -562,6 +582,21 @@ export class ShareProcessor {
       )
       .onConflictDoNothing({ target: [recommendations.userId, recommendations.dedupKey] })
       .returning({ id: recommendations.id, key: recommendations.dedupKey });
+    // D-23: título que o usuário já tinha no catálogo e importou de novo vai para a Minha Área
+    const existingKeys = kept.filter((c) => c.alreadyInList).map((c) => c.key);
+    const moved =
+      existingKeys.length > 0
+        ? await tx
+            .update(recommendations)
+            .set({ status: 'to_watch', updatedAt: now })
+            .where(and(inArray(recommendations.dedupKey, existingKeys), inArray(recommendations.status, ['catalog', 'dropped'])))
+            .returning({ id: recommendations.id })
+        : [];
+    // importar é escolher: sinal de gosto para a nota automática (preenchida na próxima listagem)
+    const chosen = [...rows.map((r) => r.id), ...moved.map((m) => m.id)];
+    if (chosen.length > 0) {
+      await tx.insert(tasteSignals).values(chosen.map((recommendationId) => ({ userId: job.userId, recommendationId, signal: 'added_to_list' as const })));
+    }
     return { inserted: rows.length, idByKey: new Map(rows.map((r) => [r.key, r.id])) };
   }
 }
@@ -577,7 +612,8 @@ function proposedListFor(result: FinishResult, name: string): { name: string; ke
 
 /** "lista series BFR.txt" → "lista series BFR" */
 export function listNameFromFile(fileName: string | undefined): string | null {
-  if (!fileName) return null;
+  // "Importar de imagem" do web: o usuário já escolheu item a item; não vira lista
+  if (!fileName || fileName === IMPORT_FILE_NAME) return null;
   const name = fileName.replace(/\.[a-z0-9]{1,5}$/i, '').replace(/[_]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
   return name ? name.slice(0, 80) : null;
 }

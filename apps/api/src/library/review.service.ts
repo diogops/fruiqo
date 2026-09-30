@@ -183,6 +183,11 @@ export class ReviewService {
     return { approved, rejected, failed };
   }
 
+  /** Inclui títulos numa lista do usuário (usado pelo import da busca, D-23). */
+  appendToList(tx: Tx, userId: string, listId: string, ids: string[]): Promise<string[]> {
+    return this.catalog.appendToList(tx, userId, listId, ids);
+  }
+
   /** Aprovação dentro de uma transação já aberta (import com approveNow, RF-46). */
   async approveWithin(tx: Tx, userId: string, id: string, opts: ApproveReviewRequest, alternative: Resolution | null): Promise<Title> {
     let row = await this.catalog.findReview(tx, id);

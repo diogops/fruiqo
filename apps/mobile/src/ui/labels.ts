@@ -48,9 +48,10 @@ export function kindLabel(kind: string): string {
 }
 
 export const TITLE_STATUS_LABEL: Record<TitleStatus, string> = {
-  to_watch: 'Quero ver',
+  catalog: 'Catálogo',
+  to_watch: 'Quero assistir',
   watching: 'Assistindo',
-  watched: 'Assisti',
+  watched: 'Assistido',
   dropped: 'Abandonei',
 };
 

@@ -65,7 +65,7 @@ describe('pipeline inspector (RF-19)', () => {
     expect(metadata.outputSummary).toEqual({ found: true, hasAuthor: true });
     expect(JSON.stringify(body.steps)).not.toContain('Official Video');
     expect(body.decisions).toEqual([
-      // RF-42: todo import vai para a revisão; o motivo guarda a sugestão do pipeline
+      // decisão do pipeline (inspector/eval); o título em si entra direto na Minha Área (D-23)
       expect.objectContaining({
         rawTitle: 'Canção Teste',
         kind: 'music_track',
@@ -105,8 +105,9 @@ describe('pipeline inspector (RF-19)', () => {
     expect(
       got.recommendations.map((r: { title: string; decision: string; suggestedDecision: string }) => [r.title, r.decision, r.suggestedDecision]),
     ).toEqual([
-      ['Alta Confiança', 'review_queue', 'cataloged'],
-      ['Média Confiança', 'review_queue', 'review_queue'],
+      // D-23: sem revisão, tudo entra catalogado (Quero assistir); a sugestão do pipeline fica guardada
+      ['Alta Confiança', 'cataloged', 'cataloged'],
+      ['Média Confiança', 'cataloged', 'review_queue'],
     ]);
     const body = await steps(ctx, user.accessToken, shareId);
     expect(body.decisions.find((d: { rawTitle: string }) => d.rawTitle === 'Quase Nada')).toMatchObject({ decision: 'discarded' });
