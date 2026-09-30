@@ -79,6 +79,24 @@ const DetailsSchema = z.object({
   credits: z.object({ cast: z.array(z.object({ name: z.string(), order: z.number().optional() })).optional() }).optional(),
 });
 
+export interface DiscoverBrowse {
+  sort: 'best' | 'popular';
+  genreIds?: number[];
+  /** qualquer um dos gêneros (OU) em vez de todos */
+  anyGenre?: boolean;
+  withoutGenreIds?: number[];
+  keywordIds?: number[];
+  providerIds?: number[];
+  /** só filmes (o /discover/tv não filtra por pessoa) */
+  personId?: number;
+  miniseries?: boolean;
+  maxRuntime?: number;
+  /** AAAA-MM-DD */
+  fromDate?: string;
+  toDate?: string;
+  minVotes?: number;
+}
+
 export interface TmdbQuery {
   title: string;
   kind: 'movie' | 'series';
@@ -263,6 +281,37 @@ export class TmdbResolver {
     const dateField = mediaType === 'movie' ? 'primary_release_date' : 'first_air_date';
     if (fromYear) params.set(`${dateField}.gte`, `${fromYear}-01-01`);
     if (toYear) params.set(`${dateField}.lte`, `${toYear}-12-31`);
+    const r = SearchSchema.parse(await this.get(`/discover/${mediaType}?${params}`));
+    return r.results.map((x) => toHit({ ...x, media_type: mediaType })).filter((h): h is TmdbHit => h !== null);
+  }
+
+  /**
+   * D-23: exploração ao vivo ("melhor série da Netflix", lançamentos, em breve). Consulta pontual do
+   * /discover, nada é copiado em massa (TOS-REQ-02). Serviços = assinatura no Brasil.
+   */
+  async discoverBrowse(mediaType: 'movie' | 'tv', o: DiscoverBrowse): Promise<TmdbHit[]> {
+    const params = new URLSearchParams({ language: 'pt-BR', include_adult: 'false', page: '1' });
+    const dateField = mediaType === 'movie' ? 'primary_release_date' : 'first_air_date';
+    if (o.genreIds?.length) params.set('with_genres', o.genreIds.join(o.anyGenre ? '|' : ','));
+    if (o.withoutGenreIds?.length) params.set('without_genres', o.withoutGenreIds.join(','));
+    if (o.keywordIds?.length) params.set('with_keywords', o.keywordIds.join('|'));
+    if (o.providerIds?.length) {
+      params.set('with_watch_providers', o.providerIds.join('|'));
+      params.set('watch_region', 'BR');
+      params.set('with_watch_monetization_types', 'flatrate');
+    }
+    if (o.personId && mediaType === 'movie') params.set('with_people', String(o.personId));
+    if (o.miniseries && mediaType === 'tv') params.set('with_type', '2');
+    if (o.maxRuntime && mediaType === 'movie') params.set('with_runtime.lte', String(o.maxRuntime));
+    if (o.fromDate) params.set(`${dateField}.gte`, o.fromDate);
+    if (o.toDate) params.set(`${dateField}.lte`, o.toDate);
+    if (o.sort === 'best') {
+      params.set('sort_by', 'vote_average.desc');
+      params.set('vote_count.gte', String(o.minVotes ?? (mediaType === 'movie' ? 1000 : 300)));
+    } else {
+      params.set('sort_by', 'popularity.desc');
+      if (o.minVotes) params.set('vote_count.gte', String(o.minVotes));
+    }
     const r = SearchSchema.parse(await this.get(`/discover/${mediaType}?${params}`));
     return r.results.map((x) => toHit({ ...x, media_type: mediaType })).filter((h): h is TmdbHit => h !== null);
   }

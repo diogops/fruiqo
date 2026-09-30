@@ -9,7 +9,7 @@ import { api } from '../api/client';
 import { ErrorNote, Modal } from '../components/shared';
 import { useToast } from '../components/Toast';
 import { Icon, Thumb, WorkLink } from '../components/ui';
-import { kindLabel, KINDS } from '../labels';
+import { kindLabel, KINDS, scoreText } from '../labels';
 
 const SEARCH_DEBOUNCE_MS = 400;
 
@@ -28,6 +28,7 @@ const INTERPRETED_LABEL = {
   person: 'por pessoa',
   genre: 'por gênero/década',
   description: 'por descrição',
+  browse: 'no TMDB',
 } as const;
 
 type KindFilter = '' | 'movie' | 'series' | 'book';
@@ -47,6 +48,8 @@ export interface SearchPick {
   ref: { tmdbId: number; mediaType: 'movie' | 'tv' } | { olWorkId: string };
   /** página da obra para conferir antes de incluir (TMDB ou Open Library), em aba nova */
   page?: { url: string; label: string };
+  /** D-23: nota geral no TMDB (0..10) */
+  generalRating?: number;
 }
 
 export function searchPicks(data: TitleSearchResponse | undefined): SearchPick[] {
@@ -63,6 +66,7 @@ export function searchPicks(data: TitleSearchResponse | undefined): SearchPick[]
     inLibrary: r.inLibrary,
     ref: { tmdbId: r.tmdbId, mediaType: r.mediaType },
     page: { url: tmdbPageUrl(r.mediaType, r.tmdbId), label: 'TMDB' },
+    generalRating: r.generalRating,
   }));
   const books: SearchPick[] = (data.books ?? []).map((b) => ({
     key: `ol:${b.olWorkId}`,
@@ -119,7 +123,7 @@ export function TitleSearch({
           <input
             type="search"
             // RF-45: foco no campo ao abrir (o Modal foca o primeiro campo)
-            placeholder='Nome, "Duna 2021", "Wagner Moura", "comédia anos 90" ou uma descrição'
+            placeholder='Nome, "Wagner Moura", "melhor série da Netflix", "lançamentos de terror" ou uma descrição'
             autoFocus
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -154,7 +158,11 @@ export function TitleSearch({
           {interpreted.person ? `: ${interpreted.person}` : ''}
           {interpreted.year ? ` · ano ${interpreted.year}` : ''}
           {interpreted.decade ? ` · anos ${String(interpreted.decade).slice(2)}` : ''}
-          {interpreted.genres.length > 0 ? ` · ${interpreted.genres.map((g) => g.label).join(', ')}` : ''}
+          {interpreted.labels?.length
+            ? ` · ${interpreted.labels.join(', ')}`
+            : interpreted.genres.length > 0
+              ? ` · ${interpreted.genres.map((g) => g.label).join(', ')}`
+              : ''}
           {interpreted.type === 'description' &&
             (interpreted.aiUsed ? (
               <span className="badge badge-ai">
@@ -200,7 +208,7 @@ export function TitleSearch({
                   {r.page && <Icon name="external" size={13} className="work-ext-icon" />}
                 </WorkLink>
                 <div className="muted small">
-                  {[kindLabel(r.kind), r.year].filter(Boolean).join(' · ')}
+                  {[kindLabel(r.kind), r.year, r.generalRating != null ? `TMDB ${scoreText(r.generalRating)}` : null].filter(Boolean).join(' · ')}
                   {r.originalTitle && r.originalTitle !== r.title ? ` · ${r.originalTitle}` : ''}
                 </div>
                 {r.people.length > 0 && (

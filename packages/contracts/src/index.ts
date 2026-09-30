@@ -1232,14 +1232,19 @@ export const TitleSearchResultSchema = z.object({
   inLibrary: z
     .object({ id: z.uuid(), rank: TitleRankSchema.nullable(), decision: z.enum(['cataloged', 'review_queue']), status: TitleStatusSchema.optional() })
     .nullable(),
-  matchedBy: z.enum(['title', 'person', 'genre', 'description']),
+  matchedBy: z.enum(['title', 'person', 'genre', 'description', 'browse']),
+  /** D-23: nota geral no TMDB (0..10) e votos, para comparar na busca */
+  generalRating: z.number().min(0).max(10).optional(),
+  generalVotes: z.number().int().nonnegative().optional(),
 });
 export type TitleSearchResult = z.infer<typeof TitleSearchResultSchema>;
 
 export const TitleSearchResponseSchema = z.object({
   query: z.string(),
   interpreted: z.object({
-    type: z.enum(['title', 'person', 'genre', 'description']),
+    type: z.enum(['title', 'person', 'genre', 'description', 'browse']),
+    /** D-23: como a exploração foi entendida ("mais bem avaliados", "Netflix", "minissérie") */
+    labels: z.array(z.string()).optional(),
     year: z.number().int().optional(),
     person: z.string().optional(),
     genres: z.array(TaxonomyTagSchema),

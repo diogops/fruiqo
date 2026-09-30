@@ -21,6 +21,7 @@ const INTERPRETED: Record<string, string> = {
   person: 'por pessoa',
   genre: 'por gênero',
   description: 'pela descrição',
+  browse: 'no TMDB',
 };
 
 function message(e: unknown) {
@@ -132,7 +133,7 @@ export default function AddTitle() {
               <Text style={ui.muted}>
                 Busca {INTERPRETED[res.interpreted.type] ?? ''}
                 {res.interpreted.person ? `: ${res.interpreted.person}` : ''}
-                {res.interpreted.genres.length ? ` · ${res.interpreted.genres.map((g) => g.label).join(', ')}` : ''}
+                {res.interpreted.labels?.length ? ` · ${res.interpreted.labels.join(', ')}` : res.interpreted.genres.length ? ` · ${res.interpreted.genres.map((g) => g.label).join(', ')}` : ''}
                 {res.interpreted.year ? ` · ${res.interpreted.year}` : ''}
                 {res.interpreted.aiUsed ? ' · com IA' : ''}
               </Text>

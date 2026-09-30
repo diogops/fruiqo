@@ -20,6 +20,7 @@ import type { TmdbHit, TmdbResolver } from '../pipeline/resolvers/tmdb.js';
 import { llmSafeInput } from './mood-interpreter.js';
 import { LibraryService } from './library.service.js';
 import { ReviewService } from './review.service.js';
+import { type BrowseInterpretation, interpretBrowseQuery, SERVICES } from './browse-query.js';
 import { interpretSearchQuery, type SearchInterpretation, tmdbGenreIds } from './search-query.js';
 import { OPENLIBRARY_CATALOG } from './openlibrary-catalog.js';
 import { TITLE_GUESSER, type TitleGuess, type TitleGuesser } from './title-guesser.js';
@@ -33,6 +34,24 @@ const MIN_TITLE_SCORE = 0.35;
 /** nome de pessoa reconhecido pelo TMDB com esta similaridade ao texto = busca por pessoa */
 const PERSON_MATCH = 0.85;
 const BOOKS_IN_MIXED_SEARCH_MS = 6_000;
+/** D-23: exploração */
+const PERSON_IN_BROWSE = 0.6;
+const RECENT_DAYS = 120;
+const UPCOMING_DAYS = 180;
+const SHORT_MAX_MIN = 40;
+/** gêneros sem equivalente em séries no TMDB: Mistério (9648), Crime (80), Sci-Fi & Fantasy (10765) */
+const TV_GENRE_PROXY: Partial<Record<string, number[]>> = { thriller: [9648, 80], horror: [9648, 10765] };
+const BROWSE_EXCLUDE_TV: { genre: string; ids: number[] }[] = [
+  { genre: 'family', ids: [10762] },
+  { genre: 'news', ids: [10763] },
+  { genre: 'talk', ids: [10767] },
+  { genre: 'reality', ids: [10764] },
+  { genre: 'animation', ids: [16] },
+];
+const BROWSE_EXCLUDE_MOVIE: { genre: string; ids: number[] }[] = [
+  { genre: 'documentary', ids: [99] },
+  { genre: 'tv_movie', ids: [10770] },
+];
 const GENRE_LABEL = new Map<string, string>(GENRES.map((g) => [g.key, g.label]));
 
 /** Limite por usuário em memória (1 instância em SC-PERSONAL; o ThrottlerGuard global é por IP). */
@@ -98,9 +117,18 @@ export class SearchService {
     let aiUsed = false;
     let aiBooks: BookHit[] = [];
     let hits: { hit: TmdbHit; matchedBy: TitleSearchResult['matchedBy'] }[] = [];
+    let labels: string[] | undefined;
 
     try {
-      if (forceAi) {
+      // D-23: "melhor série da Netflix", "lançamentos de terror", "filmes em breve"...
+      const browse = !forceAi ? interpretBrowseQuery(q, kind) : null;
+      const browsed = browse ? await this.byBrowse(tmdb, browse) : null;
+      if (browse && browsed) {
+        type = 'browse';
+        labels = browse.labels;
+        person = browsed.person;
+        hits = browsed.hits.map((hit) => ({ hit, matchedBy: 'browse' as const }));
+      } else if (forceAi) {
         // "Buscar com IA": o pedido inteiro vai para a IA (com consentimento); sem ela, cai nas palavras-chave
         type = 'description';
         const described = await this.byDescription(tmdb, userId, q, interp);
@@ -154,6 +182,7 @@ export class SearchService {
         ...(person ? { person } : {}),
         genres: interp.genres.map((key) => ({ key, label: GENRE_LABEL.get(key) ?? key })),
         ...(interp.decade ? { decade: interp.decade } : {}),
+        ...(labels ? { labels } : {}),
         aiUsed,
       },
       items: unique.map(({ hit, matchedBy }, i) => {
@@ -172,6 +201,7 @@ export class SearchService {
           cast: casts[i] ?? [],
           inLibrary: mine ?? null,
           matchedBy,
+          ...(hit.voteAverage != null && hit.voteCount ? { generalRating: hit.voteAverage, generalVotes: hit.voteCount } : {}),
         };
       }),
     };
@@ -342,6 +372,86 @@ export class SearchService {
   }
 
   /** Gênero/tema/década: /discover de filme e/ou série, mais populares primeiro. */
+  /**
+   * D-23: exploração ao vivo no TMDB (/discover). "Melhor" ordena pela nota geral com mínimo de
+   * votos; lançamentos = últimos 120 dias; "em breve" = próximos 180. O que sobrou do texto precisa
+   * ser uma pessoa conhecida no TMDB; se não for, devolve null e segue a busca normal (por título).
+   */
+  private async byBrowse(tmdb: TmdbResolver, b: BrowseInterpretation): Promise<{ hits: TmdbHit[]; person?: string } | null> {
+    let personId: number | undefined;
+    let personName: string | undefined;
+    if (b.person) {
+      const p = await tmdb.searchPerson(b.person);
+      if (!p || similarity(b.person, p.name) < PERSON_IN_BROWSE) return null;
+      personId = p.id;
+      personName = p.name;
+    }
+    const medias: ('movie' | 'tv')[] = b.short || b.kind === 'movie' ? ['movie'] : b.miniseries || b.kind === 'series' ? ['tv'] : ['movie', 'tv'];
+    const providerIds = b.services.flatMap((k) => SERVICES.find((s) => s.key === k)?.tmdbIds ?? []);
+    const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+    const dates =
+      b.releases === 'recent'
+        ? { fromDate: day(-RECENT_DAYS), toDate: day(0) }
+        : b.releases === 'upcoming'
+          ? { fromDate: day(1), toDate: day(UPCOMING_DAYS) }
+          : b.decade
+            ? { fromDate: `${b.decade}-01-01`, toDate: `${b.decade + 9}-12-31` }
+            : {};
+    const best = b.best && b.releases !== 'upcoming';
+    const narrow = providerIds.length > 0 || b.genres.length > 0 || b.keywordIds.length > 0 || b.miniseries;
+    // mínimo de votos para "melhor": sem ele, nota alta de poucos votos (vídeos, compilações) domina o topo
+    const minVotes = (m: 'movie' | 'tv') =>
+      !best
+        ? undefined
+        : b.releases
+          ? 20
+          : b.short
+            ? 50
+            : personId
+              ? 200
+              : b.miniseries
+                ? 150
+                : m === 'movie'
+                  ? narrow ? 1000 : 3000
+                  : narrow ? 500 : 1500;
+    // fora do que não foi pedido: infantil, notícia, talk show, reality e animação (séries);
+    // documentário e filme para TV (filmes)
+    const exclude = (m: 'movie' | 'tv') =>
+      (m === 'tv' ? BROWSE_EXCLUDE_TV : BROWSE_EXCLUDE_MOVIE).filter((x) => !(b.genres as string[]).includes(x.genre)).flatMap((x) => x.ids);
+
+    const lists = await Promise.all(
+      medias.map(async (m) => {
+        // séries no TMDB não têm Suspense nem Terror: usa o mais próximo (qualquer um deles)
+        const proxied = m === 'tv' && b.genres.some((g) => TV_GENRE_PROXY[g] && tmdbGenreIds([g], 'tv').length === 0);
+        const genreIds = [...new Set([...tmdbGenreIds(b.genres, m), ...(m === 'tv' ? b.genres.flatMap((g) => (tmdbGenreIds([g], 'tv').length ? [] : (TV_GENRE_PROXY[g] ?? []))) : [])])];
+        if (b.genres.length > 0 && genreIds.length === 0) return [] as TmdbHit[];
+        // o /discover/tv não filtra por pessoa: séries da pessoa vêm da filmografia
+        if (m === 'tv' && personId) {
+          const credits = (await tmdb.personCredits(personId)).filter(
+            (h) => h.mediaType === 'tv' && (!genreIds.length || genreIds.some((g) => h.genreIds.includes(g))),
+          );
+          return best ? credits.filter((h) => (h.voteCount ?? 0) >= 50).sort((x, y) => (y.voteAverage ?? 0) - (x.voteAverage ?? 0)) : credits;
+        }
+        const mv = minVotes(m);
+        return tmdb.discoverBrowse(m, {
+          sort: best ? 'best' : 'popular',
+          ...(genreIds.length ? { genreIds, ...(proxied ? { anyGenre: true } : {}) } : {}),
+          ...(b.keywordIds.length ? { keywordIds: b.keywordIds } : {}),
+          ...(exclude(m).length ? { withoutGenreIds: exclude(m) } : {}),
+          ...(providerIds.length ? { providerIds } : {}),
+          ...(personId ? { personId } : {}),
+          ...(b.miniseries ? { miniseries: true } : {}),
+          ...(b.short ? { maxRuntime: SHORT_MAX_MIN } : {}),
+          ...dates,
+          ...(mv ? { minVotes: mv } : {}),
+        });
+      }),
+    );
+    // "melhor": nota geral decide entre filmes e séries; senão, alterna para nenhum dominar o topo
+    const hits = best ? lists.flat().sort((x, y) => (y.voteAverage ?? 0) - (x.voteAverage ?? 0)) : interleave(lists);
+    return { hits, ...(personName ? { person: personName } : {}) };
+  }
+
   private async byGenre(tmdb: TmdbResolver, interp: SearchInterpretation): Promise<TmdbHit[]> {
     const medias: ('movie' | 'tv')[] = interp.kind === 'series' ? ['tv'] : interp.kind === 'movie' ? ['movie'] : ['movie', 'tv'];
     // "recente/lançamento": últimos 3 anos; década explícita vence

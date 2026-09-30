@@ -264,6 +264,51 @@ describe('RF-46: busca e importação', () => {
     expect(seen.at(-1)).toBe('Filme recente de faroeste');
   });
 
+  it('D-23: "melhor" e lançamentos viram /discover ao vivo (serviço no Brasil, pessoa, minissérie, datas)', async () => {
+    const user = await newUser();
+    const urls: URL[] = [];
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url);
+      urls.push(url);
+      let body: unknown = { results: [] };
+      if (url.pathname.endsWith('/search/person')) body = { results: [{ id: 6384, name: 'Keanu Reeves', popularity: 50 }] };
+      if (url.pathname.endsWith('/discover/movie'))
+        body = { results: [{ id: 603, title: 'Matrix', release_date: '1999-03-31', popularity: 80, vote_average: 8.2, vote_count: 26000 }] };
+      if (url.pathname.endsWith('/discover/tv'))
+        body = { results: [{ id: 1, name: 'Minissérie Boa', first_air_date: '2020-01-01', popularity: 10, vote_average: 8.6, vote_count: 900 }] };
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const search = new SearchService(db, ctx.app.get(ReviewService), ctx.app.get(LibraryService), new TmdbResolver('k'.repeat(32), fetchImpl), null);
+    const discover = (kind: 'movie' | 'tv') => urls.filter((u) => u.pathname.endsWith(`/discover/${kind}`)).at(-1)!.searchParams;
+
+    const keanu = await search.search(user.userId, 'melhor filme do keanu reeves na hbo');
+    expect(keanu.interpreted).toMatchObject({ type: 'browse', person: 'Keanu Reeves', labels: ['mais bem avaliados', 'filme', 'Max'] });
+    expect(keanu.items[0]).toMatchObject({ title: 'Matrix', matchedBy: 'browse', generalRating: 8.2, generalVotes: 26000 });
+    const m = discover('movie');
+    expect(m.get('sort_by')).toBe('vote_average.desc');
+    expect(m.get('with_people')).toBe('6384');
+    expect(m.get('with_watch_providers')).toBe('1899|384');
+    expect(m.get('watch_region')).toBe('BR');
+
+    const mini = await search.search(user.userId, 'melhor miniserie de suspense da netflix');
+    expect(mini.items.map((i) => i.title)).toEqual(['Minissérie Boa']);
+    const t = discover('tv');
+    expect(t.get('with_type')).toBe('2');
+    expect(t.get('with_watch_providers')).toBe('8');
+    expect(t.get('with_genres')).toBeTruthy();
+    expect(Number(t.get('vote_count.gte'))).toBeGreaterThan(0);
+
+    await search.search(user.userId, 'filmes em breve');
+    const soon = discover('movie');
+    expect(soon.get('sort_by')).toBe('popularity.desc');
+    expect(soon.get('primary_release_date.gte')! > new Date().toISOString().slice(0, 10)).toBe(true);
+
+    // o que sobra e não é pessoa: segue a busca normal por título
+    urls.length = 0;
+    const title = await search.search(user.userId, 'O Melhor Amigo');
+    expect(title.interpreted.type).not.toBe('browse');
+  });
+
   it('sem liberação do TMDB para IA, o guesser nem existe; limite por usuário responde 429', async () => {
     const { createTitleGuesser } = await import('../../src/library/title-guesser.js');
     const { testEnv } = await import('../helpers.js');
