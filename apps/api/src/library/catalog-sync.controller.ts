@@ -4,7 +4,7 @@ import type { Queue } from 'bullmq';
 import { CurrentAuth } from '../auth/auth.guard.js';
 import type { AccessClaims } from '../auth/tokens.js';
 import { CATALOG_SYNC_JOB, type CatalogSyncJob, MAINTENANCE_QUEUE_TOKEN } from '../queue/queue.js';
-import { CatalogSync } from './catalog-sync.js';
+import { CatalogSync, syncIsBusy } from './catalog-sync.js';
 
 /** D-23: estado e disparo da sincronização do Catálogo (antes de /library/:id). */
 @Controller('library')
@@ -25,7 +25,7 @@ export class CatalogSyncController {
   async start(@CurrentAuth() auth: AccessClaims): Promise<CatalogSyncStatus> {
     if (!this.sync.available) throw new ServiceUnavailableException('TMDB indisponível agora');
     const current = await this.sync.status(auth.userId);
-    if (current.status === 'queued' || current.status === 'running') return current;
+    if (syncIsBusy(current)) return current;
     await this.sync.markQueued(auth.userId);
     await this.queue.add(CATALOG_SYNC_JOB, { userId: auth.userId }, { jobId: `catalog-sync-${auth.userId}` });
     return this.sync.status(auth.userId);

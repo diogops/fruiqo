@@ -42,12 +42,22 @@ export interface SyncReport {
   pages: number;
 }
 
+/** "rodando" sem terminar há mais que isto = interrompido (deploy/reinício): pode rodar de novo */
+export const SYNC_STALE_MS = 20 * 60 * 1000;
+
+export function syncIsBusy(s: Pick<CatalogSyncStatus, 'status' | 'lastStartedAt'>, now = Date.now()): boolean {
+  if (s.status === 'queued') return true;
+  if (s.status !== 'running') return false;
+  return !s.lastStartedAt || now - Date.parse(s.lastStartedAt) < SYNC_STALE_MS;
+}
+
 export class CatalogSync {
   constructor(
     private readonly db: Db,
     private readonly tmdb: TmdbResolver | null,
     private readonly budget: SyncBudget = DEFAULT_SYNC_BUDGET,
     private readonly today: () => string = () => new Date().toISOString().slice(0, 10),
+    private readonly log: (msg: string, data: object) => void = () => undefined,
   ) {}
 
   get available(): boolean {
@@ -114,9 +124,11 @@ export class CatalogSync {
           const hits = await fetchPage(media, { sort: 'best', page, availableBR: true, minVotes: BEST_MIN_VOTES[media] });
           report.added += await this.insert(userId, hits);
           bestPage[media] = hits.length < 20 ? this.budget.bestPages[media] : page;
+          // progresso a cada página: se o worker reiniciar, continua daqui
+          await this.save(userId, { bestPageMovie: bestPage.movie, bestPageTv: bestPage.tv, lastAdded: report.added });
         }
+        this.log('sincronização: melhores concluídos', { media, added: report.added, pages: report.pages });
       }
-      await this.save(userId, { bestPageMovie: bestPage.movie, bestPageTv: bestPage.tv });
 
       // 2) do mais novo para o mais velho: lançamentos recentes, depois continua para trás
       const today = this.today();
@@ -137,6 +149,8 @@ export class CatalogSync {
         }
         // mesma data de corte de novo (muitos títulos num dia só): anda um dia para não repetir
         olderThan[media] = oldest < from ? oldest : dayBefore(from);
+        await this.save(userId, { olderThanMovie: olderThan.movie, olderThanTv: olderThan.tv, lastAdded: report.added });
+        this.log('sincronização: mais novos concluídos', { media, olderThan: olderThan[media], added: report.added, pages: report.pages });
       }
       await withUser(this.db, userId, async (tx) => {
         if (report.added > 0) await recomputeAutoRatings(tx);

@@ -1380,12 +1380,12 @@ function SyncBar() {
     queryKey: ['catalog-sync'],
     queryFn: api.syncStatus,
     // enquanto roda, acompanha; ao terminar, recarrega o catálogo
-    refetchInterval: (q) => (q.state.data?.status === 'queued' || q.state.data?.status === 'running' ? 4000 : false),
+    refetchInterval: (q) => (q.state.data && syncBusy(q.state.data) ? 4000 : false),
   });
   const s = sync.data;
   const wasBusy = useRef(false);
   useEffect(() => {
-    const busy = s?.status === 'queued' || s?.status === 'running';
+    const busy = s ? syncBusy(s) : false;
     if (wasBusy.current && !busy && s) {
       void qc.invalidateQueries({ queryKey: ['library'] });
       if (s.status === 'idle') toast.show(`Sincronização concluída: ${s.lastAdded.toLocaleString('pt-BR')} título(s) novo(s).`);
@@ -1393,7 +1393,7 @@ function SyncBar() {
     wasBusy.current = busy;
   }, [s, qc, toast]);
   if (!s) return null;
-  const busy = s.status === 'queued' || s.status === 'running';
+  const busy = syncBusy(s);
   async function start() {
     try {
       qc.setQueryData(['catalog-sync'], await api.startSync());
@@ -1420,6 +1420,12 @@ function SyncBar() {
       </button>
     </div>
   );
+}
+
+/** "rodando" há mais de 20 min sem terminar = interrompido (o servidor aceita disparar de novo) */
+function syncBusy(s: CatalogSyncStatus): boolean {
+  if (s.status === 'queued') return true;
+  return s.status === 'running' && (!s.lastStartedAt || Date.now() - Date.parse(s.lastStartedAt) < 20 * 60 * 1000);
 }
 
 function syncPhase(s: CatalogSyncStatus): string {

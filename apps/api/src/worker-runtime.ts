@@ -109,11 +109,16 @@ export async function syncCatalogs(db: ReturnType<typeof createDb>['db'], sync: 
   const users = await db.execute<{ catalog_sync_users: string }>(sql`select catalog_sync_users()`);
   const total = { users: 0, added: 0, errors: 0 };
   for (const u of users.rows) {
-    if (opts.onlyNeverSynced && (await sync.status(u.catalog_sync_users)).lastStartedAt) continue;
+    // ao iniciar: quem nunca terminou uma rodada, ou foi interrompido no meio (deploy/reinício)
+    if (opts.onlyNeverSynced) {
+      const s = await sync.status(u.catalog_sync_users);
+      if (s.lastFinishedAt && s.status !== 'running' && s.status !== 'queued') continue;
+    }
     try {
       total.added += (await sync.syncUser(u.catalog_sync_users)).added;
-    } catch {
+    } catch (err) {
       total.errors++;
+      logger.warn({ err: (err as Error).message }, 'sincronização de um usuário falhou');
     }
     total.users++;
   }
@@ -166,7 +171,7 @@ export async function startWorker(env: Env): Promise<WorkerRuntime> {
   await maintenance.upsertJobScheduler(RETENTION_JOB, { every: RETENTION_EVERY_MS }, { name: RETENTION_JOB });
   await maintenance.upsertJobScheduler(CATALOG_REFRESH_JOB, { ...CATALOG_REFRESH_CRON }, { name: CATALOG_REFRESH_JOB });
   const enrichment = new EnrichmentService(db, createTitleLookup(env));
-  const catalogSync = new CatalogSync(db, createTmdbCatalog(env));
+  const catalogSync = new CatalogSync(db, createTmdbCatalog(env), undefined, undefined, (msg, data) => logger.info(data, msg));
   const maintenanceWorker = new Worker(
     MAINTENANCE_QUEUE,
     async (job) => {
@@ -208,6 +213,8 @@ export async function startWorker(env: Env): Promise<WorkerRuntime> {
     { connection, concurrency: 2 },
   );
 
+  maintenanceWorker.on('failed', (job, err) => logger.warn({ job: job?.name, err: err.message }, 'job de manutenção falhou'));
+  maintenanceWorker.on('active', (job) => logger.info({ job: job.name }, 'job de manutenção iniciado'));
   // D-23: quem nunca foi sincronizado entra já (sem esperar as 12h/21h)
   await maintenance.add(CATALOG_SYNC_BOOT_JOB, {}, { jobId: CATALOG_SYNC_BOOT_JOB, removeOnComplete: true, removeOnFail: true });
   logger.info('worker iniciado');
