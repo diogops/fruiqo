@@ -180,6 +180,12 @@ export function TitleSearch({
             : interpreted.genres.length > 0
               ? ` · ${interpreted.genres.map((g) => g.label).join(', ')}`
               : ''}
+          {interpreted.aiUnavailable && (
+            <span className="note-inline">
+              {' '}
+              · IA desligada: fiz a busca normal (ligue a IA em <Link to="/perfil">Perfil</Link>)
+            </span>
+          )}
           {interpreted.type === 'description' &&
             (interpreted.aiUsed ? (
               <span className="badge badge-ai">

@@ -80,7 +80,11 @@ const DetailsSchema = z.object({
 });
 
 export interface DiscoverBrowse {
-  sort: 'best' | 'popular';
+  /** `newest`: pela data de lançamento, do mais novo para o mais velho */
+  sort: 'best' | 'popular' | 'newest';
+  page?: number;
+  /** disponível no Brasil por assinatura ou de graça (sem exigir um serviço específico) */
+  availableBR?: boolean;
   genreIds?: number[];
   /** qualquer um dos gêneros (OU) em vez de todos */
   anyGenre?: boolean;
@@ -125,6 +129,8 @@ export interface TmdbHit {
   /** D-23: nota geral do TMDB (0..10) e votos */
   voteAverage?: number;
   voteCount?: number;
+  /** AAAA-MM-DD (lançamento do filme ou estreia da série) */
+  releaseDate?: string;
 }
 
 const MAX_ALTERNATIVES = 3;
@@ -290,7 +296,7 @@ export class TmdbResolver {
    * /discover, nada é copiado em massa (TOS-REQ-02). Serviços = assinatura no Brasil.
    */
   async discoverBrowse(mediaType: 'movie' | 'tv', o: DiscoverBrowse): Promise<TmdbHit[]> {
-    const params = new URLSearchParams({ language: 'pt-BR', include_adult: 'false', page: '1' });
+    const params = new URLSearchParams({ language: 'pt-BR', include_adult: 'false', page: String(o.page ?? 1) });
     const dateField = mediaType === 'movie' ? 'primary_release_date' : 'first_air_date';
     if (o.genreIds?.length) params.set('with_genres', o.genreIds.join(o.anyGenre ? '|' : ','));
     if (o.withoutGenreIds?.length) params.set('without_genres', o.withoutGenreIds.join(','));
@@ -299,6 +305,9 @@ export class TmdbResolver {
       params.set('with_watch_providers', o.providerIds.join('|'));
       params.set('watch_region', 'BR');
       params.set('with_watch_monetization_types', 'flatrate');
+    } else if (o.availableBR) {
+      params.set('watch_region', 'BR');
+      params.set('with_watch_monetization_types', 'flatrate|free|ads');
     }
     if (o.personId && mediaType === 'movie') params.set('with_people', String(o.personId));
     if (o.miniseries && mediaType === 'tv') params.set('with_type', '2');
@@ -308,6 +317,9 @@ export class TmdbResolver {
     if (o.sort === 'best') {
       params.set('sort_by', 'vote_average.desc');
       params.set('vote_count.gte', String(o.minVotes ?? (mediaType === 'movie' ? 1000 : 300)));
+    } else if (o.sort === 'newest') {
+      params.set('sort_by', `${dateField}.desc`);
+      if (o.minVotes) params.set('vote_count.gte', String(o.minVotes));
     } else {
       params.set('sort_by', 'popularity.desc');
       if (o.minVotes) params.set('vote_count.gte', String(o.minVotes));
@@ -396,11 +408,22 @@ function toHit(r: Hit): TmdbHit | null {
     popularity: r.popularity ?? 0,
     genreIds: r.genre_ids ?? [],
     ...(r.vote_count ? { voteAverage: round1(r.vote_average ?? 0), voteCount: r.vote_count } : {}),
+    ...((r.release_date || r.first_air_date) && /^\d{4}-\d{2}-\d{2}$/.test((r.release_date || r.first_air_date)!) ? { releaseDate: (r.release_date || r.first_air_date)! } : {}),
   };
 }
 
 function round1(n: number): number {
   return Math.round(Math.max(0, Math.min(10, n)) * 10) / 10;
+}
+
+/** D-23: registro de um resultado de busca/descoberta (sem os detalhes; eles vêm ao abrir ou na atualização). */
+export function resolutionFromHit(hit: TmdbHit): Resolution {
+  return {
+    ...baseResolution(hit),
+    ...(hit.overview ? { overview: hit.overview.slice(0, 4000) } : {}),
+    ...(hit.genreIds.length ? { genreIds: hit.genreIds } : {}),
+    ...(hit.voteAverage != null && hit.voteCount ? { voteAverage: hit.voteAverage, voteCount: hit.voteCount } : {}),
+  };
 }
 
 function baseResolution(hit: Pick<TmdbHit, 'tmdbId' | 'mediaType' | 'title' | 'year' | 'posterUrl'>): Resolution {

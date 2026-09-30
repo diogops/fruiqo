@@ -20,8 +20,11 @@ import { TokenService } from './auth/tokens.js';
 import { HttpExceptionFilter } from './common/http-exception.filter.js';
 import { pinoParams } from './common/logger.js';
 import { ENV, type Env } from './config/env.js';
-import { createDb, DB } from './db/client.js';
-import { createShareQueue, SHARE_QUEUE_TOKEN, type ShareJob } from './queue/queue.js';
+import { createDb, DB, type Db } from './db/client.js';
+import type { TmdbResolver } from './pipeline/resolvers/tmdb.js';
+import { createMaintenanceQueue, createShareQueue, MAINTENANCE_QUEUE_TOKEN, SHARE_QUEUE_TOKEN, type ShareJob } from './queue/queue.js';
+import { CatalogSync } from './library/catalog-sync.js';
+import { CatalogSyncController } from './library/catalog-sync.controller.js';
 import { HomeController, LibraryController, ListsController } from './library/library.controller.js';
 import { TaxonomyController } from './library/taxonomy.controller.js';
 import {
@@ -64,6 +67,7 @@ class InfraModule implements OnApplicationShutdown {
   constructor(
     @Inject(PG_POOL) private readonly pool: pg.Pool,
     @Inject(SHARE_QUEUE_TOKEN) private readonly queue: Queue<ShareJob>,
+    @Inject(MAINTENANCE_QUEUE_TOKEN) private readonly maintenance: Queue,
   ) {}
 
   static forEnv(env: Env): DynamicModule {
@@ -75,17 +79,19 @@ class InfraModule implements OnApplicationShutdown {
         { provide: DB, useValue: db },
         { provide: PG_POOL, useValue: pool },
         { provide: SHARE_QUEUE_TOKEN, useFactory: () => createShareQueue(env.REDIS_URL) },
+        { provide: MAINTENANCE_QUEUE_TOKEN, useFactory: () => createMaintenanceQueue(env.REDIS_URL) },
         {
           provide: TokenService,
           useValue: new TokenService(env.JWT_SECRET, env.ACCESS_TOKEN_TTL_SECONDS),
         },
       ],
-      exports: [ENV, DB, SHARE_QUEUE_TOKEN, TokenService],
+      exports: [ENV, DB, SHARE_QUEUE_TOKEN, MAINTENANCE_QUEUE_TOKEN, TokenService],
     };
   }
 
   async onApplicationShutdown() {
     await this.queue.close();
+    await this.maintenance.close();
     await this.pool.end();
   }
 }
@@ -110,6 +116,8 @@ export class AppModule {
         CatalogController,
         // /library/priority-draft e /library/import também antes de /library/:id
         LibraryExtrasController,
+        // D-23: /library/sync antes de /library/:id
+        CatalogSyncController,
         LibraryController,
         ListsController,
         ListsAdminController,
@@ -133,6 +141,7 @@ export class AppModule {
         SearchService,
         { provide: TITLE_LOOKUP, useFactory: () => createTitleLookup(env) },
         { provide: TMDB_CATALOG, useFactory: () => createTmdbCatalog(env) },
+        { provide: CatalogSync, useFactory: (db: Db, tmdb: TmdbResolver | null) => new CatalogSync(db, tmdb), inject: [DB, TMDB_CATALOG] },
         { provide: OPENLIBRARY_CATALOG, useFactory: () => createOpenLibraryCatalog(env) },
         { provide: TITLE_GUESSER, useFactory: () => createTitleGuesser(env) },
         { provide: MOOD_INTERPRETER, useFactory: () => createMoodInterpreter(env) },

@@ -120,6 +120,13 @@
       "when": 1790748724976,
       "tag": "0016_catalog_refresh",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790752593153,
+      "tag": "0017_catalog_sync",
+      "breakpoints": true
     }
   ]
 }

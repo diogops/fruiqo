@@ -13,7 +13,7 @@ import { GENRES, genresFromTmdb, genreTermsIn } from '@fruiqo/taxonomy';
 import { eq, inArray } from 'drizzle-orm';
 import { DB, type Db, type Tx, withUser } from '../db/client.js';
 import { recommendations, tasteSignals } from '../db/schema.js';
-import { autoRating, recomputeAutoRatings } from './auto-rating.js';
+import { autoRating, recomputeAutoRatings, trustedGeneral } from './auto-rating.js';
 import { loadFitContext } from './fit-context.js';
 import { dedupKey } from '../pipeline/dedup.js';
 import { matchScore, similarity } from '../pipeline/resolvers/match.js';
@@ -107,6 +107,12 @@ export class SearchService {
     sortParam?: SearchSort,
   ): Promise<TitleSearchResponse> {
     if (!this.searchLimiter.take(userId)) throw tooMany();
+    // "Buscar com IA" sem IA disponível (desligada ou sem consentimento): busca normal, não palavras soltas
+    let aiUnavailable = false;
+    if (forceAi && !(this.guesser && (await userAllowsAi(this.db, userId)))) {
+      forceAi = false;
+      aiUnavailable = true;
+    }
     // RF-48: livros só pela Open Library (sem TMDB, sem LLM)
     if (kind === 'book' || (!kind && !this.tmdb && this.books)) return this.searchBooksOnly(userId, q);
     const tmdb = this.requireTmdb();
@@ -175,8 +181,9 @@ export class SearchService {
       throw new ServiceUnavailableException('Busca indisponível agora; tente de novo');
     }
 
-    // D-23: sua ordem (manual → estrelas → automática → geral); a busca por nome fica por relevância
-    const sort: SearchSort = sortParam ?? (type === 'title' ? 'relevance' : 'score');
+    // D-23: sua ordem (manual → estrelas → automática → geral); busca por nome ou pessoa fica por
+    // relevância (a filmografia na ordem de popularidade do TMDB)
+    const sort: SearchSort = sortParam ?? (type === 'title' || type === 'person' ? 'relevance' : 'score');
     const library = await this.libraryIndex(userId);
     const fitCtx = await withUser(this.db, userId, (tx) => loadFitContext(tx));
     const scored = dedupeHits(hits).map((h) => {
@@ -199,6 +206,7 @@ export class SearchService {
         genres: interp.genres.map((key) => ({ key, label: GENRE_LABEL.get(key) ?? key })),
         ...(interp.decade ? { decade: interp.decade } : {}),
         ...(labels ? { labels } : {}),
+        ...(aiUnavailable ? { aiUnavailable } : {}),
         sort,
         aiUsed,
       },
@@ -616,7 +624,7 @@ function fitTitleOfHit(hit: TmdbHit) {
     genres: Object.keys(weights).filter((g) => (weights[g as keyof typeof weights] ?? 0) > 0),
     tmdbId: hit.tmdbId,
     mediaType: hit.mediaType,
-    generalRating: hit.voteAverage ?? null,
+    generalRating: trustedGeneral(hit.voteAverage, hit.voteCount),
   };
 }
 
@@ -628,7 +636,7 @@ export function orderSearchHits<T extends { hit: TmdbHit; mine: InLibrary | null
   if (sort === 'relevance') return items;
   const nullsLast = (a: number | null | undefined, b: number | null | undefined, dir: 1 | -1) =>
     a == null && b == null ? 0 : a == null ? 1 : b == null ? -1 : dir * (a - b);
-  const general = (x: T) => (x.hit.voteCount ? (x.hit.voteAverage ?? null) : null);
+  const general = (x: T) => trustedGeneral(x.hit.voteAverage, x.hit.voteCount);
   return items
     .map((x, i) => ({ x, i }))
     .sort((p, q) => {

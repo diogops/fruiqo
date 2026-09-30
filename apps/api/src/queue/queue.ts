@@ -8,6 +8,22 @@ export const RETENTION_JOB = 'retention-purge';
 export const CATALOG_REFRESH_JOB = 'catalog-refresh';
 export const CATALOG_REFRESH_CRON = { pattern: '0 12,21 * * *', tz: 'America/Sao_Paulo' } as const;
 
+/** D-23: sincronização do Catálogo pedida pelo usuário ("Sincronizar agora") */
+export const CATALOG_SYNC_JOB = 'catalog-sync';
+/** ao iniciar o worker: sincroniza quem nunca foi sincronizado */
+export const CATALOG_SYNC_BOOT_JOB = 'catalog-sync-boot';
+export const CatalogSyncJobSchema = z.object({ userId: z.uuid() }).strict();
+export type CatalogSyncJob = z.infer<typeof CatalogSyncJobSchema>;
+export const MAINTENANCE_QUEUE_TOKEN = Symbol('MAINTENANCE_QUEUE');
+
+export function createMaintenanceQueue(redisUrl: string): Queue {
+  return new Queue(MAINTENANCE_QUEUE, {
+    connection: redisConnection(redisUrl),
+    // jobId por usuário: sem guardar o job concluído, um novo pedido pode entrar depois
+    defaultJobOptions: { attempts: 1, removeOnComplete: true, removeOnFail: true },
+  });
+}
+
 /** Payload do job: o worker revalida (SEC-REQ-18) e nunca confia em nada além destes IDs. */
 export const ShareJobSchema = z.object({ shareId: z.uuid(), userId: z.uuid() }).strict();
 export type ShareJob = z.infer<typeof ShareJobSchema>;

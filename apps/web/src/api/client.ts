@@ -9,6 +9,7 @@ import {
   type DiscoverRequest,
   type FeedbackRequest,
   DELETE_ACCOUNT_CONFIRMATION,
+  CatalogSyncStatusSchema,
   EnrichResponseSchema,
   ActivityResponseSchema,
   ApplyPriorityDraftResponseSchema,
@@ -217,6 +218,9 @@ export const api = {
   /** reordena a fila de prioridade (1 = topo) */
   moveTitle: (id: string, body: MoveTitleRequest) => request(MoveTitleResponseSchema, `/library/${id}/move`, 'POST', body),
   enrichTitle: (id: string) => request(EnrichResponseSchema, `/library/${id}/enrich`, 'POST', {}),
+  /** D-23: sincronização do Catálogo com o TMDB */
+  syncStatus: () => request(CatalogSyncStatusSchema, '/library/sync'),
+  startSync: () => request(CatalogSyncStatusSchema, '/library/sync', 'POST', {}),
   bulk: (body: BulkRequest) => request(BulkResponseSchema, '/library/bulk', 'POST', body),
   undoBulk: (undoToken: string) => request(BulkUndoResponseSchema, '/library/bulk/undo', 'POST', { undoToken }),
 

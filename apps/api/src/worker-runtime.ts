@@ -15,10 +15,15 @@ import { consumeDailyQuota } from './pipeline/quota.js';
 import { OpenLibraryResolver } from './pipeline/resolvers/openlibrary.js';
 import { SpotifyResolver } from './pipeline/resolvers/spotify.js';
 import { TmdbResolver } from './pipeline/resolvers/tmdb.js';
+import { CatalogSync } from './library/catalog-sync.js';
+import { createTmdbCatalog } from './library/tmdb-catalog.js';
 import { createTitleLookup, EnrichmentService } from './library/enrichment.service.js';
 import {
   CATALOG_REFRESH_CRON,
   CATALOG_REFRESH_JOB,
+  CATALOG_SYNC_BOOT_JOB,
+  CATALOG_SYNC_JOB,
+  CatalogSyncJobSchema,
   MAINTENANCE_QUEUE,
   redisConnection,
   RETENTION_JOB,
@@ -98,6 +103,24 @@ export function buildProcessor(
   });
 }
 
+/** D-23: sincroniza o Catálogo de cada usuário com o TMDB (melhores primeiro, depois do mais novo ao mais velho). */
+export async function syncCatalogs(db: ReturnType<typeof createDb>['db'], sync: CatalogSync, logger: Logger, opts: { onlyNeverSynced?: boolean } = {}) {
+  if (!sync.available) return { users: 0, added: 0, errors: 0 };
+  const users = await db.execute<{ catalog_sync_users: string }>(sql`select catalog_sync_users()`);
+  const total = { users: 0, added: 0, errors: 0 };
+  for (const u of users.rows) {
+    if (opts.onlyNeverSynced && (await sync.status(u.catalog_sync_users)).lastStartedAt) continue;
+    try {
+      total.added += (await sync.syncUser(u.catalog_sync_users)).added;
+    } catch {
+      total.errors++;
+    }
+    total.users++;
+  }
+  logger.info(total, 'catálogo sincronizado (TMDB)');
+  return total;
+}
+
 /** D-23: atualiza o catálogo de cada usuário (um de cada vez, sob RLS) com os dados atuais do TMDB. */
 export async function refreshCatalogs(db: ReturnType<typeof createDb>['db'], enrichment: EnrichmentService, logger: Logger, delayMs?: number) {
   const users = await db.execute<{ catalog_refresh_users: string }>(sql`select catalog_refresh_users()`);
@@ -143,10 +166,25 @@ export async function startWorker(env: Env): Promise<WorkerRuntime> {
   await maintenance.upsertJobScheduler(RETENTION_JOB, { every: RETENTION_EVERY_MS }, { name: RETENTION_JOB });
   await maintenance.upsertJobScheduler(CATALOG_REFRESH_JOB, { ...CATALOG_REFRESH_CRON }, { name: CATALOG_REFRESH_JOB });
   const enrichment = new EnrichmentService(db, createTitleLookup(env));
+  const catalogSync = new CatalogSync(db, createTmdbCatalog(env));
   const maintenanceWorker = new Worker(
     MAINTENANCE_QUEUE,
     async (job) => {
+      if (job.name === CATALOG_SYNC_JOB) {
+        // "Sincronizar agora" (D-23): só o usuário que pediu
+        const parsed = CatalogSyncJobSchema.safeParse(job.data);
+        if (!parsed.success) throw new UnrecoverableError('payload de job inválido');
+        const r = await catalogSync.syncUser(parsed.data.userId);
+        logger.info({ added: r.added, pages: r.pages }, 'catálogo sincronizado a pedido (TMDB)');
+        return;
+      }
+      if (job.name === CATALOG_SYNC_BOOT_JOB) {
+        await syncCatalogs(db, catalogSync, logger, { onlyNeverSynced: true });
+        return;
+      }
       if (job.name === CATALOG_REFRESH_JOB) {
+        // 12h e 21h: primeiro traz títulos novos (melhores, depois do mais novo ao mais velho); depois atualiza
+        await syncCatalogs(db, catalogSync, logger);
         await refreshCatalogs(db, enrichment, logger);
         return;
       }
@@ -166,9 +204,12 @@ export async function startWorker(env: Env): Promise<WorkerRuntime> {
         'retenção aplicada',
       );
     },
-    { connection },
+    // 2: um "Sincronizar agora" não espera a atualização agendada (longa) terminar
+    { connection, concurrency: 2 },
   );
 
+  // D-23: quem nunca foi sincronizado entra já (sem esperar as 12h/21h)
+  await maintenance.add(CATALOG_SYNC_BOOT_JOB, {}, { jobId: CATALOG_SYNC_BOOT_JOB, removeOnComplete: true, removeOnFail: true });
   logger.info('worker iniciado');
   return {
     processor,

@@ -11,6 +11,12 @@ import { loadFitContext } from './fit-context.js';
 /** quanto o gosto move a nota a partir da base (fit −1..1 → ±1,5 estrela) */
 const TASTE_WEIGHT = 1.5;
 const NEUTRAL_BASE = 3;
+/** nota geral com menos votos que isto não vale (um voto 10 não é "o melhor") */
+export const MIN_VOTES_FOR_GENERAL = 50;
+
+export function trustedGeneral(voteAverage: number | null | undefined, voteCount: number | null | undefined): number | null {
+  return voteAverage != null && (voteCount ?? 0) >= MIN_VOTES_FOR_GENERAL ? voteAverage : null;
+}
 
 /** Nota automática de um título; null sem base nenhuma (sem nota geral e sem gêneros). */
 export function autoRating(t: FitTitle & { generalRating?: number | null }, ctx: FitContext): number | null {
@@ -29,7 +35,7 @@ export function fitTitleOf(r: Pick<RecommendationRow, 'title' | 'genres' | 'reso
     genres: r.genres,
     tmdbId: res?.provider === 'tmdb' ? (res.tmdbId ?? null) : null,
     mediaType: res?.provider === 'tmdb' ? (res.mediaType ?? null) : null,
-    generalRating: res?.provider === 'tmdb' ? (res.voteAverage ?? null) : null,
+    generalRating: res?.provider === 'tmdb' ? trustedGeneral(res.voteAverage, res.voteCount) : null,
   };
 }
 

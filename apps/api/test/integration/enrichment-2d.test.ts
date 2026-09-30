@@ -127,6 +127,27 @@ describe('D-23: atualização agendada do catálogo (12h e 21h)', () => {
   });
 });
 
+describe('D-23: título sincronizado ganha os detalhes na primeira abertura', () => {
+  it('sem "onde assistir" gravado: busca no TMDB ao abrir e marca como buscado', async () => {
+    const me = await newUser();
+    const id = await me.addTitle('O Farol de Papel', 2021);
+    // como a sincronização grava: só o resultado do /discover, sem detalhes
+    await withUser(db, me.userId, (tx) =>
+      tx
+        .update(recommendations)
+        .set({
+          status: 'catalog',
+          enrichment: 'tmdb',
+          resolution: { provider: 'tmdb', externalId: 'movie:9900001', title: 'O Farol de Papel', url: 'https://www.themoviedb.org/movie/9900001', tmdbId: 9900001, mediaType: 'movie' },
+        })
+        .where(eq(recommendations.id, id)),
+    );
+    const t = (await me.get(`/library/${id}`).expect(200)).body;
+    expect(t.watchProvidersBR?.length).toBeGreaterThan(0);
+    expect(t.runtimeMin).toBe(104);
+  });
+});
+
 describe('disponibilidade (RF-38)', () => {
   it('/discover: título num serviço assinado sobe com "por que isso"; sem assinatura, sem boost', async () => {
     const me = await newUser();

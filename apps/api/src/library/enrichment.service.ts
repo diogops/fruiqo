@@ -82,6 +82,10 @@ export interface RefreshReport {
   errors: number;
 }
 
+/** D-23: títulos do Catálogo (fora da Minha Área) só são atualizados com dado mais velho que isto */
+const REFRESH_STALE_MS = 30 * 24 * 3600 * 1000;
+const REFRESH_CATALOG_CAP = 400;
+
 const ENRICHABLE_KINDS = new Set(['movie', 'series', 'book']);
 
 /**
@@ -101,7 +105,26 @@ export class EnrichmentService {
    */
   async ensureTitleLinks(userId: string, id: string): Promise<void> {
     if (!this.lookup?.titleLinks) return;
-    const row = await withUser(this.db, userId, async (tx) => (await tx.select().from(recommendations).where(eq(recommendations.id, id)))[0]);
+    let row = await withUser(this.db, userId, async (tx) => (await tx.select().from(recommendations).where(eq(recommendations.id, id)))[0]);
+    // D-23: título sincronizado ainda sem detalhes (onde assistir, duração): busca na primeira abertura
+    const synced = row?.resolution;
+    if (row && synced?.provider === 'tmdb' && synced.tmdbId && synced.mediaType && synced.providers === undefined && this.lookup.refreshTmdb) {
+      const detail = await this.lookup.refreshTmdb(synced.mediaType, synced.tmdbId);
+      if (detail) {
+        // lista vazia também é gravada: marca que os detalhes já foram buscados
+        const next: Resolution = { ...synced, ...detail, providers: detail.providers ?? [] };
+        const current = row;
+        row = await withUser(this.db, userId, async (tx) =>
+          (
+            await tx
+              .update(recommendations)
+              .set({ resolution: next, resolvedAt: new Date(), ...enrichmentUpdate(current, next), updatedAt: new Date() })
+              .where(eq(recommendations.id, id))
+              .returning()
+          )[0],
+        );
+      }
+    }
     const res = row?.resolution;
     if (!res || res.provider !== 'tmdb' || res.titleLinks !== undefined || !res.tmdbId || !res.mediaType || !res.providers?.length) return;
     const titleLinks = await this.lookup.titleLinks(res.mediaType, res.tmdbId);
@@ -179,7 +202,15 @@ export class EnrichmentService {
         .orderBy(recommendations.createdAt),
     );
     const delay = opts.delayMs ?? 250;
-    for (const row of rows) {
+    // Minha Área (para ver) sempre; o resto do Catálogo só com dado velho, e com teto por rodada
+    const staleBefore = Date.now() - REFRESH_STALE_MS;
+    const todo = [
+      ...rows.filter((r) => r.status === 'to_watch' || r.status === 'watching'),
+      ...rows
+        .filter((r) => r.status !== 'to_watch' && r.status !== 'watching' && (!r.resolvedAt || r.resolvedAt.getTime() < staleBefore))
+        .slice(0, REFRESH_CATALOG_CAP),
+    ];
+    for (const row of todo) {
       const old = row.resolution;
       try {
         if (old?.provider === 'tmdb' && old.tmdbId && old.mediaType) {

@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  date,
   index,
   integer,
   primaryKey,
@@ -496,3 +497,24 @@ export const priorityDrafts = pgTable('priority_drafts', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * D-23: sincronização do Catálogo com o TMDB (1 por usuário). Primeiro os mais bem avaliados
+ * (página por tipo), depois do mais novo para o mais velho (`older_than_*` = até onde já foi).
+ */
+export const catalogSyncState = pgTable('catalog_sync_state', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  status: text('status', { enum: ['idle', 'queued', 'running', 'failed'] }).notNull().default('idle'),
+  bestPageMovie: integer('best_page_movie').notNull().default(0),
+  bestPageTv: integer('best_page_tv').notNull().default(0),
+  olderThanMovie: date('older_than_movie'),
+  olderThanTv: date('older_than_tv'),
+  lastStartedAt: timestamp('last_started_at', { withTimezone: true }),
+  lastFinishedAt: timestamp('last_finished_at', { withTimezone: true }),
+  lastAdded: integer('last_added').notNull().default(0),
+  totalAdded: integer('total_added').notNull().default(0),
+  lastError: text('last_error'),
+});
+export type CatalogSyncStateRow = typeof catalogSyncState.$inferSelect;

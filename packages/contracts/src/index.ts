@@ -1210,6 +1210,25 @@ export type ApplyPriorityDraftResponse = z.infer<typeof ApplyPriorityDraftRespon
 
 // ---------- RF-46: incluir título por busca inteligente ----------
 
+/** D-23: sincronização do Catálogo com o TMDB (melhores primeiro, depois do mais novo ao mais velho) */
+export const CatalogSyncStatusSchema = z.object({
+  status: z.enum(['idle', 'queued', 'running', 'failed']),
+  /** há chave do TMDB no servidor */
+  available: z.boolean(),
+  /** títulos no Catálogo (fora da Minha Área) */
+  catalogCount: z.number().int().nonnegative(),
+  lastAdded: z.number().int().nonnegative(),
+  totalAdded: z.number().int().nonnegative(),
+  /** os mais bem avaliados já entraram; agora segue do mais novo para o mais velho */
+  bestDone: z.boolean(),
+  /** até onde a sincronização já voltou no tempo (AAAA-MM-DD) */
+  olderThan: z.string().optional(),
+  lastStartedAt: z.iso.datetime().optional(),
+  lastFinishedAt: z.iso.datetime().optional(),
+  lastError: z.string().optional(),
+});
+export type CatalogSyncStatus = z.infer<typeof CatalogSyncStatusSchema>;
+
 export const TitleSearchQuerySchema = z.object({
   q: z.string().trim().min(1).max(200),
   kind: z.enum(['movie', 'series', 'book']).optional(),
@@ -1263,6 +1282,8 @@ export const TitleSearchResponseSchema = z.object({
     labels: z.array(z.string()).optional(),
     /** D-23: ordem aplicada aos resultados */
     sort: z.enum(['score', 'auto', 'general', 'relevance']).optional(),
+    /** pediu "Buscar com IA", mas a IA está desligada ou sem consentimento: foi feita a busca normal */
+    aiUnavailable: z.boolean().optional(),
     year: z.number().int().optional(),
     person: z.string().optional(),
     genres: z.array(TaxonomyTagSchema),

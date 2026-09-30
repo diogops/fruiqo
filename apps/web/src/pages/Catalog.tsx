@@ -1,11 +1,21 @@
 import { DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { type BulkOperation, type MoveTitleRequest, providerTitleLink, type Title, type TitleStatus, type WatchProvider } from '@fruiqo/contracts';
+import {
+  type BulkOperation,
+  type CatalogSyncStatus,
+  type MoveTitleRequest,
+  providerTitleLink,
+  type Title,
+  type TitleSearchResult,
+  type TitleStatus,
+  tmdbPageUrl,
+  type WatchProvider,
+} from '@fruiqo/contracts';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { AddTitle, SearchImport } from './AddTitle';
+import { AddTitle, SearchImport, useDebounced } from './AddTitle';
 import { firstImage, ImportImage } from './ImportImage';
 import { ImportTxt, isTextFile } from './ImportTxt';
 import { DRAFT_KEY, PriorityDraftView } from './PriorityDraft';
@@ -13,7 +23,7 @@ import { api, type LibraryFilters } from '../api/client';
 import { CorrectTitleForm, ErrorNote, Modal, useTaxonomy } from '../components/shared';
 import { useToast } from '../components/Toast';
 import { EmptyState, Icon, Menu, MQ, ratingText, SkeletonRows, StarRating, Thumb, useElementWidth, useMediaQuery } from '../components/ui';
-import { AREA_STATUSES, kindLabel, KINDS, scoreText, SORT_LABEL, STATUS_LABEL, STATUSES, WATCH_ON_OPTIONS } from '../labels';
+import { AREA_STATUSES, formatDateTime, kindLabel, KINDS, scoreText, SORT_LABEL, STATUS_LABEL, STATUSES, WATCH_ON_OPTIONS } from '../labels';
 import { shiftRanks, targetPosition } from '../rankQueue';
 
 // `watched=show` mostra os já assistidos; por padrão ficam ocultos
@@ -311,6 +321,8 @@ export function Catalog({ area = false }: { area?: boolean }) {
         </div>
       )}
 
+      {!area && !exploring && <SyncBar />}
+
       {/* modo rascunho: só o rascunho aparece, para não confundir com a fila real */}
       {!exploring && !(draft.data && draftOpen) && (
         <>
@@ -318,7 +330,7 @@ export function Catalog({ area = false }: { area?: boolean }) {
             <input
               type="search"
               aria-label="Buscar por título"
-              placeholder="Buscar título…"
+              placeholder={area ? "Buscar título ou categoria…" : "Buscar nos seus títulos e no TMDB (nome ou categoria)…"}
               value={searchText}
               onChange={(e) => {
                 setSearchText(e.target.value);
@@ -487,6 +499,8 @@ export function Catalog({ area = false }: { area?: boolean }) {
               </button>
             </div>
           )}
+          {/* D-23: no Catálogo, a busca também vai direto ao TMDB (além dos seus títulos) */}
+          {!area && searchText.trim().length >= 2 && <TmdbInline q={searchText.trim()} />}
         </>
       )}
 
@@ -1355,5 +1369,148 @@ function RankMenu({ title, onMove }: { title: string; onMove: (req: MoveTitleReq
         </>
       )}
     </Menu>
+  );
+}
+
+/** D-23: estado da sincronização do Catálogo com o TMDB e "Sincronizar agora". */
+function SyncBar() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const sync = useQuery({
+    queryKey: ['catalog-sync'],
+    queryFn: api.syncStatus,
+    // enquanto roda, acompanha; ao terminar, recarrega o catálogo
+    refetchInterval: (q) => (q.state.data?.status === 'queued' || q.state.data?.status === 'running' ? 4000 : false),
+  });
+  const s = sync.data;
+  const wasBusy = useRef(false);
+  useEffect(() => {
+    const busy = s?.status === 'queued' || s?.status === 'running';
+    if (wasBusy.current && !busy && s) {
+      void qc.invalidateQueries({ queryKey: ['library'] });
+      if (s.status === 'idle') toast.show(`Sincronização concluída: ${s.lastAdded.toLocaleString('pt-BR')} título(s) novo(s).`);
+    }
+    wasBusy.current = busy;
+  }, [s, qc, toast]);
+  if (!s) return null;
+  const busy = s.status === 'queued' || s.status === 'running';
+  async function start() {
+    try {
+      qc.setQueryData(['catalog-sync'], await api.startSync());
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : 'Não foi possível sincronizar agora.', { tone: 'error' });
+    }
+  }
+  return (
+    <div className="sync-bar" role="status">
+      <span className="grow small">
+        <strong>{s.catalogCount.toLocaleString('pt-BR')}</strong> título(s) no Catálogo
+        {busy
+          ? s.status === 'queued'
+            ? ' · sincronização na fila…'
+            : ' · sincronizando com o TMDB…'
+          : s.lastFinishedAt
+            ? ` · última sincronização ${formatDateTime(s.lastFinishedAt)} (+${s.lastAdded.toLocaleString('pt-BR')})`
+            : ' · ainda não sincronizado'}
+        {!busy && s.lastFinishedAt && <span className="muted">{syncPhase(s)}</span>}
+        {s.status === 'failed' && s.lastError && <span className="note-inline"> · {s.lastError}</span>}
+      </span>
+      <button type="button" className="btn" disabled={busy || !s.available} onClick={() => void start()}>
+        <Icon name="refresh" size={15} /> {busy ? 'Sincronizando…' : 'Sincronizar agora'}
+      </button>
+    </div>
+  );
+}
+
+function syncPhase(s: CatalogSyncStatus): string {
+  if (!s.bestDone) return ' · trazendo os mais bem avaliados';
+  return s.olderThan ? ` · melhores ok; lançamentos até ${s.olderThan.split('-').reverse().join('/')}` : ' · melhores ok';
+}
+
+/** D-23: resultados do TMDB para o texto da busca do Catálogo, com "Quero assistir" e "Próximo". */
+function TmdbInline({ q }: { q: string }) {
+  const debounced = useDebounced(q);
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const search = useQuery({
+    queryKey: ['search-titles', debounced, '', undefined, ''],
+    queryFn: () => api.searchTitles({ q: debounced }),
+    enabled: debounced.length >= 2,
+    staleTime: 60_000,
+  });
+  const items = search.data?.items ?? [];
+
+  async function add(r: TitleSearchResult, next: boolean) {
+    const key = `${r.mediaType}:${r.tmdbId}`;
+    setBusyKey(key);
+    try {
+      let id = r.inLibrary?.id;
+      if (!id || r.inLibrary?.status === 'catalog' || r.inLibrary?.status === 'dropped') {
+        const res = await api.importTitles({ items: [{ tmdbId: r.tmdbId, mediaType: r.mediaType }] });
+        id = res.created[0]?.id ?? id;
+      }
+      if (next && id) await api.updateTitle(id, { next: true });
+      await qc.invalidateQueries();
+      toast.show(`"${r.title}" na Minha Área${next ? ', em 1º' : ''}.`);
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : 'Não foi possível incluir.', { tone: 'error' });
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  return (
+    <section className="tmdb-inline" aria-label="Resultados no TMDB">
+      <h2 className="tmdb-inline-head">
+        No TMDB
+        {search.data?.interpreted.labels?.length ? <span className="muted small"> · {search.data.interpreted.labels.join(', ')}</span> : null}
+      </h2>
+      {search.isFetching && <p className="muted small">Buscando no TMDB…</p>}
+      <ErrorNote error={search.error} />
+      {!search.isFetching && search.data && items.length === 0 && <p className="muted small">Nada no TMDB com esse texto.</p>}
+      <ul className="search-results">
+        {items.map((r) => {
+          const key = `${r.mediaType}:${r.tmdbId}`;
+          const inArea = r.inLibrary != null && r.inLibrary.status !== 'catalog' && r.inLibrary.status !== 'dropped';
+          return (
+            <li key={key} className="search-card">
+              <a href={tmdbPageUrl(r.mediaType, r.tmdbId)} target="_blank" rel="noopener noreferrer" className="work-link-thumb" aria-label={`Ver ${r.title} no TMDB`}>
+                <Thumb src={r.posterUrl} title={r.title} width={46} height={69} />
+              </a>
+              <div className="grow">
+                <strong>{r.title}</strong>
+                <div className="muted small">
+                  {[
+                    kindLabel(r.kind),
+                    r.year,
+                    r.inLibrary?.rating != null ? `você ${scoreText(r.inLibrary.rating)}★` : null,
+                    r.autoRating != null ? `auto ${scoreText(r.autoRating)}` : null,
+                    r.generalRating != null ? `TMDB ${scoreText(r.generalRating)}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </div>
+                {r.overview && <p className="small clamp-2">{r.overview}</p>}
+                {inArea && <span className="badge">na Minha Área{r.inLibrary?.rank ? ` (#${r.inLibrary.rank})` : ''}</span>}
+              </div>
+              <div className="tmdb-inline-actions">
+                {!inArea && (
+                  <button type="button" className="btn" disabled={busyKey === key} onClick={() => void add(r, false)}>
+                    Quero assistir
+                  </button>
+                )}
+                {r.inLibrary?.rank !== 1 && (
+                  <button type="button" className="btn btn-primary" disabled={busyKey === key} onClick={() => void add(r, true)}>
+                    Próximo
+                  </button>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      {items.length > 0 && <p className="attribution small">Dados de filmes e séries: TMDB.</p>}
+    </section>
   );
 }

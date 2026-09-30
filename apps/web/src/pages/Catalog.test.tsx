@@ -153,3 +153,50 @@ describe('D-23: Minha Área e Catálogo', () => {
     expect(screen.getByRole('button', { name: 'Próximo a assistir' })).toBeTruthy();
   });
 });
+
+describe('D-23: sincronização e busca no TMDB dentro do Catálogo', () => {
+  const syncIdle = { status: 'idle', available: true, catalogCount: 12, lastAdded: 0, totalAdded: 0, bestDone: false };
+
+  it('"Sincronizar agora" dispara e mostra o andamento', async () => {
+    __setAccessToken('tok');
+    const { calls } = mockApi({
+      'GET /taxonomy/genres': { version: 1, genres: [], subgenres: [] },
+      'GET /lists': [],
+      'GET /library': { items: [], nextCursor: null },
+      'GET /library/sync': syncIdle,
+      'POST /library/sync': { ...syncIdle, status: 'queued' },
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<Catalog />, { route: '/catalogo' });
+    await screen.findByText(/ainda não sincronizado/);
+    await user.click(screen.getByRole('button', { name: /Sincronizar agora/ }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.path === '/library/sync')).toBe(true));
+    expect(await screen.findByText(/sincronização na fila/)).toBeTruthy();
+  });
+
+  it('a busca do Catálogo também traz resultados do TMDB, com "Próximo"', async () => {
+    __setAccessToken('tok');
+    const created = makeTitle({ title: 'Matrix', status: 'to_watch', rank: 3 });
+    const { calls } = mockApi({
+      'GET /taxonomy/genres': { version: 1, genres: [], subgenres: [] },
+      'GET /lists': [],
+      'GET /library': { items: [], nextCursor: null },
+      'GET /library/sync': syncIdle,
+      'GET /search/titles': {
+        query: 'matrix',
+        interpreted: { type: 'title', genres: [], aiUsed: false, sort: 'relevance' },
+        items: [{ tmdbId: 603, mediaType: 'movie', kind: 'movie', title: 'Matrix', year: 1999, cast: [], inLibrary: null, matchedBy: 'title', generalRating: 8.2, generalVotes: 26000 }],
+      },
+      'POST /library/import': { created: [created], skipped: [] },
+      [`PATCH /library/${created.id}`]: { ...created, rank: 1 },
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<Catalog />, { route: '/catalogo' });
+    await user.type(screen.getByRole('searchbox', { name: 'Buscar por título' }), 'matrix');
+    const tmdb = await screen.findByRole('region', { name: 'Resultados no TMDB' });
+    expect(await within(tmdb).findByText('Matrix')).toBeTruthy();
+    await user.click(within(tmdb).getByRole('button', { name: 'Próximo' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ next: true }));
+    expect(calls.find((c) => c.path === '/library/import')?.body).toEqual({ items: [{ tmdbId: 603, mediaType: 'movie' }] });
+  });
+});

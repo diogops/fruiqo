@@ -34,7 +34,7 @@ import {
 } from '@fruiqo/taxonomy';
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { libraryTextCondition } from './library-text.js';
-import { recomputeAutoRatings } from './auto-rating.js';
+import { MIN_VOTES_FOR_GENERAL, recomputeAutoRatings } from './auto-rating.js';
 import { ENV, type Env } from '../config/env.js';
 import { DB, type Db, type Tx, withUser } from '../db/client.js';
 import {
@@ -651,7 +651,8 @@ function decodeCursor(cursor: string | undefined): number {
 
 export type { SubgenreKey };
 
-const GENERAL = sql`(${recommendations.resolution}->>'voteAverage')::real`;
+// nota geral só com votos suficientes (MIN_VOTES_FOR_GENERAL): um voto 10 não vai para o topo
+const GENERAL = sql`(CASE WHEN coalesce((${recommendations.resolution}->>'voteCount')::int, 0) >= ${sql.raw(String(MIN_VOTES_FOR_GENERAL))} THEN (${recommendations.resolution}->>'voteAverage')::real END)`;
 
 /**
  * D-23: ordem padrão (`score`) = fila manual → minhas estrelas → nota automática → nota geral. As
