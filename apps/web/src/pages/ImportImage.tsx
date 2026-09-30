@@ -39,6 +39,31 @@ export function ImportImage({ initialFile, onClose }: { initialFile?: File | nul
   const [progress, setProgress] = useState<OcrProgress | null>(null);
   const [fullText, setFullText] = useState('');
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  // D-23: o TMDB sugere a categoria (Filme/Série) de cada título sem categoria; uma consulta por texto
+  const asked = useRef(new Set<string>());
+  useEffect(() => {
+    const pending = candidates.filter((c) => c.visible && c.kind === null && normalizeSpaces(c.text).length >= 2 && !asked.current.has(normalizeSpaces(c.text)));
+    if (pending.length === 0) return;
+    const timer = setTimeout(() => {
+      const texts = [...new Set(pending.map((c) => normalizeSpaces(c.text)))].slice(0, 60);
+      for (const t of texts) asked.current.add(t);
+      api
+        .classifyTitles(texts)
+        .then((res) => {
+          const kindOf = new Map(res.items.filter((i) => i.kind).map((i) => [i.title, i.kind!]));
+          setCandidates((cs) =>
+            cs.map((c) => {
+              const k = c.kind === null ? kindOf.get(normalizeSpaces(c.text)) : undefined;
+              return k ? { ...c, kind: k, kindFrom: 'tmdb' } : c;
+            }),
+          );
+        })
+        .catch(() => {
+          // sem sugestão: o usuário escolhe, como antes
+        });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [candidates]);
   const [results, setResults] = useState<ItemResult[] | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [sending, setSending] = useState(false);
@@ -374,7 +399,7 @@ export function ImportImage({ initialFile, onClose }: { initialFile?: File | nul
         {step === 'review' && (
           <>
             <p className="muted small">
-              Confira os títulos encontrados: corrija a grafia e escolha a categoria. O que você cadastrar vai para a Minha Área como Quero assistir, onde
+              Confira os títulos encontrados: corrija a grafia; a categoria vem sugerida pelo TMDB (troque se precisar). O que você cadastrar vai para a Minha Área como Quero assistir, onde
               confirma a obra certa antes de entrar na fila.
             </p>
             {shown.length > 0 && (
@@ -416,7 +441,9 @@ export function ImportImage({ initialFile, onClose }: { initialFile?: File | nul
                       value={c.kind ?? ''}
                       aria-label={`Categoria do título ${i + 1}`}
                       aria-invalid={missingKind || undefined}
-                      onChange={(e) => update(c.id, { kind: (e.target.value || null) as CandidateKind | null, selected: true })}
+                      title={c.kindFrom === 'tmdb' ? 'Categoria sugerida pelo TMDB; troque se estiver errada' : undefined}
+                      data-from={c.kindFrom}
+                      onChange={(e) => update(c.id, { kind: (e.target.value || null) as CandidateKind | null, kindFrom: undefined, selected: true })}
                     >
                       <option value="">Categoria…</option>
                       {(Object.keys(KIND_LABEL) as CandidateKind[]).map((k) => (

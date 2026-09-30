@@ -1016,3 +1016,6 @@ details[open] > summary { margin-bottom: 0.6rem; }
 .tmdb-inline-head { font-size: 1rem; margin: 0 0 0.5rem; }
 .tmdb-inline-actions { display: flex; flex-direction: column; gap: 0.4rem; align-items: stretch; }
 @media (max-width: 768px) { .tmdb-inline-actions { flex-direction: row; flex-wrap: wrap; } }
+
+/* D-23: categoria sugerida pelo TMDB no import */
+select[data-from='tmdb'] { border-color: var(--accent, #4f8cff); }

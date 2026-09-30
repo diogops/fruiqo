@@ -5,6 +5,7 @@ import type {
   ImportTitlesResponse,
   Resolution,
   Title,
+  ClassifyTitlesResponse,
   TitleSearchQuery,
   TitleSearchResponse,
   TitleSearchResult,
@@ -41,6 +42,8 @@ const PERSON_IN_BROWSE = 0.6;
 const RECENT_DAYS = 120;
 const UPCOMING_DAYS = 180;
 const SHORT_MAX_MIN = 40;
+/** D-23: semelhança mínima de título para sugerir a categoria no import */
+const CLASSIFY_MIN_SIMILARITY = 0.75;
 /** gêneros sem equivalente em séries no TMDB: Mistério (9648), Crime (80), Sci-Fi & Fantasy (10765) */
 const TV_GENRE_PROXY: Partial<Record<string, number[]>> = { thriller: [9648, 80], horror: [9648, 10765] };
 const BROWSE_EXCLUDE_TV: { genre: string; ids: number[] }[] = [
@@ -403,6 +406,35 @@ export class SearchService {
    * votos; lançamentos = últimos 120 dias; "em breve" = próximos 180. O que sobrou do texto precisa
    * ser uma pessoa conhecida no TMDB; se não for, devolve null e segue a busca normal (por título).
    */
+  /**
+   * D-23: categoria de cada título lido num import (print/texto), pelo resultado mais parecido do
+   * TMDB. Só filmes/séries; livro ou grafia muito diferente fica sem sugestão (null).
+   */
+  async classify(userId: string, titles: string[]): Promise<ClassifyTitlesResponse> {
+    if (!this.searchLimiter.take(userId)) throw tooMany();
+    const tmdb = this.requireTmdb();
+    const items = await mapLimit(titles, 4, async (raw) => {
+      const interp = interpretSearchQuery(raw);
+      try {
+        const { titles: hits } = await tmdb.searchMulti(interp.text);
+        const best = hits
+          .map((hit) => ({ hit, sim: titleSimilarity(interp.text, hit), yearOk: !interp.year || hit.year === interp.year }))
+          .filter((r) => r.sim >= CLASSIFY_MIN_SIMILARITY)
+          .sort((a, b) => Number(b.yearOk) - Number(a.yearOk) || b.sim - a.sim || b.hit.popularity - a.hit.popularity)[0];
+        if (!best) return { title: raw, kind: null };
+        return {
+          title: raw,
+          kind: best.hit.mediaType === 'tv' ? ('series' as const) : ('movie' as const),
+          tmdbTitle: best.hit.title,
+          ...(best.hit.year ? { year: best.hit.year } : {}),
+        };
+      } catch {
+        return { title: raw, kind: null };
+      }
+    });
+    return { items };
+  }
+
   private async byBrowse(tmdb: TmdbResolver, b: BrowseInterpretation): Promise<{ hits: TmdbHit[]; person?: string } | null> {
     let personId: number | undefined;
     let personName: string | undefined;

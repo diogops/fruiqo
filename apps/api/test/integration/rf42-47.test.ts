@@ -309,6 +309,32 @@ describe('RF-46: busca e importação', () => {
     expect(title.interpreted.type).not.toBe('browse');
   });
 
+  it('D-23: categoria sugerida pelo TMDB para os títulos de um import (Filme/Série; sem match = null)', async () => {
+    const user = await newUser();
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url);
+      const q = url.searchParams.get('query');
+      const results =
+        q === 'Série Boa'
+          ? [{ id: 1, media_type: 'tv', name: 'Série Boa', first_air_date: '2020-01-01', popularity: 5 }]
+          : q === 'Filme Bom'
+            ? [
+                { id: 2, media_type: 'movie', title: 'Filme Bom', release_date: '2019-01-01', popularity: 5 },
+                { id: 3, media_type: 'tv', name: 'Filme Bom: a série', first_air_date: '2022-01-01', popularity: 9 },
+              ]
+            : [];
+      return new Response(JSON.stringify({ results }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const search = new SearchService(db, ctx.app.get(ReviewService), ctx.app.get(LibraryService), new TmdbResolver('k'.repeat(32), fetchImpl), null);
+    const r = await search.classify(user.userId, ['Série Boa', 'Filme Bom', 'Nada Parecido']);
+    expect(r.items).toEqual([
+      { title: 'Série Boa', kind: 'series', tmdbTitle: 'Série Boa', year: 2020 },
+      { title: 'Filme Bom', kind: 'movie', tmdbTitle: 'Filme Bom', year: 2019 },
+      { title: 'Nada Parecido', kind: null },
+    ]);
+    await post(user, '/search/classify', { titles: [] }).expect(400);
+  });
+
   it('sem liberação do TMDB para IA, o guesser nem existe; limite por usuário responde 429', async () => {
     const { createTitleGuesser } = await import('../../src/library/title-guesser.js');
     const { testEnv } = await import('../helpers.js');

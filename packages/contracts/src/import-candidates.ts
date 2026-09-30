@@ -20,8 +20,10 @@ export interface Candidate {
   /** texto exibido e editável */
   text: string;
   selected: boolean;
-  /** null até o usuário escolher */
+  /** null até o usuário escolher (ou o TMDB sugerir) */
   kind: CandidateKind | null;
+  /** D-23: categoria sugerida pelo TMDB (o usuário pode trocar) */
+  kindFrom?: 'tmdb';
   /** leitura de baixa confiança: só um aviso para conferir a grafia */
   uncertain: boolean;
   /** na lista principal; as outras linhas lidas ficam recolhidas para quando faltar algum título */

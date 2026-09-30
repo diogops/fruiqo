@@ -1321,6 +1321,24 @@ export const BookSearchResultSchema = z.object({
 });
 export type BookSearchResult = z.infer<typeof BookSearchResultSchema>;
 
+/** D-23: categoria sugerida pelo TMDB para títulos lidos de print/texto (Filme ou Série) */
+export const ClassifyTitlesRequestSchema = z
+  .object({ titles: z.array(z.string().trim().min(1).max(200)).min(1).max(60) })
+  .strict();
+export type ClassifyTitlesRequest = z.infer<typeof ClassifyTitlesRequestSchema>;
+export const ClassifyTitlesResponseSchema = z.object({
+  items: z.array(
+    z.object({
+      title: z.string(),
+      /** null: não achou nada parecido no TMDB (talvez livro, ou grafia diferente) */
+      kind: z.enum(['movie', 'series']).nullable(),
+      tmdbTitle: z.string().optional(),
+      year: z.number().int().optional(),
+    }),
+  ),
+});
+export type ClassifyTitlesResponse = z.infer<typeof ClassifyTitlesResponseSchema>;
+
 export const ImportTitlesRequestSchema = z
   .object({
     items: z.array(z.object({ tmdbId: z.number().int(), mediaType: z.enum(['movie', 'tv']) }).strict()).max(50).default([]),

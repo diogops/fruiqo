@@ -216,7 +216,8 @@ export async function startWorker(env: Env): Promise<WorkerRuntime> {
   maintenanceWorker.on('failed', (job, err) => logger.warn({ job: job?.name, err: err.message }, 'job de manutenção falhou'));
   maintenanceWorker.on('active', (job) => logger.info({ job: job.name }, 'job de manutenção iniciado'));
   // D-23: quem nunca foi sincronizado entra já (sem esperar as 12h/21h)
-  await maintenance.add(CATALOG_SYNC_BOOT_JOB, {}, { jobId: CATALOG_SYNC_BOOT_JOB, removeOnComplete: true, removeOnFail: true });
+  // atraso: no deploy o worker anterior ainda vive alguns segundos e não deve pegar este job
+  await maintenance.add(CATALOG_SYNC_BOOT_JOB, {}, { jobId: `${CATALOG_SYNC_BOOT_JOB}-${Date.now()}`, delay: 90_000, removeOnComplete: true, removeOnFail: true });
   logger.info('worker iniciado');
   return {
     processor,

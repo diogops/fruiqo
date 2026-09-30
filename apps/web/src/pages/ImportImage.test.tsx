@@ -205,3 +205,26 @@ describe('importar de imagem', () => {
     await waitFor(() => expect(screen.getByText(/Formato não suportado\. Use PNG, JPG ou WebP/)).toBeTruthy());
   });
 });
+
+describe('D-23: categoria sugerida pelo TMDB', () => {
+  it('preenche Filme/Série sozinho; o que o TMDB não acha fica para escolher', async () => {
+    ocr.recognize.mockReturnValue(ok());
+    const { calls } = mockApi({
+      // devolve os textos enviados; "Mentira Incondicional" o TMDB não acha
+      'POST /search/classify': (call) => ({
+        body: {
+          items: (call.body as { titles: string[] }).titles.map((title) =>
+            title.startsWith('Mentira') ? { title, kind: null } : { title, kind: 'movie', tmdbTitle: title },
+          ),
+        },
+      }),
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ImportImage initialFile={null} onClose={vi.fn()} />);
+    await openAndExtract(user);
+    await waitFor(() => expect((screen.getByLabelText('Categoria do título 1') as HTMLSelectElement).value).toBe('movie'), { timeout: 3000 });
+    expect((screen.getByLabelText('Categoria do título 2') as HTMLSelectElement).value).toBe('movie');
+    expect((screen.getByLabelText('Categoria do título 3') as HTMLSelectElement).value).toBe('');
+    expect(calls.filter((c) => c.path === '/search/classify')).toHaveLength(1);
+  });
+});

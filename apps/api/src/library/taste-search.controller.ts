@@ -9,6 +9,9 @@ import {
   CreatePriorityDraftRequestSchema,
   type DeclaredTaste,
   type Favorite,
+  type ClassifyTitlesRequest,
+  ClassifyTitlesRequestSchema,
+  type ClassifyTitlesResponse,
   type ImportTitlesRequest,
   ImportTitlesRequestSchema,
   type ImportTitlesResponse,
@@ -111,5 +114,12 @@ export class SearchController {
   @Get('titles')
   titles(@CurrentAuth() auth: AccessClaims, @Query(new ZodPipe(TitleSearchQuerySchema)) query: TitleSearchQuery): Promise<TitleSearchResponse> {
     return this.search.search(auth.userId, query.q, query.kind, query.ai === '1', query.sort);
+  }
+
+  /** D-23: categoria (Filme/Série) sugerida pelo TMDB para os títulos lidos num import */
+  @Post('classify')
+  @HttpCode(200)
+  classify(@CurrentAuth() auth: AccessClaims, @Body(new ZodPipe(ClassifyTitlesRequestSchema)) body: ClassifyTitlesRequest): Promise<ClassifyTitlesResponse> {
+    return this.search.classify(auth.userId, body.titles);
   }
 }
