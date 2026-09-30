@@ -412,11 +412,11 @@ export class SearchService {
   private async libraryIndex(userId: string) {
     const rows = await withUser(this.db, userId, (tx) =>
       tx
-        .select({ id: recommendations.id, rank: recommendations.rank, decision: recommendations.decision, key: recommendations.dedupKey, resolution: recommendations.resolution })
+        .select({ id: recommendations.id, rank: recommendations.rank, decision: recommendations.decision, status: recommendations.status, key: recommendations.dedupKey, resolution: recommendations.resolution })
         .from(recommendations),
     );
     type Ref = NonNullable<TitleSearchResult['inLibrary']>;
-    const ref = (r: (typeof rows)[number]): Ref => ({ id: r.id, rank: r.rank, decision: r.decision });
+    const ref = (r: (typeof rows)[number]): Ref => ({ id: r.id, rank: r.rank, decision: r.decision, status: r.status });
     return {
       byExternal: new Map<string, Ref>(rows.filter((r) => r.resolution?.externalId).map((r) => [(r.resolution as Resolution).externalId, ref(r)])),
       byKey: new Map<string, Ref>(rows.map((r) => [r.key, ref(r)])),

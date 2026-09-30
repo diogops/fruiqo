@@ -39,7 +39,7 @@ describe('importar .txt (RF-47)', () => {
     expect(await readTextFile(latin1)).toBe('Ação');
   });
 
-  it('mostra a prévia, envia em textFile e leva para a Revisão', async () => {
+  it('mostra a prévia, envia em textFile e leva para a Minha Área', async () => {
     __setAccessToken('tok');
     vi.stubGlobal('crypto', { ...crypto, randomUUID: () => '66666666-6666-4666-8666-666666666666' });
     const onClose = vi.fn();
@@ -51,7 +51,7 @@ describe('importar .txt (RF-47)', () => {
     renderWithProviders(
       <Routes>
         <Route path="/catalogo" element={<ImportTxt onClose={onClose} />} />
-        <Route path="/revisao" element={<p>página da revisão</p>} />
+        <Route path="/minha-area" element={<p>página da Minha Área</p>} />
       </Routes>,
       { route: '/catalogo' },
     );
@@ -62,14 +62,14 @@ describe('importar .txt (RF-47)', () => {
     expect(within(preview).getByText('minha-lista.txt')).toBeTruthy();
     expect(within(preview).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Filmes:', 'Duna (2021)', 'Maid']);
 
-    await user.click(screen.getByRole('button', { name: 'Importar para a Revisão' }));
-    await screen.findByText('página da revisão');
+    await user.click(screen.getByRole('button', { name: 'Importar para a Minha Área' }));
+    await screen.findByText('página da Minha Área');
     expect(onClose).toHaveBeenCalled();
     expect(calls.find((c) => c.path === '/shares')?.body).toEqual({
       clientShareId: '66666666-6666-4666-8666-666666666666',
       textFile: { name: 'minha-lista.txt', content: 'Filmes:\nDuna (2021)\n\nMaid\n' },
     });
-    expect(screen.getByText('2 título(s) para revisar · 1 já estava(m) na sua lista.')).toBeTruthy();
+    expect(screen.getByText('2 título(s) na Minha Área · 1 já estava(m) na sua lista.')).toBeTruthy();
   });
 
   it('arquivo solto no catálogo já abre carregado; recusa o que não é .txt', async () => {

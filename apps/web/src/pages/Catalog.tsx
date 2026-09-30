@@ -13,30 +13,38 @@ import { api, type LibraryFilters } from '../api/client';
 import { CorrectTitleForm, ErrorNote, Modal, useTaxonomy } from '../components/shared';
 import { useToast } from '../components/Toast';
 import { EmptyState, Icon, Menu, MQ, ratingText, SkeletonRows, StarRating, Thumb, useElementWidth, useMediaQuery } from '../components/ui';
-import { kindLabel, KINDS, STATUS_LABEL, STATUSES } from '../labels';
+import { AREA_STATUSES, kindLabel, KINDS, scoreText, SORT_LABEL, STATUS_LABEL, STATUSES, WATCH_ON_OPTIONS } from '../labels';
 import { shiftRanks, targetPosition } from '../rankQueue';
 
 // `watched=show` mostra os já assistidos; por padrão ficam ocultos
-const FILTER_KEYS = ['q', 'kind', 'status', 'genre', 'listId', 'shareId', 'review', 'sort', 'watched'] as const;
+const FILTER_KEYS = ['q', 'kind', 'status', 'genre', 'listId', 'shareId', 'sort', 'watched'] as const;
 
-/** Assistidos ficam ocultos por padrão, salvo `watched=show`, filtro de status ou fila de revisão. */
+/** Assistidos ficam ocultos por padrão, salvo `watched=show` ou filtro de status. */
 export function hidesWatched(params: URLSearchParams): boolean {
-  return params.get('watched') !== 'show' && !params.get('status') && params.get('review') !== 'pending';
+  return params.get('watched') !== 'show' && !params.get('status');
 }
 
-function filtersFromParams(params: URLSearchParams): LibraryFilters {
+function filtersFromParams(params: URLSearchParams, area: boolean): LibraryFilters {
   const f: Record<string, string> = {};
   for (const k of FILTER_KEYS) {
     const v = params.get(k);
     if (v && k !== 'watched') f[k] = v;
   }
   if (hidesWatched(params)) f.hideWatched = '1';
+  if (area) f.area = '1';
   return f as LibraryFilters;
 }
 
-export function Catalog() {
+/** a ordem manual (fila) vale na ordenação padrão e na "Ordem manual" */
+const MANUAL_ORDER = new Set(['score', 'rank']);
+
+/**
+ * D-23: `area` = Minha Área (Quero assistir, Assistindo, Assistido; fila manual com arraste). Sem ele,
+ * o Catálogo: todos os seus títulos, com "Quero assistir" e busca de mais títulos no TMDB.
+ */
+export function Catalog({ area = false }: { area?: boolean }) {
   const [params, setParams] = useSearchParams();
-  const filters = useMemo(() => filtersFromParams(params), [params]);
+  const filters = useMemo(() => filtersFromParams(params, area), [params, area]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openId, setOpenId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -79,8 +87,8 @@ export function Catalog() {
   const cols: CatalogColumns = { genres: wrapWidth >= 760, kind: wrapWidth >= 900, origin: wrapWidth >= 1080 };
   const tableMinWidth = 44 + rankWidth + 220 + 132 + 92 + (cols.kind ? 70 : 0) + (cols.genres ? 182 : 0) + (cols.origin ? 128 : 0);
   const activeFilters =
-    (['kind', 'status', 'genre', 'listId', 'review', 'shareId'] as const).filter((k) => Boolean(filters[k])).length +
-    (filters.sort && filters.sort !== 'rank' ? 1 : 0);
+    (['kind', 'status', 'genre', 'listId', 'shareId'] as const).filter((k) => Boolean(filters[k])).length +
+    (filters.sort && filters.sort !== 'score' ? 1 : 0);
 
   const draft = useQuery({ queryKey: DRAFT_KEY, queryFn: api.draft });
 
@@ -107,13 +115,13 @@ export function Catalog() {
   const loaded = useMemo(() => library.data?.pages.flatMap((p) => p.items) ?? [], [library.data]);
   // fila de prioridade: posições otimistas até a API confirmar (rollback em erro)
   const [optimistic, setOptimistic] = useState<Map<string, number> | null>(null);
-  const byRank = (filters.sort ?? 'rank') === 'rank';
+  const byRank = MANUAL_ORDER.has(filters.sort ?? 'score');
   const items = useMemo(() => {
     if (!optimistic) return loaded;
     const withRank = loaded.map((t) => (optimistic.has(t.id) ? { ...t, rank: optimistic.get(t.id)! } : t));
     return byRank ? [...withRank].sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity)) : withRank;
   }, [loaded, optimistic, byRank]);
-  const dragEnabled = byRank && filters.review !== 'pending';
+  const dragEnabled = area && byRank;
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
     // no toque, segurar ~200ms pela alça inicia o arraste; mover antes disso é rolagem
@@ -237,11 +245,15 @@ export function Catalog() {
     >
       <div className="page-head">
         <div>
-          <h1>Catálogo</h1>
-          <p className="page-sub">Sua fila de filmes, séries, livros e músicas — #1 é o próximo da vez.</p>
+          <h1>{area ? 'Minha Área' : 'Catálogo'}</h1>
+          <p className="page-sub">
+            {area
+              ? 'O que você quer assistir, está assistindo e já assistiu. #1 é o próximo da vez.'
+              : 'Todos os seus títulos. Marque "Quero assistir" para levar à Minha Área.'}
+          </p>
         </div>
         <div className="head-actions">
-          <Menu label="Sugerir priorização" triggerClassName="btn" trigger={<><Icon name="sparkles" /> Sugerir priorização</>}>
+          {area && <Menu label="Sugerir priorização" triggerClassName="btn" trigger={<><Icon name="sparkles" /> Sugerir priorização</>}>
             {(close) => (
               <>
                 <button type="button" className="menu-item" disabled={draftBusy} onClick={() => { close(); void suggestPriority('to_watch'); }}>
@@ -252,7 +264,7 @@ export function Catalog() {
                 </button>
               </>
             )}
-          </Menu>
+          </Menu>}
           <button type="button" className="btn" onClick={() => setImportingImage({ file: null })}>
             <Icon name="plus" /> Importar de imagem
           </button>
@@ -260,7 +272,7 @@ export function Catalog() {
             <Icon name="list" /> Importar .txt
           </button>
           <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
-            <Icon name="plus" /> Adicionar título
+            <Icon name="plus" /> {area ? 'Adicionar título' : 'Buscar mais títulos'}
           </button>
         </div>
       </div>
@@ -305,13 +317,13 @@ export function Catalog() {
                 )}
               </button>
             ) : (
-              <FilterFields filters={filters} setFilter={setFilter} genres={genres} lists={lists.data ?? []} />
+              <FilterFields area={area} filters={filters} setFilter={setFilter} genres={genres} lists={lists.data ?? []} />
             )}
           </div>
           {isMobile && filtersOpen && (
             <Modal title="Filtros" onClose={() => setFiltersOpen(false)}>
               <div className="form filters-sheet">
-                <FilterFields stacked filters={filters} setFilter={setFilter} genres={genres} lists={lists.data ?? []} />
+                <FilterFields stacked area={area} filters={filters} setFilter={setFilter} genres={genres} lists={lists.data ?? []} />
                 <div className="actions">
                   <button
                     type="button"
@@ -378,13 +390,14 @@ export function Catalog() {
                         onOpen={() => setOpenId(t.id)}
                         onPatch={(body) => void patch(t, body)}
                         onMove={(req) => void move(t, req)}
+                        area={area}
                       />
                     ))}
                   </ul>
                 </SortableContext>
                 {library.isLoading && <SkeletonRows />}
                 {!library.isLoading && items.length === 0 && (
-                  <EmptyState title="Nenhum título com esses filtros.">Ajuste os filtros ou importe prints pelo app.</EmptyState>
+                  <CatalogEmpty area={area} />
                 )}
               </div>
             ) : (
@@ -432,6 +445,7 @@ export function Catalog() {
                           onOpen={() => setOpenId(t.id)}
                           onPatch={(body) => void patch(t, body)}
                           onMove={(req) => void move(t, req)}
+                          area={area}
                         />
                       ))}
                     </tbody>
@@ -439,7 +453,7 @@ export function Catalog() {
                 </table>
                 {library.isLoading && <SkeletonRows />}
                 {!library.isLoading && items.length === 0 && (
-                  <EmptyState title="Nenhum título com esses filtros.">Ajuste os filtros ou importe prints pelo app.</EmptyState>
+                  <CatalogEmpty area={area} />
                 )}
               </div>
             )}
@@ -591,12 +605,14 @@ type CatalogColumns = { genres: boolean; kind: boolean; origin: boolean };
 
 /** Campos de filtro: em linha na barra (desktop) ou empilhados com rótulo (painel do celular). */
 function FilterFields({
+  area,
   filters,
   setFilter,
   genres,
   lists,
   stacked = false,
 }: {
+  area: boolean;
   filters: LibraryFilters;
   setFilter: (key: (typeof FILTER_KEYS)[number], value: string) => void;
   genres: { key: string; label: string }[];
@@ -629,7 +645,7 @@ function FilterFields({
         'Status',
         <select key="status" aria-label="Status" value={filters.status ?? ''} onChange={(e) => setFilter('status', e.target.value)}>
           <option value="">Todos os status</option>
-          {STATUSES.map((st) => (
+          {(area ? AREA_STATUSES : STATUSES).map((st) => (
             <option key={st} value={st}>
               {STATUS_LABEL[st]}
             </option>
@@ -660,21 +676,27 @@ function FilterFields({
       )}
       {field(
         'Ordenar',
-        <select key="sort" aria-label="Ordenar" value={filters.sort ?? 'rank'} onChange={(e) => setFilter('sort', e.target.value)}>
-          <option value="rank">Prioridade (fila)</option>
-          <option value="recent">Mais recentes</option>
-          <option value="title">Título</option>
+        <select
+          key="sort"
+          aria-label="Ordenar"
+          title="Recomendada: ordem manual, depois suas estrelas, a nota automática e a geral"
+          value={filters.sort ?? 'score'}
+          onChange={(e) => setFilter('sort', e.target.value === 'score' ? '' : e.target.value)}
+        >
+          {Object.entries(SORT_LABEL)
+            .filter(([k]) => area || k !== 'rank')
+            .map(([k, label]) => (
+              <option key={k} value={k}>
+                {label}
+              </option>
+            ))}
         </select>,
       )}
-      <label className="check">
-        <input type="checkbox" checked={filters.review === 'pending'} onChange={(e) => setFilter('review', e.target.checked ? 'pending' : '')} />
-        Pendentes de revisão
-      </label>
       <label className="check" title={filters.status ? 'Com um status escolhido, vale o status' : undefined}>
         <input
           type="checkbox"
           checked={filters.hideWatched === '1'}
-          disabled={Boolean(filters.status) || filters.review === 'pending'}
+          disabled={Boolean(filters.status)}
           onChange={(e) => setFilter('watched', e.target.checked ? '' : 'show')}
         />
         Ocultar assistidos
@@ -811,6 +833,16 @@ function TitleDetail({ id, onClose }: { id: string; onClose: () => void }) {
     }
   }
 
+  async function save(body: Parameters<typeof api.updateTitle>[1]) {
+    if (!t) return;
+    try {
+      await api.updateTitle(t.id, body);
+      await qc.invalidateQueries();
+    } catch (err) {
+      setError(err);
+    }
+  }
+
   const canEnrich = t != null && (t.kind === 'movie' || t.kind === 'series' || t.kind === 'book');
   const enrichLabel =
     t?.kind === 'book'
@@ -860,6 +892,8 @@ function TitleDetail({ id, onClose }: { id: string; onClose: () => void }) {
                 )}
               </p>
               <StarRating value={t.rating} onChange={(v) => void rate(v)} label={`Sua nota para ${t.title}`} />
+              <OtherScores t={t} />
+              <StatusControl t={t} onSave={(body) => void save(body)} />
               {enrichMsg && <p className="muted small">{enrichMsg}</p>}
               {t.overview && <ClampText text={t.overview} />}
             </div>
@@ -920,6 +954,52 @@ function TitleDetail({ id, onClose }: { id: string; onClose: () => void }) {
   );
 }
 
+/** Status e, ao assistir, onde (serviços comuns ou texto livre). */
+function StatusControl({ t, onSave }: { t: Title; onSave: (body: Parameters<typeof api.updateTitle>[1]) => void }) {
+  const [where, setWhere] = useState(t.watchOn ?? '');
+  useEffect(() => setWhere(t.watchOn ?? ''), [t.watchOn]);
+  // primeiro os serviços onde o título está no Brasil, depois os comuns
+  const here = (t.watchProvidersBR ?? []).filter((p) => p.type === 'flatrate').map((p) => p.name);
+  const options = [...new Set([...here, ...WATCH_ON_OPTIONS])];
+  function commit(value: string) {
+    const v = value.trim().slice(0, 60);
+    if (v === (t.watchOn ?? '')) return;
+    onSave({ watchOn: v || null });
+  }
+  return (
+    <div className="status-control">
+      <select className="status-select" data-status={t.status} aria-label={`Status de ${t.title}`} value={t.status} onChange={(e) => onSave({ status: e.target.value as TitleStatus })}>
+        {STATUSES.map((st) => (
+          <option key={st} value={st}>
+            {STATUS_LABEL[st]}
+          </option>
+        ))}
+      </select>
+      {t.status === 'watching' && (
+        <>
+          <input
+            list={`watch-on-${t.id}`}
+            aria-label="Onde está assistindo"
+            placeholder="Onde? (ex.: Netflix)"
+            maxLength={60}
+            value={where}
+            onChange={(e) => setWhere(e.target.value)}
+            onBlur={(e) => commit(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commit(e.currentTarget.value);
+            }}
+          />
+          <datalist id={`watch-on-${t.id}`}>
+            {options.map((o) => (
+              <option key={o} value={o} />
+            ))}
+          </datalist>
+        </>
+      )}
+    </div>
+  );
+}
+
 function CatalogRow({
   t,
   cols,
@@ -929,6 +1009,7 @@ function CatalogRow({
   onOpen,
   onPatch,
   onMove,
+  area,
 }: {
   t: Title;
   cols: CatalogColumns;
@@ -938,6 +1019,7 @@ function CatalogRow({
   onOpen: () => void;
   onPatch: (body: Parameters<typeof api.updateTitle>[1]) => void;
   onMove: (req: MoveTitleRequest) => void;
+  area: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: t.id, disabled: !draggable });
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : undefined };
@@ -979,9 +1061,9 @@ function CatalogRow({
               {t.title}
             </button>
             <div className="muted small title-meta" title={[t.year, t.creator].filter(Boolean).join(' · ')}>
-              {[t.year, t.creator].filter(Boolean).join(' · ')}
-              {t.decision === 'review_queue' && <span className="badge badge-review_queue">revisão</span>}
+              {[t.year, t.creator, t.status === 'watching' ? t.watchOn : null].filter(Boolean).join(' · ')}
             </div>
+            {!area && <WantButton t={t} onPatch={onPatch} />}
           </div>
         </div>
       </td>
@@ -1014,6 +1096,7 @@ function CatalogRow({
             </option>
           ))}
         </select>
+        <OtherScores t={t} />
       </td>
       {cols.origin && (
         <td className="small origin-cell">
@@ -1030,6 +1113,37 @@ function CatalogRow({
         </td>
       )}
     </tr>
+  );
+}
+
+/** Catálogo: leva o título à Minha Área (Quero assistir). */
+function WantButton({ t, onPatch }: { t: Title; onPatch: (body: Parameters<typeof api.updateTitle>[1]) => void }) {
+  if (t.status !== 'catalog' && t.status !== 'dropped') return null;
+  return (
+    <button type="button" className="btn btn-link small want-btn" onClick={() => onPatch({ status: 'to_watch' })}>
+      <Icon name="plus" size={13} /> Quero assistir
+    </button>
+  );
+}
+
+/** Nota automática (0..5, pelo seu gosto) e geral (TMDB 0..10), só leitura. */
+export function OtherScores({ t }: { t: Title }) {
+  if (t.autoRating == null && t.generalRating == null) return null;
+  return (
+    <div className="muted small other-scores">
+      {t.autoRating != null && <span title="Nota automática: calculada pelo seu gosto (estrelas, marcações e perfil)">auto {scoreText(t.autoRating)}</span>}
+      {t.generalRating != null && (
+        <span title={`Nota geral no TMDB${t.generalVotes ? ` (${t.generalVotes.toLocaleString('pt-BR')} votos)` : ''}`}>TMDB {scoreText(t.generalRating)}</span>
+      )}
+    </div>
+  );
+}
+
+function CatalogEmpty({ area }: { area: boolean }) {
+  return area ? (
+    <EmptyState title="Nada na Minha Área com esses filtros.">Importe um print ou marque "Quero assistir" no Catálogo.</EmptyState>
+  ) : (
+    <EmptyState title="Nenhum título com esses filtros.">Use "Buscar mais títulos" para trazer filmes e séries do TMDB.</EmptyState>
   );
 }
 
@@ -1060,6 +1174,7 @@ function CatalogCard({
   onOpen,
   onPatch,
   onMove,
+  area,
 }: {
   t: Title;
   draggable: boolean;
@@ -1068,6 +1183,7 @@ function CatalogCard({
   onOpen: () => void;
   onPatch: (body: Parameters<typeof api.updateTitle>[1]) => void;
   onMove: (req: MoveTitleRequest) => void;
+  area: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: t.id, disabled: !draggable });
   const style = { transform: CSS.Transform.toString(transform), transition };
@@ -1085,14 +1201,16 @@ function CatalogCard({
         </button>
         <div className="cc-main">
           <div className="cc-rankline">
-            {t.rank == null ? <span className="badge badge-review_queue">revisão</span> : <strong className="rank-number">#{t.rank}</strong>}
-            <span className="muted small">{[kindLabel(t.kind), t.year].filter(Boolean).join(' · ')}</span>
+            {t.rank != null && <strong className="rank-number">#{t.rank}</strong>}
+            <span className="muted small">{[kindLabel(t.kind), t.year, t.status === 'watching' ? t.watchOn : null].filter(Boolean).join(' · ')}</span>
           </div>
           <button type="button" className="btn btn-link title-link cc-title" onClick={onOpen}>
             {t.title}
           </button>
           {t.creator && <div className="muted small ellipsis">{t.creator}</div>}
           <GenreChips t={t} />
+          <OtherScores t={t} />
+          {!area && <WantButton t={t} onPatch={onPatch} />}
         </div>
       </div>
       <div className="cc-bottom">

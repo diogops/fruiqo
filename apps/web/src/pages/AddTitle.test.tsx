@@ -47,7 +47,7 @@ describe('conferir a obra antes de incluir', () => {
 });
 
 describe('adicionar título por busca (RF-46)', () => {
-  it('foca o campo, mostra cards com elenco e "já está na sua lista", e envia os marcados para a revisão', async () => {
+  it('foca o campo, mostra cards com elenco e "já está na Minha Área", e envia os marcados como Quero assistir', async () => {
     __setAccessToken('tok');
     const onClose = vi.fn();
     const { calls } = mockApi({
@@ -63,7 +63,7 @@ describe('adicionar título por busca (RF-46)', () => {
 
     await screen.findByText('com Timothée Chalamet, Zendaya');
     const results = screen.getByRole('list', { name: 'Resultados da busca' });
-    expect(within(results).getByText('já está na sua lista (#12)')).toBeTruthy();
+    expect(within(results).getByText('já está na Minha Área (#12)')).toBeTruthy();
     expect(within(results).getByRole('checkbox', { name: 'Selecionar Duna (1984)' })).toHaveProperty('disabled', true);
     expect(within(results).getByText('de Frank Herbert')).toBeTruthy();
     expect(screen.getByText(/TMDB/)).toBeTruthy();
@@ -73,7 +73,7 @@ describe('adicionar título por busca (RF-46)', () => {
     await user.click(within(results).getByRole('checkbox', { name: 'Selecionar Duna: A Profecia (2024)' }));
     await user.click(within(results).getByRole('checkbox', { name: 'Selecionar Duna (1965)' }));
     expect(screen.getByText('3 selecionado(s)')).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Enviar para revisão' }));
+    await user.click(screen.getByRole('button', { name: 'Quero assistir' }));
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(calls.find((c) => c.path === '/library/import')?.body).toEqual({
@@ -85,7 +85,7 @@ describe('adicionar título por busca (RF-46)', () => {
     });
   });
 
-  it('"Aprovar já" manda approveNow; busca por descrição indica IA ou o fallback por palavras-chave', async () => {
+  it('busca por descrição indica IA ou o fallback por palavras-chave; "Quero assistir" importa sem revisão', async () => {
     __setAccessToken('tok');
     let ai = true;
     const { calls } = mockApi({
@@ -104,9 +104,9 @@ describe('adicionar título por busca (RF-46)', () => {
     expect(await screen.findByText(/IA não usada: busca por palavras-chave/)).toBeTruthy();
 
     await user.click(screen.getByRole('checkbox', { name: 'Selecionar Duna (2021)' }));
-    await user.click(screen.getByRole('button', { name: 'Aprovar já' }));
+    await user.click(screen.getByRole('button', { name: 'Quero assistir' }));
     await waitFor(() => expect(calls.some((c) => c.path === '/library/import')).toBe(true));
-    expect(calls.find((c) => c.path === '/library/import')?.body).toEqual({ items: [{ tmdbId: 438631, mediaType: 'movie' }], approveNow: true });
+    expect(calls.find((c) => c.path === '/library/import')?.body).toEqual({ items: [{ tmdbId: 438631, mediaType: 'movie' }] });
   });
 
   it('"Buscar com IA" manda o pedido inteiro para a IA (ai=1); em "Só livros" fica desligado', async () => {

@@ -136,7 +136,7 @@ describe('importar de imagem', () => {
     expect(JSON.stringify(calls)).not.toContain('blob:');
 
     const rows = within(results).getAllByRole('listitem').map((li) => li.textContent);
-    expect(rows[0]).toContain('Na Revisão');
+    expect(rows[0]).toContain('Na Minha Área');
     expect(rows[1]).toContain('Já estava na sua lista');
     expect(rows[2]).toContain('Não foi cadastrado');
     expect(rows[3]).toContain('Não foi cadastrado');
@@ -151,7 +151,7 @@ describe('importar de imagem', () => {
     const posts = calls.filter((c) => c.path === '/shares' && c.method === 'POST');
     expect(posts).toHaveLength(2);
     expect((posts[1]!.body as { textFile: { content: string } }).textFile.content).toBe(['Filmes:', 'Mentira Incondicional', '', 'Livros:', '1984'].join('\n'));
-    expect(screen.getByText('2 na Revisão.')).toBeTruthy();
+    expect(screen.getByText('2 na Minha Área.')).toBeTruthy();
   });
 
   it('cancelar a leitura volta ao recorte; tentar de novo funciona', async () => {

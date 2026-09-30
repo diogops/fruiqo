@@ -1,17 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { SHOW_DEV_TOOLS } from '../devTools';
 import { useRouteAutofocus } from './autofocus';
 import { BrandMark, Icon, Menu, MQ, ThemeToggle, useFocusTrap, useMediaQuery, type IconName } from './ui';
 
 const NAV: { to: string; label: string; icon: IconName }[] = [
+  { to: '/minha-area', label: 'Minha Área', icon: 'star' },
   { to: '/catalogo', label: 'Catálogo', icon: 'film' },
   { to: '/como-estou', label: 'Como estou', icon: 'sparkles' },
   { to: '/listas', label: 'Listas', icon: 'list' },
-  { to: '/revisao', label: 'Revisão', icon: 'review' },
   { to: '/atividade', label: 'Atividade', icon: 'activity' },
   { to: '/perfil', label: 'Perfil', icon: 'user' },
   ...(SHOW_DEV_TOOLS ? [{ to: '/sandbox', label: 'Sandbox', icon: 'flask' as IconName }] : []),
@@ -50,9 +48,6 @@ export function Layout() {
   const mainRef = useRef<HTMLElement>(null);
   useFocusTrap(sidebarRef, isDrawer && navOpen);
   useRouteAutofocus(mainRef, location.pathname);
-  // RF-42: contador de pendentes da Revisão no menu (mesma consulta da página; invalidada nas ações)
-  const review = useQuery({ queryKey: ['review'], queryFn: api.review, staleTime: 30_000 });
-  const pending = review.data?.items.length ?? 0;
 
   // com o catálogo aberto, o campo global reflete a busca atual da URL
   useEffect(() => {
@@ -157,16 +152,11 @@ export function Layout() {
             <NavLink
               key={n.to}
               to={n.to}
-              title={collapsed ? (n.to === '/revisao' && pending ? `${n.label} (${pending} pendente(s))` : n.label) : undefined}
+              title={collapsed ? n.label : undefined}
               className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
             >
               <Icon name={n.icon} />
               <span className="nav-text">{n.label}</span>
-              {n.to === '/revisao' && pending > 0 && (
-                <span className="nav-count" aria-label={`${pending} pendente(s)`}>
-                  {pending > 99 ? '99+' : pending}
-                </span>
-              )}
             </NavLink>
           ))}
         </nav>
@@ -192,17 +182,12 @@ export function Layout() {
                 ref={menuBtnRef}
                 type="button"
                 className="icon-btn menu-toggle"
-                aria-label={pending ? `Abrir menu (${pending} pendente(s) na revisão)` : 'Abrir menu'}
+                aria-label="Abrir menu"
                 aria-controls="app-sidebar"
                 aria-expanded={navOpen}
                 onClick={() => setNavOpen(true)}
               >
                 <Icon name="menu" />
-                {pending > 0 && (
-                  <span className="nav-count menu-count" aria-hidden="true">
-                    {pending > 99 ? '99+' : pending}
-                  </span>
-                )}
               </button>
               <NavLink to="/catalogo" className="topbar-brand" aria-label="Fruiqo, ir para o catálogo">
                 <BrandMark />

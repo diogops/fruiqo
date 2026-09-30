@@ -25,6 +25,38 @@ export const STATUS_LABEL: Record<TitleStatus, string> = {
   dropped: 'Abandonei',
 };
 
+/** D-23: onde está assistindo (sugestões; o usuário pode digitar outro) */
+export const WATCH_ON_OPTIONS = [
+  'Netflix',
+  'Prime Video',
+  'Disney+',
+  'Max',
+  'Apple TV+',
+  'Globoplay',
+  'Paramount+',
+  'Mubi',
+  'Crunchyroll',
+  'YouTube',
+  'Cinema',
+  'TV aberta',
+];
+
+/** D-23: ordenações do catálogo e da Minha Área (a padrão é ordem manual → estrelas → automática → geral) */
+export const SORT_LABEL: Record<string, string> = {
+  score: 'Recomendada',
+  rank: 'Ordem manual',
+  mine: 'Minhas estrelas',
+  auto: 'Nota automática',
+  general: 'Nota geral (TMDB)',
+  recent: 'Mais recentes',
+  title: 'Título',
+};
+
+/** nota com uma casa, em pt-BR (4,5) */
+export function scoreText(v: number): string {
+  return v.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
 
 export const STEP_LABEL: Record<PipelineStepName, string> = {
   normalize: 'Normalização',
@@ -62,6 +94,7 @@ export const PLATFORM_LABEL: Record<string, string> = {
 /** Tipos aceitos pelo contrato atual (inclui os novos automaticamente). */
 export const KINDS: RecommendationKind[] = [...RecommendationKindSchema.options];
 export const STATUSES = Object.keys(STATUS_LABEL) as TitleStatus[];
+export const AREA_STATUSES: TitleStatus[] = ['to_watch', 'watching', 'watched'];
 
 export function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });

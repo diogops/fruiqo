@@ -1,6 +1,6 @@
 // Importar de imagem: print (escolher, arrastar ou Ctrl+V) → recorte → OCR no navegador → candidatos
 // editáveis com categoria → cadastro só do que o usuário confirmar. A imagem nunca sai do navegador:
-// o que vai para a API é o texto confirmado, pelo fluxo de importação que já existe (RF-47 → Revisão).
+// o que vai para a API é o texto confirmado, pelo fluxo de importação que já existe (RF-47; D-23: direto para a Minha Área, como Quero assistir).
 import 'react-image-crop/dist/ReactCrop.css';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useId, useRef, useState, type ClipboardEvent as ReactClipboardEvent } from 'react';
@@ -18,7 +18,7 @@ import { waitShare } from './ImportTxt';
 
 const KIND_LABEL: Record<CandidateKind, string> = { movie: 'Filme', series: 'Série', book: 'Livro' };
 const OUTCOME_LABEL: Record<ItemResult['outcome'], string> = {
-  review: 'Na Revisão',
+  review: 'Na Minha Área',
   duplicate: 'Já estava na sua lista',
   failed: 'Não foi cadastrado',
 };
@@ -374,7 +374,7 @@ export function ImportImage({ initialFile, onClose }: { initialFile?: File | nul
         {step === 'review' && (
           <>
             <p className="muted small">
-              Confira os títulos encontrados: corrija a grafia e escolha a categoria. O que você cadastrar vai para a Revisão, onde
+              Confira os títulos encontrados: corrija a grafia e escolha a categoria. O que você cadastrar vai para a Minha Área como Quero assistir, onde
               confirma a obra certa antes de entrar na fila.
             </p>
             {shown.length > 0 && (
@@ -502,8 +502,8 @@ export function ImportImage({ initialFile, onClose }: { initialFile?: File | nul
                 </button>
               )}
               {results.some((r) => r.outcome === 'review') && (
-                <Link className="btn btn-primary" to="/revisao" onClick={onClose}>
-                  Abrir a Revisão
+                <Link className="btn btn-primary" to="/minha-area" onClick={onClose}>
+                  Abrir a Minha Área
                 </Link>
               )}
               <button type="button" className="btn" onClick={onClose}>
@@ -519,7 +519,7 @@ export function ImportImage({ initialFile, onClose }: { initialFile?: File | nul
 
 function summary(results: ItemResult[]): string {
   const n = (o: ItemResult['outcome']) => results.filter((r) => r.outcome === o).length;
-  const parts = [`${n('review')} na Revisão`];
+  const parts = [`${n('review')} na Minha Área`];
   if (n('duplicate')) parts.push(`${n('duplicate')} já estava(m) na sua lista`);
   if (n('failed')) parts.push(`${n('failed')} não cadastrado(s)`);
   return `${parts.join(' · ')}.`;

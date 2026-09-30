@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { __setAccessToken } from '../api/client';
-import { makeTitle, mockApi, mockViewport, renderWithProviders } from '../test/helpers';
+import { mockApi, mockViewport, renderWithProviders } from '../test/helpers';
 import { Layout } from './Layout';
 import { Modal } from './shared';
 
@@ -118,14 +118,16 @@ describe('foco automático por rota (RF-45)', () => {
   });
 });
 
-describe('contador da revisão no menu (RF-42)', () => {
-  it('mostra quantos itens aguardam revisão', async () => {
+describe('menu (D-23)', () => {
+  it('Minha Área vem antes do Catálogo e a Revisão sai do menu', async () => {
     mockViewport(1440);
     __setAccessToken('tok');
-    const item = () => ({ title: makeTitle({ decision: 'review_queue' }), candidate: null, share: null });
-    mockApi({ 'GET /review': { items: [item(), item(), item()] } });
+    mockApi({});
     renderShell('/texto');
-    expect(await screen.findByLabelText('3 pendente(s)')).toBeTruthy();
-    expect(screen.getByRole('link', { name: /Revisão/ }).textContent).toContain('3');
+    const links = (await screen.findAllByRole('link')).map((a) => a.textContent ?? '');
+    const area = links.findIndex((l) => l.includes('Minha Área'));
+    expect(area).toBeGreaterThanOrEqual(0);
+    expect(area).toBeLessThan(links.findIndex((l) => l.includes('Catálogo')));
+    expect(screen.queryByRole('link', { name: /Revisão/ })).toBeNull();
   });
 });

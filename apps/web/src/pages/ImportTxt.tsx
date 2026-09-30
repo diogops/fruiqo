@@ -1,6 +1,6 @@
 // RF-47: importar títulos de um arquivo de texto ou de uma lista colada (Ctrl+V). O texto é lido no
 // navegador; só o conteúdo vai para a API (`textFile`), que extrai os títulos e manda tudo para a
-// Revisão (RF-42). Prints (imagens) têm fluxo próprio, com confirmação item a item: ImportImage.
+// Minha Área (D-23, sem revisão). Prints (imagens) têm fluxo próprio, com confirmação item a item: ImportImage.
 import { MAX_TEXT_FILE_CHARS, type Share } from '@fruiqo/contracts';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
@@ -137,10 +137,10 @@ export function ImportTxt({ initialFile, onClose }: { initialFile?: File | null;
       toast.show(
         n === 0 && dup === 0
           ? 'Nenhum título encontrado no arquivo.'
-          : `${n} título(s) para revisar${dup ? ` · ${dup} já estava(m) na sua lista` : ''}.`,
+          : `${n} título(s) na Minha Área${dup ? ` · ${dup} já estava(m) na sua lista` : ''}.`,
       );
       onClose();
-      if (n > 0) navigate('/revisao');
+      if (n > 0) navigate('/minha-area');
     } catch (err) {
       setError(err);
       setBusy(null);
@@ -155,7 +155,7 @@ export function ImportTxt({ initialFile, onClose }: { initialFile?: File | null;
         <p className="muted small">
           Um título por linha, com ou sem ano (ex.: <code>Maid (2021)</code>). Cabeçalhos como <code>Series:</code>,{' '}
           <code>Filmes:</code>, <code>Livros:</code> ou <code>Músicas:</code> definem o tipo das linhas abaixo. Também dá para colar
-          a lista com Ctrl+V. Tudo vai para a Revisão antes de entrar na fila.
+          a lista com Ctrl+V. Tudo entra na Minha Área como Quero assistir.
         </p>
         <div
           className={drag ? 'dropzone dragging' : 'dropzone'}
@@ -210,7 +210,7 @@ export function ImportTxt({ initialFile, onClose }: { initialFile?: File | null;
             Cancelar
           </button>
           <button type="button" className="btn btn-primary" disabled={!file || busy !== null} onClick={() => void send()}>
-            {busy === 'sending' || busy === 'processing' ? 'Importando…' : 'Importar para a Revisão'}
+            {busy === 'sending' || busy === 'processing' ? 'Importando…' : 'Importar para a Minha Área'}
           </button>
         </div>
       </div>

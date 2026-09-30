@@ -32,7 +32,7 @@ import { Sheet, Snackbar, useSnackbar } from '../../src/ui/overlays';
 import { colors, ui } from '../../src/ui/theme';
 import { useTheme } from '../../src/ui/ThemeProvider';
 
-const STATUSES: TitleStatus[] = ['to_watch', 'watching', 'watched', 'dropped'];
+const STATUSES: TitleStatus[] = ['catalog', 'to_watch', 'watching', 'watched', 'dropped'];
 const KINDS = ['movie', 'series', 'book', 'music_track', 'music_album', 'artist', 'other'];
 
 function message(e: unknown) {

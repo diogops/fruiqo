@@ -1,7 +1,7 @@
 // RF-46: incluir título por busca inteligente. Campo único (nome, nome + ano, ator/diretor, gênero/década
-// ou descrição) → candidatos com pôster para marcar → revisão (RF-42) ou "aprovar já".
+// ou descrição) → candidatos com pôster para marcar → Minha Área como Quero assistir (D-23, sem revisão).
 // A aba "Manual" cobre o que a busca não resolve (músicas, livros, títulos fora do TMDB).
-import { TMDB_ATTRIBUTION, tmdbPageUrl, type RecommendationKind, type TitleSearchResponse } from '@fruiqo/contracts';
+import { TMDB_ATTRIBUTION, tmdbPageUrl, type RecommendationKind, type TitleSearchResponse, type TitleStatus } from '@fruiqo/contracts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
@@ -43,7 +43,7 @@ export interface SearchPick {
   /** elenco ou autores */
   people: string[];
   overview?: string;
-  inLibrary: { rank: number | null; decision: 'cataloged' | 'review_queue' } | null;
+  inLibrary: { rank: number | null; decision: 'cataloged' | 'review_queue'; status?: TitleStatus } | null;
   ref: { tmdbId: number; mediaType: 'movie' | 'tv' } | { olWorkId: string };
   /** página da obra para conferir antes de incluir (TMDB ou Open Library), em aba nova */
   page?: { url: string; label: string };
@@ -186,7 +186,8 @@ export function TitleSearch({
       <ul className="search-results" aria-label="Resultados da busca">
         {results.map((r) => {
           const key = r.key;
-          const taken = r.inLibrary !== null;
+          // D-23: já no Catálogo (ou abandonado) ainda pode ir para a Minha Área
+          const taken = r.inLibrary !== null && r.inLibrary.status !== 'catalog' && r.inLibrary.status !== 'dropped';
           const checked = selected?.has(key) ?? false;
           return (
             <li key={key} className={checked ? 'search-card selected' : 'search-card'}>
@@ -208,11 +209,11 @@ export function TitleSearch({
                   </div>
                 )}
                 {r.overview && <p className="small clamp-2">{r.overview}</p>}
-                {taken && (
+                {r.inLibrary && (
                   <span className="badge">
-                    {r.inLibrary?.decision === 'review_queue'
-                      ? 'já está na revisão'
-                      : `já está na sua lista${r.inLibrary?.rank ? ` (#${r.inLibrary.rank})` : ''}`}
+                    {taken
+                      ? `já está na Minha Área${r.inLibrary.rank ? ` (#${r.inLibrary.rank})` : ''}`
+                      : 'no seu catálogo'}
                   </span>
                 )}
               </div>
@@ -300,11 +301,7 @@ function SearchImport({ onClose }: { onClose: () => void }) {
       await qc.invalidateQueries();
       const n = res.created.length;
       const skipped = res.skipped.length + (res.skippedBooks?.length ?? 0);
-      toast.show(
-        approveNow
-          ? `${n} título(s) aprovado(s) no encaixe sugerido.${skipped ? ` ${skipped} já estava(m) na lista.` : ''}`
-          : `${n} título(s) enviado(s) para a Revisão.${skipped ? ` ${skipped} já estava(m) na lista.` : ''}`,
-      );
+      toast.show(`${n} título(s) na Minha Área, como Quero assistir.${skipped ? ` ${skipped} já estava(m) lá.` : ''}`);
       onClose();
     } catch (err) {
       setError(err);
@@ -330,11 +327,8 @@ function SearchImport({ onClose }: { onClose: () => void }) {
       <ErrorNote error={error} />
       <div className="actions sticky-actions">
         <span className="muted small grow">{picked.size} selecionado(s)</span>
-        <button type="button" className="btn" disabled={busy || picked.size === 0} onClick={() => void send(true)}>
-          Aprovar já
-        </button>
         <button type="button" className="btn btn-primary" disabled={busy || picked.size === 0} onClick={() => void send(false)}>
-          Enviar para revisão
+          Quero assistir
         </button>
       </div>
     </div>

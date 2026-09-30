@@ -97,3 +97,39 @@ describe('catálogo (RF-24/25)', () => {
     await waitFor(() => expect(calls.some((c) => c.path.includes('q=duna') && c.path.includes('status=to_watch'))).toBe(true));
   });
 });
+
+describe('D-23: Minha Área e Catálogo', () => {
+  it('Minha Área pede area=1 e esconde assistidos; ordenação padrão fica fora da URL', async () => {
+    __setAccessToken('tok');
+    const { calls } = mockApi({
+      'GET /taxonomy/genres': { version: 1, genres: [], subgenres: [] },
+      'GET /lists': [],
+      'GET /library': { items: [makeTitle({ title: 'Duna', status: 'to_watch', rank: 1, autoRating: 4.2, generalRating: 8.1 })], nextCursor: null },
+    });
+    renderWithProviders(<Catalog area />, { route: '/minha-area' });
+    await screen.findByText('Duna');
+    const path = calls.find((c) => c.path.startsWith('/library?'))!.path;
+    expect(path).toContain('area=1');
+    expect(path).toContain('hideWatched=1');
+    expect(path).not.toContain('sort=');
+    expect(screen.getAllByText('auto 4,2').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('TMDB 8,1').length).toBeGreaterThan(0);
+  });
+
+  it('no Catálogo, "Quero assistir" leva o título à Minha Área', async () => {
+    __setAccessToken('tok');
+    const t = makeTitle({ title: 'Aftersun', status: 'catalog', rank: null });
+    const { calls } = mockApi({
+      'GET /taxonomy/genres': { version: 1, genres: [], subgenres: [] },
+      'GET /lists': [],
+      'GET /library': { items: [t], nextCursor: null },
+      [`PATCH /library/${t.id}`]: { ...t, status: 'to_watch', rank: 1 },
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<Catalog />, { route: '/catalogo' });
+    await screen.findByText('Aftersun');
+    expect(calls.find((c) => c.path.startsWith('/library?'))!.path).not.toContain('area=1');
+    await user.click(screen.getAllByRole('button', { name: /Quero assistir/ })[0]!);
+    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ status: 'to_watch' }));
+  });
+});

@@ -35,7 +35,7 @@ describe('layout responsivo', () => {
     await user.click(toggle);
     const drawer = screen.getByRole('dialog', { name: 'Menu principal' });
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
-    const firstLink = within(drawer).getByRole('link', { name: 'Catálogo' });
+    const firstLink = within(drawer).getByRole('link', { name: 'Minha Área' });
     expect(document.activeElement).toBe(firstLink);
 
     // Tab e Shift+Tab não escapam do drawer (foco preso)

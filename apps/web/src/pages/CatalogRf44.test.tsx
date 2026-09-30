@@ -82,7 +82,7 @@ describe('catálogo: rascunho de priorização e importação (RF-44/RF-47)', ()
       },
     });
     const user = userEvent.setup();
-    renderWithProviders(<Catalog />, { route: '/catalogo' });
+    renderWithProviders(<Catalog area />, { route: '/minha-area' });
     await screen.findByText('Oppenheimer');
     await user.click(screen.getByRole('button', { name: /Sugerir priorização/ }));
     await user.click(screen.getByRole('button', { name: 'Só o que quero ver' }));

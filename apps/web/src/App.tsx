@@ -10,7 +10,6 @@ import { ListDetail, Lists } from './pages/Lists';
 import { Login } from './pages/Login';
 import { Discover } from './pages/Discover';
 import { Profile } from './pages/Profile';
-import { Review } from './pages/Review';
 import { Sandbox } from './pages/Sandbox';
 import { SHOW_DEV_TOOLS } from './devTools';
 
@@ -21,17 +20,19 @@ function Gate() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route index element={<Navigate to="/catalogo" replace />} />
-        <Route path="catalogo" element={<Catalog />} />
+        <Route index element={<Navigate to="/minha-area" replace />} />
+        <Route path="minha-area" element={<Catalog key="area" area />} />
+        <Route path="catalogo" element={<Catalog key="catalog" />} />
         <Route path="como-estou" element={<Discover />} />
         <Route path="listas" element={<Lists />} />
         <Route path="listas/:id" element={<ListDetail />} />
-        <Route path="revisao" element={<Review />} />
+        {/* D-23: sem revisão; o que se importa vai direto para a Minha Área */}
+        <Route path="revisao" element={<Navigate to="/minha-area" replace />} />
         <Route path="atividade" element={<Activity />} />
         <Route path="atividade/:shareId" element={<ActivityDetail />} />
         <Route path="perfil" element={<Profile />} />
         {SHOW_DEV_TOOLS && <Route path="sandbox" element={<Sandbox />} />}
-        <Route path="*" element={<Navigate to="/catalogo" replace />} />
+        <Route path="*" element={<Navigate to="/minha-area" replace />} />
       </Route>
     </Routes>
   );

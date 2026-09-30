@@ -12,7 +12,7 @@ import { providerLabel, rankLabel, TITLE_STATUS_LABEL, titleMeta } from '../../s
 import { colors, gradients, ui } from '../../src/ui/theme';
 import { useTheme } from '../../src/ui/ThemeProvider';
 
-const STATUSES: TitleStatus[] = ['to_watch', 'watching', 'watched', 'dropped'];
+const STATUSES: TitleStatus[] = ['catalog', 'to_watch', 'watching', 'watched', 'dropped'];
 
 function errorMessage(e: unknown) {
   if (e instanceof ApiError && e.status === 409) {

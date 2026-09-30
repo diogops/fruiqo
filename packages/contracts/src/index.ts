@@ -1230,7 +1230,7 @@ export const TitleSearchResultSchema = z.object({
   cast: z.array(z.string()),
   /** o título já está no catálogo/revisão do usuário */
   inLibrary: z
-    .object({ id: z.uuid(), rank: TitleRankSchema.nullable(), decision: z.enum(['cataloged', 'review_queue']) })
+    .object({ id: z.uuid(), rank: TitleRankSchema.nullable(), decision: z.enum(['cataloged', 'review_queue']), status: TitleStatusSchema.optional() })
     .nullable(),
   matchedBy: z.enum(['title', 'person', 'genre', 'description']),
 });
@@ -1264,7 +1264,7 @@ export const BookSearchResultSchema = z.object({
   /** página pública da obra */
   url: z.url(),
   inLibrary: z
-    .object({ id: z.uuid(), rank: TitleRankSchema.nullable(), decision: z.enum(['cataloged', 'review_queue']) })
+    .object({ id: z.uuid(), rank: TitleRankSchema.nullable(), decision: z.enum(['cataloged', 'review_queue']), status: TitleStatusSchema.optional() })
     .nullable(),
   matchedBy: z.enum(['title', 'author']),
 });
