@@ -132,4 +132,24 @@ describe('D-23: Minha Área e Catálogo', () => {
     await user.click(screen.getAllByRole('button', { name: /Quero assistir/ })[0]!);
     await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ status: 'to_watch' }));
   });
+
+  it('"Próximo" leva à Minha Área já em 1º; "Explorar no TMDB" busca na própria tela', async () => {
+    __setAccessToken('tok');
+    const t = makeTitle({ title: 'Aftersun', status: 'catalog', rank: null });
+    const { calls } = mockApi({
+      'GET /taxonomy/genres': { version: 1, genres: [], subgenres: [] },
+      'GET /lists': [],
+      'GET /library': { items: [t], nextCursor: null },
+      [`PATCH /library/${t.id}`]: { ...t, status: 'to_watch', rank: 1 },
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<Catalog />, { route: '/catalogo' });
+    await screen.findByText('Aftersun');
+    await user.click(screen.getAllByRole('button', { name: /Próximo/ })[0]!);
+    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ next: true }));
+
+    await user.click(screen.getByRole('tab', { name: /Explorar no TMDB/ }));
+    expect(screen.getByRole('searchbox', { name: 'Buscar filme, série ou livro' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Próximo a assistir' })).toBeTruthy();
+  });
 });

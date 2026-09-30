@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { REDACT_PATHS } from '../../src/common/logger.js';
 import { and, eq } from 'drizzle-orm';
 import { createDb, withUser } from '../../src/db/client.js';
-import { tasteSignals } from '../../src/db/schema.js';
+import { recommendations, tasteSignals } from '../../src/db/schema.js';
 import { seedDemo } from '../../src/library/demo-seed.js';
 import { HeuristicExtractor } from '../../src/pipeline/extractors/heuristic.js';
 import { ShareProcessor } from '../../src/pipeline/process-share.js';
@@ -53,6 +53,53 @@ describe('seed de demonstração', () => {
     expect(second.lists).toBe(0);
     const lib = (await get(user, '/library?limit=100').expect(200)).body;
     expect(lib.items.every((t: { enrichment: string }) => t.enrichment === 'demo')).toBe(true);
+  });
+});
+
+describe('D-23: "Próximo a assistir"', () => {
+  it('do Catálogo, com a nota no mesmo passo: entra na Minha Área em 1º e a fila segue contínua', async () => {
+    const { user, ids } = await demoUser();
+    const id = ids.get('Intocáveis')!;
+    const patchT = (body: object) => ctx.http().patch(`/library/${id}`).set(...auth(user)).send(body);
+    await patchT({ status: 'catalog' }).expect(200);
+    const t = (await patchT({ next: true, rating: 4.5 }).expect(200)).body;
+    expect(t).toMatchObject({ status: 'to_watch', rank: 1, rating: 4.5 });
+    const queue = ((await get(user, '/library?area=1&sort=rank&limit=200').expect(200)).body.items as { id: string; rank: number | null }[])
+      .filter((x) => x.rank != null);
+    expect(queue[0]!.id).toBe(id);
+    expect(queue.map((x) => x.rank)).toEqual(queue.map((_, i) => i + 1));
+    // já assistindo: continua "Assistindo", só sobe para o topo
+    await patchT({ status: 'watching' }).expect(200);
+    await ctx.http().post(`/library/${id}/move`).set(...auth(user)).send({ to: 'bottom' }).expect(200);
+    expect((await patchT({ next: true }).expect(200)).body).toMatchObject({ status: 'watching', rank: 1 });
+  });
+});
+
+describe('D-23: busca por categoria na Minha Área e no Catálogo', () => {
+  it('"documentários", "séries", "filmes de ação" e "da Netflix" filtram por categoria; nome continua valendo', async () => {
+    const user = await newUser();
+    const add = async (body: object) => (await post(user, '/library', body).expect(201)).body.id as string;
+    const doc = await add({ title: 'Oceano Profundo', kind: 'movie', genres: ['documentary'] });
+    const series = await add({ title: 'A Casa', kind: 'series', genres: ['drama'] });
+    const action = await add({ title: 'Perseguição', kind: 'movie', genres: ['action'] });
+    const named = await add({ title: 'Ação Final', kind: 'movie', genres: ['drama'] });
+    const onNetflix = await add({ title: 'Na Rede', kind: 'series', genres: ['comedy'] });
+    // "onde assistir" vem do TMDB; aqui gravado direto (dado sintético)
+    await withUser(db, user.userId, (tx) =>
+      tx
+        .update(recommendations)
+        .set({ resolution: { provider: 'tmdb', externalId: 'tv:1', title: 'Na Rede', url: 'https://www.themoviedb.org/tv/1', providers: [{ name: 'Netflix', type: 'flatrate' }] } })
+        .where(eq(recommendations.id, onNetflix)),
+    );
+    const ids = async (q: string) =>
+      ((await get(user, `/library?q=${encodeURIComponent(q)}&limit=200`).expect(200)).body.items as { id: string }[]).map((t) => t.id).sort();
+
+    expect(await ids('documentários')).toEqual([doc]);
+    expect(await ids('séries')).toEqual([series, onNetflix].sort());
+    expect(await ids('filmes de ação')).toEqual([action]);
+    expect(await ids('ação')).toEqual([action, named].sort());
+    expect(await ids('séries da netflix')).toEqual([onNetflix]);
+    expect(await ids('Casa')).toEqual([series]);
   });
 });
 

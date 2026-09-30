@@ -66,7 +66,7 @@ describe('adicionar título por busca (RF-46)', () => {
     expect(within(results).getByText('já está na Minha Área (#12)')).toBeTruthy();
     expect(within(results).getByRole('checkbox', { name: 'Selecionar Duna (1984)' })).toHaveProperty('disabled', true);
     expect(within(results).getByText('de Frank Herbert')).toBeTruthy();
-    expect(screen.getByText(/TMDB/)).toBeTruthy();
+    expect(screen.getAllByText(/TMDB/).length).toBeGreaterThan(0);
     expect(calls.find((c) => c.path.startsWith('/search/titles'))?.path).toBe('/search/titles?q=duna');
 
     await user.click(within(results).getByRole('checkbox', { name: 'Selecionar Duna (2021)' }));

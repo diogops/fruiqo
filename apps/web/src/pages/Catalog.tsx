@@ -5,7 +5,7 @@ import { type BulkOperation, type MoveTitleRequest, providerTitleLink, type Titl
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { AddTitle } from './AddTitle';
+import { AddTitle, SearchImport } from './AddTitle';
 import { firstImage, ImportImage } from './ImportImage';
 import { ImportTxt, isTextFile } from './ImportTxt';
 import { DRAFT_KEY, PriorityDraftView } from './PriorityDraft';
@@ -45,6 +45,14 @@ const MANUAL_ORDER = new Set(['score', 'rank']);
 export function Catalog({ area = false }: { area?: boolean }) {
   const [params, setParams] = useSearchParams();
   const filters = useMemo(() => filtersFromParams(params, area), [params, area]);
+  // D-23: no Catálogo, "Explorar" busca no TMDB na própria tela
+  const exploring = !area && params.get('ver') === 'explorar';
+  function setExploring(on: boolean) {
+    const next = new URLSearchParams(params);
+    if (on) next.set('ver', 'explorar');
+    else next.delete('ver');
+    setParams(next, { replace: true });
+  }
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openId, setOpenId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -271,7 +279,7 @@ export function Catalog({ area = false }: { area?: boolean }) {
           <button type="button" className="btn" onClick={() => setImporting({ file: null })}>
             <Icon name="list" /> Importar .txt
           </button>
-          <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
+          <button type="button" className="btn btn-primary" onClick={() => (area ? setAdding(true) : setExploring(true))}>
             <Icon name="plus" /> {area ? 'Adicionar título' : 'Buscar mais títulos'}
           </button>
         </div>
@@ -287,8 +295,24 @@ export function Catalog({ area = false }: { area?: boolean }) {
       )}
       {draft.data && draftOpen && <PriorityDraftView draft={draft.data} onExit={() => setDraftOpen(false)} />}
 
+      {!area && (
+        <div className="tabs catalog-tabs" role="tablist" aria-label="Catálogo">
+          <button type="button" role="tab" aria-selected={!exploring} className={exploring ? 'tab' : 'tab active'} onClick={() => setExploring(false)}>
+            Seus títulos
+          </button>
+          <button type="button" role="tab" aria-selected={exploring} className={exploring ? 'tab active' : 'tab'} onClick={() => setExploring(true)}>
+            <Icon name="search" size={14} /> Explorar no TMDB
+          </button>
+        </div>
+      )}
+      {exploring && (
+        <div className="catalog-explore">
+          <SearchImport inline />
+        </div>
+      )}
+
       {/* modo rascunho: só o rascunho aparece, para não confundir com a fila real */}
-      {!(draft.data && draftOpen) && (
+      {!exploring && !(draft.data && draftOpen) && (
         <>
           <div className="filters" role="search">
             <input
@@ -390,7 +414,6 @@ export function Catalog({ area = false }: { area?: boolean }) {
                         onOpen={() => setOpenId(t.id)}
                         onPatch={(body) => void patch(t, body)}
                         onMove={(req) => void move(t, req)}
-                        area={area}
                       />
                     ))}
                   </ul>
@@ -445,7 +468,6 @@ export function Catalog({ area = false }: { area?: boolean }) {
                           onOpen={() => setOpenId(t.id)}
                           onPatch={(body) => void patch(t, body)}
                           onMove={(req) => void move(t, req)}
-                          area={area}
                         />
                       ))}
                     </tbody>
@@ -956,18 +978,20 @@ function TitleDetail({ id, onClose }: { id: string; onClose: () => void }) {
 
 /** Status e, ao assistir, onde (serviços comuns ou texto livre). */
 function StatusControl({ t, onSave }: { t: Title; onSave: (body: Parameters<typeof api.updateTitle>[1]) => void }) {
-  const [where, setWhere] = useState(t.watchOn ?? '');
-  useEffect(() => setWhere(t.watchOn ?? ''), [t.watchOn]);
-  // primeiro os serviços onde o título está no Brasil, depois os comuns
-  const here = (t.watchProvidersBR ?? []).filter((p) => p.type === 'flatrate').map((p) => p.name);
-  const options = [...new Set([...here, ...WATCH_ON_OPTIONS])];
-  function commit(value: string) {
-    const v = value.trim().slice(0, 60);
-    if (v === (t.watchOn ?? '')) return;
-    onSave({ watchOn: v || null });
-  }
+  const outside = t.status === 'catalog' || t.status === 'dropped' || t.status === 'watched';
   return (
     <div className="status-control">
+      {/* D-23: um clique leva à Minha Área; "Próximo a assistir" já em 1º da fila */}
+      {t.rank !== 1 && (
+        <button type="button" className="btn btn-primary" onClick={() => onSave({ next: true })}>
+          <Icon name="top" size={15} /> Próximo a assistir
+        </button>
+      )}
+      {outside && (
+        <button type="button" className="btn" onClick={() => onSave({ status: 'to_watch' })}>
+          <Icon name="plus" size={15} /> Quero assistir
+        </button>
+      )}
       <select className="status-select" data-status={t.status} aria-label={`Status de ${t.title}`} value={t.status} onChange={(e) => onSave({ status: e.target.value as TitleStatus })}>
         {STATUSES.map((st) => (
           <option key={st} value={st}>
@@ -975,27 +999,7 @@ function StatusControl({ t, onSave }: { t: Title; onSave: (body: Parameters<type
           </option>
         ))}
       </select>
-      {t.status === 'watching' && (
-        <>
-          <input
-            list={`watch-on-${t.id}`}
-            aria-label="Onde está assistindo"
-            placeholder="Onde? (ex.: Netflix)"
-            maxLength={60}
-            value={where}
-            onChange={(e) => setWhere(e.target.value)}
-            onBlur={(e) => commit(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commit(e.currentTarget.value);
-            }}
-          />
-          <datalist id={`watch-on-${t.id}`}>
-            {options.map((o) => (
-              <option key={o} value={o} />
-            ))}
-          </datalist>
-        </>
-      )}
+      {t.status === 'watching' && <WatchOnField t={t} onSave={(watchOn) => onSave({ watchOn })} />}
     </div>
   );
 }
@@ -1009,7 +1013,6 @@ function CatalogRow({
   onOpen,
   onPatch,
   onMove,
-  area,
 }: {
   t: Title;
   cols: CatalogColumns;
@@ -1019,7 +1022,6 @@ function CatalogRow({
   onOpen: () => void;
   onPatch: (body: Parameters<typeof api.updateTitle>[1]) => void;
   onMove: (req: MoveTitleRequest) => void;
-  area: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: t.id, disabled: !draggable });
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : undefined };
@@ -1063,7 +1065,7 @@ function CatalogRow({
             <div className="muted small title-meta" title={[t.year, t.creator].filter(Boolean).join(' · ')}>
               {[t.year, t.creator, t.status === 'watching' ? t.watchOn : null].filter(Boolean).join(' · ')}
             </div>
-            {!area && <WantButton t={t} onPatch={onPatch} />}
+            <WantButton t={t} onPatch={onPatch} />
           </div>
         </div>
       </td>
@@ -1081,6 +1083,7 @@ function CatalogRow({
             </option>
           ))}
         </select>
+        {t.status === 'watching' && <WatchOnField compact t={t} onSave={(watchOn) => onPatch({ watchOn })} />}
       </td>
       <td>
         <select
@@ -1116,13 +1119,56 @@ function CatalogRow({
   );
 }
 
-/** Catálogo: leva o título à Minha Área (Quero assistir). */
+/** Catálogo: leva o título à Minha Área (fim da fila) ou já em 1º ("Próximo"). */
 function WantButton({ t, onPatch }: { t: Title; onPatch: (body: Parameters<typeof api.updateTitle>[1]) => void }) {
-  if (t.status !== 'catalog' && t.status !== 'dropped') return null;
+  const outside = t.status === 'catalog' || t.status === 'dropped';
+  if (!outside && t.rank === 1) return null;
   return (
-    <button type="button" className="btn btn-link small want-btn" onClick={() => onPatch({ status: 'to_watch' })}>
-      <Icon name="plus" size={13} /> Quero assistir
-    </button>
+    <span className="want-actions">
+      {outside && (
+        <button type="button" className="btn btn-link small want-btn" onClick={() => onPatch({ status: 'to_watch' })}>
+          <Icon name="plus" size={13} /> Quero assistir
+        </button>
+      )}
+      <button type="button" className="btn btn-link small want-btn" title="Leva à Minha Área em 1º da fila" onClick={() => onPatch({ next: true })}>
+        <Icon name="top" size={13} /> Próximo
+      </button>
+    </span>
+  );
+}
+
+/** "Onde está assistindo": serviços comuns (os do título primeiro) ou texto livre. */
+function WatchOnField({ t, onSave, compact = false }: { t: Title; onSave: (watchOn: string | null) => void; compact?: boolean }) {
+  const [where, setWhere] = useState(t.watchOn ?? '');
+  useEffect(() => setWhere(t.watchOn ?? ''), [t.watchOn]);
+  const here = (t.watchProvidersBR ?? []).filter((p) => p.type === 'flatrate').map((p) => p.name);
+  const options = [...new Set([...here, ...WATCH_ON_OPTIONS])];
+  function commit(value: string) {
+    const v = value.trim().slice(0, 60);
+    if (v === (t.watchOn ?? '')) return;
+    onSave(v || null);
+  }
+  return (
+    <>
+      <input
+        className={compact ? 'watch-on compact' : 'watch-on'}
+        list={`watch-on-${t.id}`}
+        aria-label={`Onde está assistindo ${t.title}`}
+        placeholder="Onde? (ex.: Netflix)"
+        maxLength={60}
+        value={where}
+        onChange={(e) => setWhere(e.target.value)}
+        onBlur={(e) => commit(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit(e.currentTarget.value);
+        }}
+      />
+      <datalist id={`watch-on-${t.id}`}>
+        {options.map((o) => (
+          <option key={o} value={o} />
+        ))}
+      </datalist>
+    </>
   );
 }
 
@@ -1174,7 +1220,6 @@ function CatalogCard({
   onOpen,
   onPatch,
   onMove,
-  area,
 }: {
   t: Title;
   draggable: boolean;
@@ -1183,7 +1228,6 @@ function CatalogCard({
   onOpen: () => void;
   onPatch: (body: Parameters<typeof api.updateTitle>[1]) => void;
   onMove: (req: MoveTitleRequest) => void;
-  area: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: t.id, disabled: !draggable });
   const style = { transform: CSS.Transform.toString(transform), transition };
@@ -1210,7 +1254,7 @@ function CatalogCard({
           {t.creator && <div className="muted small ellipsis">{t.creator}</div>}
           <GenreChips t={t} />
           <OtherScores t={t} />
-          {!area && <WantButton t={t} onPatch={onPatch} />}
+          <WantButton t={t} onPatch={onPatch} />
         </div>
       </div>
       <div className="cc-bottom">
@@ -1234,6 +1278,7 @@ function CatalogCard({
             </option>
           ))}
         </select>
+        {t.status === 'watching' && <WatchOnField compact t={t} onSave={(watchOn) => onPatch({ watchOn })} />}
         {t.rank != null && (
           <span className="rank-controls cc-rank">
             {draggable && (

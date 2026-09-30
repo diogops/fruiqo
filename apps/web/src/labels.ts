@@ -52,6 +52,15 @@ export const SORT_LABEL: Record<string, string> = {
   title: 'Título',
 };
 
+/** D-23: ordem dos resultados de "Buscar mais títulos" */
+export type SearchSort = 'score' | 'auto' | 'general' | 'relevance';
+export const SEARCH_SORT_LABEL: Record<SearchSort, string> = {
+  score: 'Recomendada',
+  auto: 'Nota automática',
+  general: 'Nota geral (TMDB)',
+  relevance: 'Relevância',
+};
+
 /** nota com uma casa, em pt-BR (4,5) */
 export function scoreText(v: number): string {
   return v.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });

@@ -504,6 +504,8 @@ export const UpdateTitleRequestSchema = z
     notes: z.string().max(500).nullable().optional(),
     /** gêneros manuais (chaves da taxonomia); marca `enrichment = manual` */
     genres: z.array(z.string().max(32)).max(6).optional(),
+    /** D-23: "Próximo a assistir": vai para a Minha Área (Quero assistir, se não estiver na fila) em 1º */
+    next: z.literal(true).optional(),
   })
   .strict()
   .refine((v) => Object.keys(v).length > 0, { message: 'nada para alterar' });
@@ -1213,6 +1215,11 @@ export const TitleSearchQuerySchema = z.object({
   kind: z.enum(['movie', 'series', 'book']).optional(),
   /** `1`: interpretar com IA (pedido livre: "filme recente de faroeste"); precisa do consentimento */
   ai: z.enum(['1']).optional(),
+  /**
+   * D-23: ordem dos resultados. `score` = ordem manual → suas estrelas → automática → geral (padrão,
+   * exceto na busca por nome, que fica por `relevance`)
+   */
+  sort: z.enum(['score', 'auto', 'general', 'relevance']).optional(),
 });
 export type TitleSearchQuery = z.infer<typeof TitleSearchQuerySchema>;
 
@@ -1230,12 +1237,21 @@ export const TitleSearchResultSchema = z.object({
   cast: z.array(z.string()),
   /** o título já está no catálogo/revisão do usuário */
   inLibrary: z
-    .object({ id: z.uuid(), rank: TitleRankSchema.nullable(), decision: z.enum(['cataloged', 'review_queue']), status: TitleStatusSchema.optional() })
+    .object({
+      id: z.uuid(),
+      rank: TitleRankSchema.nullable(),
+      decision: z.enum(['cataloged', 'review_queue']),
+      status: TitleStatusSchema.optional(),
+      /** sua nota (estrelas) */
+      rating: z.number().min(0.5).max(5).nullable().optional(),
+    })
     .nullable(),
   matchedBy: z.enum(['title', 'person', 'genre', 'description', 'browse']),
   /** D-23: nota geral no TMDB (0..10) e votos, para comparar na busca */
   generalRating: z.number().min(0).max(10).optional(),
   generalVotes: z.number().int().nonnegative().optional(),
+  /** D-23: nota automática (0..5) pelo seu gosto, calculada localmente */
+  autoRating: z.number().min(0).max(5).optional(),
 });
 export type TitleSearchResult = z.infer<typeof TitleSearchResultSchema>;
 
@@ -1245,6 +1261,8 @@ export const TitleSearchResponseSchema = z.object({
     type: z.enum(['title', 'person', 'genre', 'description', 'browse']),
     /** D-23: como a exploração foi entendida ("mais bem avaliados", "Netflix", "minissérie") */
     labels: z.array(z.string()).optional(),
+    /** D-23: ordem aplicada aos resultados */
+    sort: z.enum(['score', 'auto', 'general', 'relevance']).optional(),
     year: z.number().int().optional(),
     person: z.string().optional(),
     genres: z.array(TaxonomyTagSchema),
@@ -1269,7 +1287,14 @@ export const BookSearchResultSchema = z.object({
   /** página pública da obra */
   url: z.url(),
   inLibrary: z
-    .object({ id: z.uuid(), rank: TitleRankSchema.nullable(), decision: z.enum(['cataloged', 'review_queue']), status: TitleStatusSchema.optional() })
+    .object({
+      id: z.uuid(),
+      rank: TitleRankSchema.nullable(),
+      decision: z.enum(['cataloged', 'review_queue']),
+      status: TitleStatusSchema.optional(),
+      /** sua nota (estrelas) */
+      rating: z.number().min(0.5).max(5).nullable().optional(),
+    })
     .nullable(),
   matchedBy: z.enum(['title', 'author']),
 });

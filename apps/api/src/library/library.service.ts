@@ -33,6 +33,7 @@ import {
   matchesRule,
 } from '@fruiqo/taxonomy';
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { libraryTextCondition } from './library-text.js';
 import { recomputeAutoRatings } from './auto-rating.js';
 import { ENV, type Env } from '../config/env.js';
 import { DB, type Db, type Tx, withUser } from '../db/client.js';
@@ -67,6 +68,9 @@ import { PROVIDER_LABEL } from './providers.js';
 import { type InterpretResult, llmSafeInput, MOOD_INTERPRETER, type MoodInterpreter, RulesInterpreter } from './mood-interpreter.js';
 import { readSettings } from './user-settings.js';
 import { moveTitle } from './rank-queue.js';
+
+/** D-23: status com posição na fila (Minha Área, para ver) */
+const IN_QUEUE = new Set<string>(['to_watch', 'watching']);
 import { toTitle } from './title-mapper.js';
 import { declaredAffinity } from './fit.js';
 
@@ -112,7 +116,8 @@ export class LibraryService {
         q.shareId ? eq(recommendations.shareId, q.shareId) : undefined,
         q.kind ? eq(recommendations.kind, q.kind) : undefined,
         q.genre ? sql`${q.genre} = ANY(${recommendations.genres})` : undefined,
-        q.q ? ilike(recommendations.title, `%${escapeLike(q.q)}%`) : undefined,
+        // D-23: nome ou categoria ("sci-fi", "minissérie", "da Netflix")
+        q.q ? libraryTextCondition(q.q) : undefined,
         q.listId
           ? inArray(
               recommendations.id,
@@ -175,6 +180,8 @@ export class LibraryService {
     return withUser(this.db, userId, async (tx) => {
       const row = await this.findTitle(tx, id);
       const now = new Date();
+      // D-23: "Próximo a assistir" leva à fila (Quero assistir, salvo se já está nela) e depois ao topo
+      const status = patch.next && !IN_QUEUE.has(patch.status ?? row.status) ? ('to_watch' as const) : patch.status;
       const next = {
         kind: patch.kind ?? row.kind,
         title: patch.title ?? row.title,
@@ -198,7 +205,7 @@ export class LibraryService {
           creator: next.creator,
           dedupKey: key,
           ...(patch.year !== undefined ? { year: patch.year } : {}),
-          ...(patch.status ? { status: patch.status } : {}),
+          ...(status ? { status } : {}),
           ...(patch.rating !== undefined ? { rating: patch.rating } : {}),
           ...(patch.watchOn !== undefined ? { watchOn: patch.watchOn } : {}),
           ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
@@ -209,10 +216,10 @@ export class LibraryService {
         .returning();
       // sinais do perfil de gosto (RF-34): só quando o estado muda de fato
       const signals: { signal: Signal; value: number }[] = [];
-      if (patch.status === 'watched' && row.status !== 'watched') signals.push({ signal: 'watched', value: 1 });
-      if (patch.status === 'dropped' && row.status !== 'dropped') signals.push({ signal: 'dropped', value: 1 });
+      if (status === 'watched' && row.status !== 'watched') signals.push({ signal: 'watched', value: 1 });
+      if (status === 'dropped' && row.status !== 'dropped') signals.push({ signal: 'dropped', value: 1 });
       // D-23: escolher "Quero assistir" é uma escolha de gosto (como adicionar a uma lista)
-      if (patch.status === 'to_watch' && (row.status === 'catalog' || row.status === 'dropped')) signals.push({ signal: 'added_to_list', value: 1 });
+      if (status === 'to_watch' && (row.status === 'catalog' || row.status === 'dropped')) signals.push({ signal: 'added_to_list', value: 1 });
       if (patch.rating !== undefined && patch.rating !== row.rating) {
         // vale só a nota mais recente: a anterior deixa de pesar no gosto (o perfil é refeito dos sinais)
         await tx.delete(tasteSignals).where(and(eq(tasteSignals.recommendationId, id), eq(tasteSignals.signal, 'rated')));
@@ -223,6 +230,7 @@ export class LibraryService {
       }
       // o gosto mudou (nota, status ou gêneros): as notas automáticas acompanham
       if (signals.length > 0 || patch.rating !== undefined || patch.genres) await recomputeAutoRatings(tx);
+      if (patch.next) await moveTitle(tx, userId, id, { to: 'top' });
       await this.touchListsOf(tx, [id], now);
       // relê: o recálculo pode ter mudado a nota automática deste título
       return (await this.withLists(tx, [(await this.findTitle(tx, updated!.id))]))[0]!;
@@ -629,9 +637,6 @@ function toIntentView(intent: MoodIntent): MoodIntentView {
   };
 }
 
-function escapeLike(s: string): string {
-  return s.replace(/[\\%_]/g, (c) => `\\${c}`);
-}
 
 function encodeCursor(offset: number): string {
   return Buffer.from(`o:${offset}`).toString('base64url');

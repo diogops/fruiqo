@@ -9,7 +9,7 @@ import { api } from '../api/client';
 import { ErrorNote, Modal } from '../components/shared';
 import { useToast } from '../components/Toast';
 import { Icon, Thumb, WorkLink } from '../components/ui';
-import { kindLabel, KINDS, scoreText } from '../labels';
+import { kindLabel, KINDS, scoreText, SEARCH_SORT_LABEL, type SearchSort } from '../labels';
 
 const SEARCH_DEBOUNCE_MS = 400;
 
@@ -44,12 +44,13 @@ export interface SearchPick {
   /** elenco ou autores */
   people: string[];
   overview?: string;
-  inLibrary: { rank: number | null; decision: 'cataloged' | 'review_queue'; status?: TitleStatus } | null;
+  inLibrary: { rank: number | null; decision: 'cataloged' | 'review_queue'; status?: TitleStatus; rating?: number | null } | null;
   ref: { tmdbId: number; mediaType: 'movie' | 'tv' } | { olWorkId: string };
   /** página da obra para conferir antes de incluir (TMDB ou Open Library), em aba nova */
   page?: { url: string; label: string };
-  /** D-23: nota geral no TMDB (0..10) */
+  /** D-23: nota geral no TMDB (0..10) e automática (0..5, pelo seu gosto) */
   generalRating?: number;
+  autoRating?: number;
 }
 
 export function searchPicks(data: TitleSearchResponse | undefined): SearchPick[] {
@@ -67,6 +68,7 @@ export function searchPicks(data: TitleSearchResponse | undefined): SearchPick[]
     ref: { tmdbId: r.tmdbId, mediaType: r.mediaType },
     page: { url: tmdbPageUrl(r.mediaType, r.tmdbId), label: 'TMDB' },
     generalRating: r.generalRating,
+    autoRating: r.autoRating,
   }));
   const books: SearchPick[] = (data.books ?? []).map((b) => ({
     key: `ol:${b.olWorkId}`,
@@ -91,11 +93,13 @@ export function TitleSearch({
   onPick,
   selected,
   onToggle,
+  autoFocus = true,
 }: {
   mode: 'import' | 'pick';
   onPick?: (r: SearchPick) => void;
   selected?: Set<string>;
   onToggle?: (r: SearchPick) => void;
+  autoFocus?: boolean;
 }) {
   const [text, setText] = useState('');
   const [kind, setKind] = useState<KindFilter>('');
@@ -103,9 +107,11 @@ export function TitleSearch({
   const [useAi, setUseAi] = useState(false);
   const aiParam = useAi && kind !== 'book' ? ('1' as const) : undefined;
   const q = useDebounced(text.trim());
+  // D-23: vazio = padrão do servidor (sua ordem; na busca por nome, relevância)
+  const [sort, setSort] = useState<SearchSort | ''>('');
   const search = useQuery({
-    queryKey: ['search-titles', q, kind, aiParam],
-    queryFn: () => api.searchTitles({ q, kind: kind || undefined, ...(aiParam ? { ai: aiParam } : {}) }),
+    queryKey: ['search-titles', q, kind, aiParam, sort],
+    queryFn: () => api.searchTitles({ q, kind: kind || undefined, ...(aiParam ? { ai: aiParam } : {}), ...(sort ? { sort } : {}) }),
     enabled: q.length >= 2,
     staleTime: 60_000,
   });
@@ -124,7 +130,7 @@ export function TitleSearch({
             type="search"
             // RF-45: foco no campo ao abrir (o Modal foca o primeiro campo)
             placeholder='Nome, "Wagner Moura", "melhor série da Netflix", "lançamentos de terror" ou uma descrição'
-            autoFocus
+            autoFocus={autoFocus}
             value={text}
             onChange={(e) => setText(e.target.value)}
             maxLength={200}
@@ -138,6 +144,17 @@ export function TitleSearch({
             <option value="movie">Só filmes</option>
             <option value="series">Só séries</option>
             <option value="book">Só livros</option>
+          </select>
+        </label>
+        <label>
+          <span className="sr-only">Ordenar resultados</span>
+          <select value={sort || interpreted?.sort || ''} onChange={(e) => setSort(e.target.value as SearchSort)} aria-label="Ordenar resultados">
+            {!interpreted?.sort && <option value="">Ordem padrão</option>}
+            {(Object.keys(SEARCH_SORT_LABEL) as SearchSort[]).map((k) => (
+              <option key={k} value={k}>
+                {SEARCH_SORT_LABEL[k]}
+              </option>
+            ))}
           </select>
         </label>
         <button
@@ -208,7 +225,15 @@ export function TitleSearch({
                   {r.page && <Icon name="external" size={13} className="work-ext-icon" />}
                 </WorkLink>
                 <div className="muted small">
-                  {[kindLabel(r.kind), r.year, r.generalRating != null ? `TMDB ${scoreText(r.generalRating)}` : null].filter(Boolean).join(' · ')}
+                  {[
+                    kindLabel(r.kind),
+                    r.year,
+                    r.inLibrary?.rating != null ? `você ${scoreText(r.inLibrary.rating)}★` : null,
+                    r.autoRating != null ? `auto ${scoreText(r.autoRating)}` : null,
+                    r.generalRating != null ? `TMDB ${scoreText(r.generalRating)}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
                   {r.originalTitle && r.originalTitle !== r.title ? ` · ${r.originalTitle}` : ''}
                 </div>
                 {r.people.length > 0 && (
@@ -275,7 +300,8 @@ export function AddTitle({ onClose }: { onClose: () => void }) {
   );
 }
 
-function SearchImport({ onClose }: { onClose: () => void }) {
+/** Busca + "Quero assistir"/"Próximo a assistir". `inline`: embutida no Catálogo (sem fechar). */
+export function SearchImport({ onClose, inline = false }: { onClose?: () => void; inline?: boolean }) {
   const lists = useQuery({ queryKey: ['lists'], queryFn: api.lists });
   const qc = useQueryClient();
   const toast = useToast();
@@ -294,7 +320,8 @@ function SearchImport({ onClose }: { onClose: () => void }) {
     });
   }
 
-  async function send(approveNow: boolean) {
+  /** `next`: "Próximo a assistir" (vão para o topo da Minha Área, na ordem em que foram marcados) */
+  async function send(next: boolean) {
     setBusy(true);
     setError(null);
     try {
@@ -303,14 +330,18 @@ function SearchImport({ onClose }: { onClose: () => void }) {
       const res = await api.importTitles({
         items: refs.flatMap((r) => ('tmdbId' in r ? [{ tmdbId: r.tmdbId, mediaType: r.mediaType }] : [])),
         ...(books.length ? { books } : {}),
-        approveNow: approveNow || undefined,
         listId: listId || undefined,
       });
+      // de trás para a frente: o primeiro marcado termina em 1º
+      if (next) for (const t of [...res.created].reverse()) await api.updateTitle(t.id, { next: true });
       await qc.invalidateQueries();
       const n = res.created.length;
       const skipped = res.skipped.length + (res.skippedBooks?.length ?? 0);
-      toast.show(`${n} título(s) na Minha Área, como Quero assistir.${skipped ? ` ${skipped} já estava(m) lá.` : ''}`);
-      onClose();
+      toast.show(
+        `${n} título(s) na Minha Área${next ? ', no topo da fila' : ', como Quero assistir'}.${skipped ? ` ${skipped} já estava(m) lá.` : ''}`,
+      );
+      setPicked(new Map());
+      if (!inline) onClose?.();
     } catch (err) {
       setError(err);
     } finally {
@@ -320,7 +351,7 @@ function SearchImport({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="form">
-      <TitleSearch mode="import" selected={new Set(picked.keys())} onToggle={toggle} />
+      <TitleSearch mode="import" selected={new Set(picked.keys())} onToggle={toggle} autoFocus={!inline} />
       <label>
         Lista (opcional)
         <select value={listId} onChange={(e) => setListId(e.target.value)}>
@@ -335,8 +366,11 @@ function SearchImport({ onClose }: { onClose: () => void }) {
       <ErrorNote error={error} />
       <div className="actions sticky-actions">
         <span className="muted small grow">{picked.size} selecionado(s)</span>
-        <button type="button" className="btn btn-primary" disabled={busy || picked.size === 0} onClick={() => void send(false)}>
+        <button type="button" className="btn" disabled={busy || picked.size === 0} onClick={() => void send(false)}>
           Quero assistir
+        </button>
+        <button type="button" className="btn btn-primary" disabled={busy || picked.size === 0} onClick={() => void send(true)}>
+          Próximo a assistir
         </button>
       </div>
     </div>

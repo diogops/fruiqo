@@ -5,14 +5,16 @@ import type {
   ImportTitlesResponse,
   Resolution,
   Title,
+  TitleSearchQuery,
   TitleSearchResponse,
   TitleSearchResult,
 } from '@fruiqo/contracts';
-import { GENRES, genreTermsIn } from '@fruiqo/taxonomy';
+import { GENRES, genresFromTmdb, genreTermsIn } from '@fruiqo/taxonomy';
 import { eq, inArray } from 'drizzle-orm';
 import { DB, type Db, type Tx, withUser } from '../db/client.js';
 import { recommendations, tasteSignals } from '../db/schema.js';
-import { recomputeAutoRatings } from './auto-rating.js';
+import { autoRating, recomputeAutoRatings } from './auto-rating.js';
+import { loadFitContext } from './fit-context.js';
 import { dedupKey } from '../pipeline/dedup.js';
 import { matchScore, similarity } from '../pipeline/resolvers/match.js';
 import { type BookHit, displayTitle, type OpenLibraryResolver } from '../pipeline/resolvers/openlibrary.js';
@@ -97,7 +99,13 @@ export class SearchService {
     @Optional() @Inject(OPENLIBRARY_CATALOG) private readonly books: OpenLibraryResolver | null = null,
   ) {}
 
-  async search(userId: string, q: string, kind?: 'movie' | 'series' | 'book', forceAi = false): Promise<TitleSearchResponse> {
+  async search(
+    userId: string,
+    q: string,
+    kind?: 'movie' | 'series' | 'book',
+    forceAi = false,
+    sortParam?: SearchSort,
+  ): Promise<TitleSearchResponse> {
     if (!this.searchLimiter.take(userId)) throw tooMany();
     // RF-48: livros só pela Open Library (sem TMDB, sem LLM)
     if (kind === 'book' || (!kind && !this.tmdb && this.books)) return this.searchBooksOnly(userId, q);
@@ -167,9 +175,17 @@ export class SearchService {
       throw new ServiceUnavailableException('Busca indisponível agora; tente de novo');
     }
 
-    const unique = dedupeHits(hits).slice(0, MAX_RESULTS);
-    const casts = await mapLimit(unique.slice(0, CAST_FOR), 4, (h) => tmdb.topCast(h.hit.mediaType, h.hit.tmdbId).catch(() => [] as string[]));
+    // D-23: sua ordem (manual → estrelas → automática → geral); a busca por nome fica por relevância
+    const sort: SearchSort = sortParam ?? (type === 'title' ? 'relevance' : 'score');
     const library = await this.libraryIndex(userId);
+    const fitCtx = await withUser(this.db, userId, (tx) => loadFitContext(tx));
+    const scored = dedupeHits(hits).map((h) => {
+      const mine = library.byExternal.get(`${h.hit.mediaType}:${h.hit.tmdbId}`) ?? null;
+      return { ...h, mine, auto: autoRating(fitTitleOfHit(h.hit), fitCtx) };
+    });
+    const unique = orderSearchHits(scored, sort).slice(0, MAX_RESULTS);
+    const autoOf = new Map(unique.map((u) => [`${u.hit.mediaType}:${u.hit.tmdbId}`, u.auto]));
+    const casts = await mapLimit(unique.slice(0, CAST_FOR), 4, (h) => tmdb.topCast(h.hit.mediaType, h.hit.tmdbId).catch(() => [] as string[]));
     // livros palpitados pela IA (já conferidos na busca de livros) vêm antes dos da busca por texto
     const searched = await booksPromise;
     const bookHits = searched || aiBooks.length > 0 ? dedupeBooks([...aiBooks, ...(searched ?? [])]) : null;
@@ -183,6 +199,7 @@ export class SearchService {
         genres: interp.genres.map((key) => ({ key, label: GENRE_LABEL.get(key) ?? key })),
         ...(interp.decade ? { decade: interp.decade } : {}),
         ...(labels ? { labels } : {}),
+        sort,
         aiUsed,
       },
       items: unique.map(({ hit, matchedBy }, i) => {
@@ -202,6 +219,7 @@ export class SearchService {
           inLibrary: mine ?? null,
           matchedBy,
           ...(hit.voteAverage != null && hit.voteCount ? { generalRating: hit.voteAverage, generalVotes: hit.voteCount } : {}),
+          ...(autoOf.get(`${hit.mediaType}:${hit.tmdbId}`) != null ? { autoRating: autoOf.get(`${hit.mediaType}:${hit.tmdbId}`)! } : {}),
         };
       }),
     };
@@ -522,11 +540,19 @@ export class SearchService {
   private async libraryIndex(userId: string) {
     const rows = await withUser(this.db, userId, (tx) =>
       tx
-        .select({ id: recommendations.id, rank: recommendations.rank, decision: recommendations.decision, status: recommendations.status, key: recommendations.dedupKey, resolution: recommendations.resolution })
+        .select({
+          id: recommendations.id,
+          rank: recommendations.rank,
+          decision: recommendations.decision,
+          status: recommendations.status,
+          rating: recommendations.rating,
+          key: recommendations.dedupKey,
+          resolution: recommendations.resolution,
+        })
         .from(recommendations),
     );
     type Ref = NonNullable<TitleSearchResult['inLibrary']>;
-    const ref = (r: (typeof rows)[number]): Ref => ({ id: r.id, rank: r.rank, decision: r.decision, status: r.status });
+    const ref = (r: (typeof rows)[number]): Ref => ({ id: r.id, rank: r.rank, decision: r.decision, status: r.status, rating: r.rating });
     return {
       byExternal: new Map<string, Ref>(rows.filter((r) => r.resolution?.externalId).map((r) => [(r.resolution as Resolution).externalId, ref(r)])),
       byKey: new Map<string, Ref>(rows.map((r) => [r.key, ref(r)])),
@@ -577,6 +603,51 @@ function scoreHit(hit: TmdbHit, interp: SearchInterpretation, mediaType: 'movie'
     { title: interp.text, ...(interp.year ? { year: interp.year } : {}), ...(mediaType ? { mediaType } : {}) },
     { title: hit.title, ...(hit.originalTitle ? { originalTitle: hit.originalTitle } : {}), ...(hit.year ? { year: hit.year } : {}), mediaType: hit.mediaType, popularity: hit.popularity },
   );
+}
+
+type SearchSort = NonNullable<TitleSearchQuery['sort']>;
+type InLibrary = NonNullable<TitleSearchResult['inLibrary']>;
+
+/** Gêneros da taxonomia a partir dos IDs do TMDB, para a nota automática de um resultado. */
+function fitTitleOfHit(hit: TmdbHit) {
+  const weights = genresFromTmdb(hit.genreIds, hit.mediaType);
+  return {
+    title: hit.title,
+    genres: Object.keys(weights).filter((g) => (weights[g as keyof typeof weights] ?? 0) > 0),
+    tmdbId: hit.tmdbId,
+    mediaType: hit.mediaType,
+    generalRating: hit.voteAverage ?? null,
+  };
+}
+
+/**
+ * D-23: `score` = ordem manual (posição na Minha Área) → suas estrelas → nota automática → geral;
+ * `auto`/`general` pela nota escolhida; `relevance` mantém a ordem da busca. Estável.
+ */
+export function orderSearchHits<T extends { hit: TmdbHit; mine: InLibrary | null; auto: number | null }>(items: T[], sort: SearchSort): T[] {
+  if (sort === 'relevance') return items;
+  const nullsLast = (a: number | null | undefined, b: number | null | undefined, dir: 1 | -1) =>
+    a == null && b == null ? 0 : a == null ? 1 : b == null ? -1 : dir * (a - b);
+  const general = (x: T) => (x.hit.voteCount ? (x.hit.voteAverage ?? null) : null);
+  return items
+    .map((x, i) => ({ x, i }))
+    .sort((p, q) => {
+      const a = p.x;
+      const b = q.x;
+      const steps =
+        sort === 'auto'
+          ? [nullsLast(a.auto, b.auto, -1), nullsLast(general(a), general(b), -1)]
+          : sort === 'general'
+            ? [nullsLast(general(a), general(b), -1), nullsLast(a.auto, b.auto, -1)]
+            : [
+                nullsLast(a.mine?.rank, b.mine?.rank, 1),
+                nullsLast(a.mine?.rating, b.mine?.rating, -1),
+                nullsLast(a.auto, b.auto, -1),
+                nullsLast(general(a), general(b), -1),
+              ];
+      return steps.find((d) => d !== 0) ?? p.i - q.i;
+    })
+    .map(({ x }) => x);
 }
 
 function dedupeHits<T extends { hit: TmdbHit }>(hits: T[]): T[] {
