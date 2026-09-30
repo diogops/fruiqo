@@ -185,7 +185,7 @@ export class TmdbResolver {
   }
 
   /** Detalhes de um título escolhido (alternativa, busca RF-46, favorito RF-43). */
-  async byId(mediaType: 'movie' | 'tv', id: number, hint?: TmdbHit): Promise<Resolution | null> {
+  async byId(mediaType: 'movie' | 'tv', id: number, hint?: TmdbHit, opts: { titleLinks?: boolean } = {}): Promise<Resolution | null> {
     const base: Resolution | null = hint ? baseResolution(hint) : null;
     try {
       const detailParams = new URLSearchParams({ language: 'pt-BR', append_to_response: 'external_ids,watch/providers' });
@@ -196,6 +196,8 @@ export class TmdbResolver {
       const head = base ?? baseResolution({ tmdbId: d.id, mediaType, title: title!, ...(year ? { year } : {}) });
       const details = detailFields(d);
       // D-22: link direto ao título em cada serviço, só quando há onde assistir no Brasil
+      // (a atualização agendada pula: reaproveita os links já gravados)
+      if (opts.titleLinks === false) return { ...head, ...details };
       const titleLinks = details.providers?.length ? await fetchTitleLinks(mediaType, id, this.fetchImpl) : {};
       // vazio também é gravado: marca que o Wikidata já foi consultado (não repete a cada abertura)
       return { ...head, ...details, ...(details.providers?.length ? { titleLinks } : {}) };

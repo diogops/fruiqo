@@ -9,6 +9,7 @@ import type { TmdbQuery } from '../pipeline/resolvers/tmdb.js';
 import { fetchTitleLinks, type TitleLinks } from '../pipeline/resolvers/wikidata.js';
 import { createOpenLibraryCatalog } from './openlibrary-catalog.js';
 import { createTmdbCatalog } from './tmdb-catalog.js';
+import { recomputeAutoRatings } from './auto-rating.js';
 import { enrichmentUpdate } from './tmdb-enrichment.js';
 
 export const TITLE_LOOKUP = Symbol('TITLE_LOOKUP');
@@ -26,6 +27,8 @@ export interface TitleLookup {
   lookup(q: LookupQuery): Promise<Resolution | null>;
   /** D-22: links diretos do título nos serviços (Wikidata) */
   titleLinks?(mediaType: 'movie' | 'tv', tmdbId: number): Promise<TitleLinks>;
+  /** D-23: dados atuais de um título já identificado (atualização agendada), sem consultar o Wikidata */
+  refreshTmdb?(mediaType: 'movie' | 'tv', tmdbId: number): Promise<Resolution | null>;
 }
 
 /** Catálogos pelo PipelineGateway do modo configurado; em `mock` usa as gravações sintéticas. */
@@ -45,6 +48,10 @@ export function createTitleLookup(
       return tmdb.lookup({ title: q.title, kind: q.kind, ...(q.year ? { year: q.year } : {}) });
     },
     titleLinks: (mediaType, tmdbId) => fetchTitleLinks(mediaType, tmdbId, gw.fetchImpl),
+    async refreshTmdb(mediaType, tmdbId) {
+      if (!tmdb) throw new GatewayError('TMDB indisponível (sem chave)');
+      return tmdb.byId(mediaType, tmdbId, undefined, { titleLinks: false });
+    },
   };
 }
 
@@ -66,6 +73,12 @@ export interface BackfillReport {
   enriched: number;
   noMatch: number;
   unavailable: number;
+  errors: number;
+}
+
+export interface RefreshReport {
+  refreshed: number;
+  enriched: number;
   errors: number;
 }
 
@@ -147,6 +160,51 @@ export class EnrichmentService {
       }
     };
     await Promise.all(Array.from({ length: Math.max(1, Math.min(opts.concurrency ?? 2, todo.length)) }, worker));
+    return report;
+  }
+
+  /**
+   * D-23: atualização agendada (12h e 21h). Filmes/séries já identificados no TMDB ganham os dados
+   * atuais (nota geral, onde assistir via JustWatch/TMDB, duração); os ainda sem enriquecimento são
+   * buscados pelo título. Depois recalcula a nota automática. Nada disso vai a LLM (ARB-REQ-06).
+   */
+  async refreshUser(userId: string, opts: { delayMs?: number } = {}): Promise<RefreshReport> {
+    const report: RefreshReport = { refreshed: 0, enriched: 0, errors: 0 };
+    if (!this.lookup?.refreshTmdb) return report;
+    const rows = await withUser(this.db, userId, (tx) =>
+      tx
+        .select()
+        .from(recommendations)
+        .where(and(eq(recommendations.decision, 'cataloged'), inArray(recommendations.kind, ['movie', 'series'])))
+        .orderBy(recommendations.createdAt),
+    );
+    const delay = opts.delayMs ?? 250;
+    for (const row of rows) {
+      const old = row.resolution;
+      try {
+        if (old?.provider === 'tmdb' && old.tmdbId && old.mediaType) {
+          const res = await this.lookup.refreshTmdb(old.mediaType, old.tmdbId);
+          if (res) {
+            // mantém os links diretos (D-22) enquanto houver onde assistir; sem eles, a abertura busca de novo
+            const next: Resolution = { ...res, ...(res.providers?.length && old.titleLinks !== undefined ? { titleLinks: old.titleLinks } : {}) };
+            const upd = enrichmentUpdate(row, next);
+            await withUser(this.db, userId, (tx) =>
+              tx
+                .update(recommendations)
+                .set({ resolution: next, resolvedAt: new Date(), ...upd, updatedAt: new Date() })
+                .where(eq(recommendations.id, row.id)),
+            );
+            report.refreshed++;
+          }
+        } else if (row.enrichment === 'none') {
+          if ((await this.enrichRow(userId, row)) === 'enriched') report.enriched++;
+        } else continue;
+      } catch {
+        report.errors++;
+      }
+      if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+    }
+    await withUser(this.db, userId, (tx) => recomputeAutoRatings(tx));
     return report;
   }
 

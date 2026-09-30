@@ -4,6 +4,9 @@ import { z } from 'zod';
 export const SHARE_QUEUE = 'share-processing';
 export const MAINTENANCE_QUEUE = 'maintenance';
 export const RETENTION_JOB = 'retention-purge';
+/** D-23: atualização do catálogo com o TMDB às 12h e às 21h (horário de Brasília) */
+export const CATALOG_REFRESH_JOB = 'catalog-refresh';
+export const CATALOG_REFRESH_CRON = { pattern: '0 12,21 * * *', tz: 'America/Sao_Paulo' } as const;
 
 /** Payload do job: o worker revalida (SEC-REQ-18) e nunca confia em nada além destes IDs. */
 export const ShareJobSchema = z.object({ shareId: z.uuid(), userId: z.uuid() }).strict();

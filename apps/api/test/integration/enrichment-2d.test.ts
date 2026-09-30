@@ -3,7 +3,7 @@
 // "Continuar", e o detector de risco antes de qualquer LLM (RNF-07).
 import type { MoodIntent } from '@fruiqo/taxonomy';
 import { interpretMood } from '@fruiqo/taxonomy';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, withUser } from '../../src/db/client.js';
 import { recommendationRuns, recommendations } from '../../src/db/schema.js';
@@ -93,6 +93,37 @@ describe('enriquecimento TMDB (mock)', () => {
     expect(seen).toContain('Sem Gravação:unavailable');
     // já enriquecidos não voltam a ser candidatos
     expect((await service.backfill(me.userId, { delayMs: 0 })).candidates).toBe(1);
+  });
+});
+
+describe('D-23: atualização agendada do catálogo (12h e 21h)', () => {
+  it('identificados ganham os dados atuais do TMDB (links D-22 mantidos); sem enriquecimento são buscados', async () => {
+    const me = await newUser();
+    const farol = await me.addTitle('O Farol de Papel', 2021);
+    await me.post(`/library/${farol}/enrich`, {}).expect(200);
+    const vidro = await me.addTitle('Noites de Vidro', 2019);
+    // dado antigo: nota geral desatualizada e links já consultados
+    await withUser(db, me.userId, async (tx) => {
+      const [row] = await tx.select().from(recommendations).where(eq(recommendations.id, farol));
+      await tx
+        .update(recommendations)
+        .set({ resolution: { ...row!.resolution!, voteAverage: 1, titleLinks: { netflix: 'https://www.netflix.com/title/1' } }, autoRating: null })
+        .where(eq(recommendations.id, farol));
+    });
+
+    const users = await db.execute<{ catalog_refresh_users: string }>(sql`select catalog_refresh_users()`);
+    expect(users.rows.map((r) => r.catalog_refresh_users)).toContain(me.userId);
+
+    const service = new EnrichmentService(db, createTitleLookup(testEnv({ PIPELINE_MODE: 'mock' })));
+    const report = await service.refreshUser(me.userId, { delayMs: 0 });
+    expect(report).toMatchObject({ refreshed: 1, enriched: 1, errors: 0 });
+
+    const rows = await withUser(db, me.userId, (tx) => tx.select().from(recommendations));
+    const f = rows.find((r) => r.id === farol)!;
+    expect(f.resolution!.voteAverage).not.toBe(1);
+    expect(f.resolution!.titleLinks).toEqual({ netflix: 'https://www.netflix.com/title/1' });
+    expect(f.autoRating).not.toBeNull();
+    expect(rows.find((r) => r.id === vidro)!.enrichment).toBe('tmdb');
   });
 });
 

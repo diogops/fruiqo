@@ -15,7 +15,10 @@ import { consumeDailyQuota } from './pipeline/quota.js';
 import { OpenLibraryResolver } from './pipeline/resolvers/openlibrary.js';
 import { SpotifyResolver } from './pipeline/resolvers/spotify.js';
 import { TmdbResolver } from './pipeline/resolvers/tmdb.js';
+import { createTitleLookup, EnrichmentService } from './library/enrichment.service.js';
 import {
+  CATALOG_REFRESH_CRON,
+  CATALOG_REFRESH_JOB,
   MAINTENANCE_QUEUE,
   redisConnection,
   RETENTION_JOB,
@@ -95,6 +98,21 @@ export function buildProcessor(
   });
 }
 
+/** D-23: atualiza o catálogo de cada usuário (um de cada vez, sob RLS) com os dados atuais do TMDB. */
+export async function refreshCatalogs(db: ReturnType<typeof createDb>['db'], enrichment: EnrichmentService, logger: Logger, delayMs?: number) {
+  const users = await db.execute<{ catalog_refresh_users: string }>(sql`select catalog_refresh_users()`);
+  const total = { users: 0, refreshed: 0, enriched: 0, errors: 0 };
+  for (const u of users.rows) {
+    const r = await enrichment.refreshUser(u.catalog_refresh_users, delayMs === undefined ? {} : { delayMs });
+    total.users++;
+    total.refreshed += r.refreshed;
+    total.enriched += r.enriched;
+    total.errors += r.errors;
+  }
+  logger.info(total, 'catálogo atualizado (TMDB)');
+  return total;
+}
+
 export async function startWorker(env: Env): Promise<WorkerRuntime> {
   const logger = pino({ level: env.LOG_LEVEL, redact: { paths: REDACT_PATHS, censor: '[redacted]' } });
   const { db, pool } = createDb(env.DATABASE_URL);
@@ -123,9 +141,15 @@ export async function startWorker(env: Env): Promise<WorkerRuntime> {
 
   const maintenance = new Queue(MAINTENANCE_QUEUE, { connection });
   await maintenance.upsertJobScheduler(RETENTION_JOB, { every: RETENTION_EVERY_MS }, { name: RETENTION_JOB });
+  await maintenance.upsertJobScheduler(CATALOG_REFRESH_JOB, { ...CATALOG_REFRESH_CRON }, { name: CATALOG_REFRESH_JOB });
+  const enrichment = new EnrichmentService(db, createTitleLookup(env));
   const maintenanceWorker = new Worker(
     MAINTENANCE_QUEUE,
-    async () => {
+    async (job) => {
+      if (job.name === CATALOG_REFRESH_JOB) {
+        await refreshCatalogs(db, enrichment, logger);
+        return;
+      }
       const res = await db.execute<{ tmdb_cleared: number; youtube_cleared: number }>(
         sql`select * from purge_expired_third_party_data()`,
       );

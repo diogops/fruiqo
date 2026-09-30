@@ -113,6 +113,13 @@
       "when": 1790746677531,
       "tag": "0015_catalog_my_area",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790748724976,
+      "tag": "0016_catalog_refresh",
+      "breakpoints": true
     }
   ]
 }
