@@ -772,7 +772,17 @@ function Shelf({ shelf }: { shelf: TonightShelvesResponse['shelves'][number] }) 
           </button>
         </div>
       </div>
-      <ul className="shelf-rail" ref={rail} aria-label={shelf.label} aria-busy={loading}>
+      <ul
+        className="shelf-rail"
+        ref={rail}
+        aria-label={shelf.label}
+        aria-busy={loading}
+        onScroll={(e) => {
+          // perto do fim (também pelas setas): busca a próxima página, mesmo sem IntersectionObserver
+          const el = e.currentTarget;
+          if (hasMore && el.scrollLeft + el.clientWidth >= el.scrollWidth - 600) void loadMore();
+        }}
+      >
         {items.map((it) => {
           const key = keyOf(it);
           const mine = added.has(key) || (it.inLibrary && (it.inLibrary.status === 'to_watch' || it.inLibrary.status === 'watching'));
