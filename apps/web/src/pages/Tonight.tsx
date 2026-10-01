@@ -341,13 +341,20 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
           </details>
         )}
         <label>
-          Como você está hoje? (opcional)
+          {kind === 'book' ? 'O que você quer ler?' : kind === 'music' ? 'O que você quer ouvir?' : 'O que você quer assistir?'} (opcional)
           <input
             value={mood}
             onChange={(e) => setMood(e.target.value)}
             maxLength={TONIGHT_MOOD_MAX_CHARS}
-            placeholder="Ex.: cansado, quero algo leve e curto"
-            autoFocus
+            placeholder={
+              kind === 'book'
+                ? 'Ex.: algo leve para ler antes de dormir'
+                : kind === 'music'
+                  ? 'Ex.: algo animado para cozinhar'
+                  : 'Ex.: cansado, quero algo leve e curto'
+            }
+            // o foco começa aqui (o Modal foca o [data-autofocus] antes do primeiro campo)
+            data-autofocus
           />
         </label>
         {adv && defaults.data && (

@@ -14,10 +14,13 @@ export function Modal({ title, onClose, children, actions }: { title: string; on
   const ref = useRef<HTMLDivElement>(null);
   useFocusTrap(ref, true);
   useEffect(() => {
-    // foca o primeiro campo; sem campo, o primeiro botão (o × do cabeçalho vem antes no DOM)
+    // foca o primeiro campo de digitar (texto/busca/área de texto); sem ele, o primeiro campo
+    // qualquer (select, caixa); sem campo, o primeiro botão (o × do cabeçalho vem antes no DOM)
     const root = ref.current;
+    const typing = 'input:not([type]):not(:disabled), input[type=text]:not(:disabled), input[type=search]:not(:disabled), input[type=email]:not(:disabled), input[type=password]:not(:disabled), input[type=number]:not(:disabled), textarea:not(:disabled)';
     (
       root?.querySelector<HTMLElement>('[data-autofocus]') ??
+      root?.querySelector<HTMLElement>(typing) ??
       root?.querySelector<HTMLElement>('input:not([type=hidden]):not([type=file]):not(:disabled), select, textarea') ??
       root?.querySelector<HTMLElement>('button')
     )?.focus();

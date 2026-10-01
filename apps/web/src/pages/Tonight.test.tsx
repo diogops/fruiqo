@@ -49,6 +49,11 @@ describe('"O que assistir hoje?" (D-25)', () => {
     renderWithProviders(<TonightPanel onClose={vi.fn()} />);
     const kind = await screen.findByRole('combobox', { name: 'O que você quer' });
     await waitFor(() => expect(kind).toHaveProperty('value', 'movie'));
+    // o foco começa no campo de texto
+    expect(document.activeElement).toBe(screen.getByLabelText(/O que você quer assistir\?/));
+    await userEvent.setup().selectOptions(kind, 'book');
+    expect(screen.getByLabelText(/O que você quer ler\?/)).toBeTruthy();
+    await userEvent.setup().selectOptions(kind, 'movie');
     const genre = screen.getByRole('combobox', { name: 'Gênero' }) as HTMLSelectElement;
     expect(genre.options[0]!.textContent).toBe('Do seu gosto (Suspense/Thriller, Drama)');
     // na ordem do gosto, em grupos; gênero só de livro fica de fora em filme
@@ -78,7 +83,7 @@ describe('"O que assistir hoje?" (D-25)', () => {
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'O que você quer' })).toHaveProperty('value', 'movie'));
     await user.selectOptions(screen.getByRole('combobox', { name: 'Gênero' }), 'thriller');
     await user.click(screen.getByRole('button', { name: 'Globoplay' }));
-    await user.type(screen.getByLabelText(/Como você está hoje/), 'quero algo tenso');
+    await user.type(screen.getByLabelText(/O que você quer assistir/), 'quero algo tenso');
     await user.click(screen.getByRole('button', { name: /Sugerir/ }));
 
     const list = await screen.findByRole('list', { name: 'Sugestões para hoje' });
