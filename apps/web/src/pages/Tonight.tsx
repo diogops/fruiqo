@@ -283,8 +283,19 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
           </label>
         </div>
         {video && defaults.data && services && (
+          <details className="tonight-where">
+            <summary>
+              Onde:{' '}
+              <strong>
+                {services.size === 0
+                  ? 'qualquer lugar'
+                  : defaults.data.services
+                      .filter((x) => services.has(x.key))
+                      .map((x) => x.label)
+                      .join(', ')}
+              </strong>
+            </summary>
           <div className="chips tonight-services" role="group" aria-label="Onde procurar">
-            <span className="muted small">Onde:</span>
             <button type="button" className={services.size === 0 ? 'chip chip-on' : 'chip'} aria-pressed={services.size === 0} onClick={() => toggleService(null)}>
               Qualquer lugar
             </button>
@@ -294,6 +305,7 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
               </button>
             ))}
           </div>
+          </details>
         )}
         <label>
           Como você está hoje? (opcional)
@@ -365,7 +377,7 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
             </div>
           </details>
         )}
-        <div className="actions">
+        <div className="actions tonight-submit">
           <button type="submit" className="btn btn-primary" disabled={ask.isPending} aria-busy={ask.isPending}>
             <Icon name="sparkles" size={14} /> {ask.isPending ? 'Procurando…' : data ? 'Buscar de novo' : 'Sugerir'}
           </button>
@@ -428,7 +440,7 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
                     <strong>{p.title}</strong>
                     {p.page && <Icon name="external" size={13} className="work-ext-icon" />}
                   </WorkLink>
-                  <div className="muted small">{p.sub}</div>
+                  <div className="muted small tonight-sub">{p.sub}</div>
                   {p.availableOn.length > 0 && <div className="small">Em: {p.availableOn.join(', ')}</div>}
                   {p.reason && (
                     <p className="small ai-reason">
