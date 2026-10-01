@@ -785,8 +785,11 @@ html.has-docked-bulkbar .toasts { bottom: calc(5.75rem + env(safe-area-inset-bot
 .tab:hover { color: var(--text); }
 .tab.active { color: var(--text); border-bottom-color: var(--primary-2); }
 .title-search { display: flex; flex-direction: column; gap: 0.6rem; }
-.search-row { flex-wrap: nowrap; }
-.search-row select { max-width: 11rem; }
+/* o campo de busca ocupa a linha toda; tipo, ordem e "Buscar com IA" ficam embaixo */
+.search-row { flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.search-row > label.grow { flex: 1 1 100%; }
+.search-row .search-input { width: 100%; min-height: 2.9rem; font-size: 1.05rem; padding: 0.65rem 0.9rem; }
+.search-row select { max-width: 13rem; }
 .fav-picked { margin: 0.25rem 0; }
 .fav-picked .chip { display: inline-flex; align-items: center; gap: 0.2rem; }
 .fav-rate-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; max-height: 55vh; overflow-y: auto; }

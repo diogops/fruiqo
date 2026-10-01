@@ -147,6 +147,7 @@ export function TitleSearch({
           <span className="sr-only">Buscar filme, série ou livro</span>
           <input
             type="search"
+            className="search-input"
             // RF-45: foco no campo ao abrir (o Modal foca o primeiro campo)
             placeholder='Nome, "Wagner Moura", "melhor série da Netflix", "lançamentos de terror" ou uma descrição'
             autoFocus={autoFocus}
