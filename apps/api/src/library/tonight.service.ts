@@ -1,16 +1,29 @@
 import { HttpException, HttpStatus, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
-import type { SummaryDraft, Title, TonightDefaults, TonightRequest, TonightResponse, TonightWatchedRequest } from '@fruiqo/contracts';
-import { detectRisk, GENRES, type GenreKey, genresFromTmdb, genreTermsIn, RISK_SUPPORT, SUBGENRES } from '@fruiqo/taxonomy';
+import type { SummaryDraft, Title, TitleSearchResult, TonightDefaults, TonightRequest, TonightResponse, TonightWatchedRequest } from '@fruiqo/contracts';
+import { detectRisk, GENRES, type GenreKey, RISK_SUPPORT, SUBGENRES } from '@fruiqo/taxonomy';
 import { and, arrayOverlaps, asc, count, desc, eq, gte, inArray, isNotNull, lte } from 'drizzle-orm';
 import { DB, type Db, withUser } from '../db/client.js';
 import { overrideScore, recommendations, tasteFavorites, tasteOverrides, tasteStatements, tasteSubgenrePrefs, userSubscriptions } from '../db/schema.js';
 import type { TmdbHit, TmdbResolver } from '../pipeline/resolvers/tmdb.js';
+import {
+  type Candidate,
+  discoverParams,
+  type DiscoverQuery,
+  hitGenres,
+  isAnime,
+  planAccepts,
+  compareCandidates,
+  rate,
+  reasonFor,
+  type Source,
+  withSelectedGenre,
+} from './tonight-video.js';
+import { ATTRIBUTES, EMPTY_PLAN, localPlan, planIsEmpty, planLabel, type TonightPlan } from './tonight-plan.js';
 import { CatalogService } from './catalog.service.js';
 import { LibraryService } from './library.service.js';
 import { PROVIDER_LABEL, STREAMING_PROVIDERS } from './providers.js';
-import { tmdbGenreIds } from './search-query.js';
 import { PerUserRateLimiter, SearchService } from './search.service.js';
-import { BIG_HISTORY, briefIsEmpty, MAX_PICKS_LIMIT, TASTE_AI, type TasteAi, type TasteBrief, type TonightKind, type TonightPick } from './taste-ai.js';
+import { briefIsEmpty, TASTE_AI, type TasteAi, type TasteBrief, type TonightKind } from './taste-ai.js';
 import { TMDB_CATALOG } from './tmdb-catalog.js';
 import { userAllowsAi } from './user-settings.js';
 
@@ -28,10 +41,16 @@ const GROUP_ORDER = { love: 0, like: 1, neutral: 2, avoid: 3 } as const;
 /** "você vê mais X": peso mínimo e fatia para pré-selecionar o tipo */
 const KIND_MIN_WEIGHT = 6;
 const KIND_SHARE = 0.65;
-/** quantos palpites da IA conferir no TMDB (sobram após tirar assistidos e o que não está nos seus serviços) */
-const AI_CANDIDATES = MAX_PICKS_LIMIT;
-/** amostra do que já viu, dos gêneros desta busca, enviada à IA como "não sugerir" */
-const SEEN_SAMPLE = 30;
+/** gerador da IA (só complemento, quando a busca não chega a 5): quantos nomes pedir */
+const AI_CANDIDATES = 20;
+/** no modo gerador: amostra do que já viu, dos gêneros da busca, como "não sugerir" */
+const SEEN_SAMPLE = 40;
+/** estoque da sessão: repõe quando cai abaixo disto */
+const STOCK_LOW = 10;
+/** reposição: no máximo esta quantidade de páginas novas do TMDB por pedido */
+const PAGE_BUDGET = 8;
+/** cache de disponibilidade (TMDB/JustWatch) e de IDs de palavra-chave */
+const AVAILABILITY_TTL_MS = 6 * 3_600_000;
 /** serviços declarados (RF-38) → IDs de provedor do TMDB, para o /discover da busca local */
 const PROVIDER_TMDB_IDS: Record<string, number[]> = {
   netflix: [8],
@@ -94,10 +113,13 @@ export class TonightService {
   /** userId → (chave "movie:123" → nome mostrado, quando) */
   private readonly shown = new Map<string, Map<string, { name: string; at: number }>>();
   /**
-   * Estoque por busca: candidatos da IA já conferidos no TMDB e ainda não mostrados. "Novas
-   * sugestões" com o mesmo pedido saem daqui, sem chamar a IA de novo.
+   * Sessão do painel (filme/série): o que já mostrou, o plano entendido, o estoque ordenado e as
+   * páginas já lidas de cada fonte. Mudar filtro/pedido cria uma revisão (estoque e páginas zeram;
+   * o que já foi mostrado continua fora). Em memória: uma instância, um usuário (SC-PERSONAL).
    */
-  private readonly pool = new Map<string, { sig: string; items: Omit<TonightItem, 'availableOn'>[]; request?: string; at: number }>();
+  private readonly sessions = new Map<string, VideoSession>();
+  private readonly keywordIds = new Map<string, number | null>();
+  private readonly availability = new Map<string, { providers: { key?: string; name: string; type: string }[]; at: number }>();
 
   constructor(
     @Inject(DB) private readonly db: Db,
@@ -300,76 +322,48 @@ export class TonightService {
     if (services.length) brief.services = services;
     // anime só quando pedido (padrão: sem)
     if (video) brief.anime = Boolean(req.includeAnime);
-    // o que foi pedido hoje manda: gêneros citados no texto ("ação... scifi") viram filtro obrigatório
-    const asked = mood ? genreTermsIn(mood).genres.filter((g) => GENRE_LABEL.has(g)) : [];
     // nada do que você já assistiu/leu/ouviu, abandonou, marcou como favorito ou já viu nesta rodada
+    // "Incluir já vistos": assistidos/abandonados podem voltar (o que já apareceu na sessão, não)
     const fresh = (key: string, titles: (string | undefined)[], status?: string) =>
-      status !== 'watched' &&
-      status !== 'dropped' &&
+      (req.includeSeen || (status !== 'watched' && status !== 'dropped')) &&
       !favoriteKeys.has(key) &&
       !titles.some((t) => t && favoriteTitles.has(normTitle(t))) &&
       !exclude.has(key);
     const freshMedia = (it: { mediaType: string; tmdbId: number; title: string; originalTitle?: string; anime?: boolean; inLibrary: { status?: string } | null }) =>
       (req.includeAnime || !it.anime) && fresh(`${it.mediaType}:${it.tmdbId}`, [it.title, it.originalTitle], it.inLibrary?.status);
 
-    // 1) IA (com consentimento): filmes/séries e livros conferidos depois
     let unavailable: TonightResponse['unavailable'];
     let aiUsed = false;
     let request: string | undefined;
     let picked: TonightItem[] = [];
     let books: NonNullable<TonightResponse['books']> | undefined;
     let music: NonNullable<TonightResponse['music']> | undefined;
-    const sig = JSON.stringify({ kind: kind ?? null, genre: req.genre ?? null, mood: mood ?? null, subs: [...filterSubs].sort(), profile: req.profile ?? null, anime: Boolean(req.includeAnime) });
-    // "novas sugestões" com o mesmo pedido: primeiro o estoque da busca anterior (sem IA)
-    const stock = video ? this.poolFor(userId, sig) : undefined;
-    if (stock && stock.items.length > 0) {
-      const fromStock = await this.withAvailability(stock.items.filter(freshMedia), filterSubs, TONIGHT_SIZE);
-      picked = fromStock.out;
-      stock.items = fromStock.rest;
-      aiUsed = picked.length > 0;
-      request = stock.request;
-    }
-    if (picked.length >= TONIGHT_SIZE) {
-      // o estoque bastou
+    let understood: string | undefined;
+    let unmapped: string[] | undefined;
+    let exhausted = false;
+    const aiAllowed = Boolean(this.ai) && (await userAllowsAi(this.db, userId));
+
+    if (video) {
+      const r = await this.videoTonight(userId, req, {
+        mood,
+        genreKey,
+        filterSubs,
+        exclude,
+        freshMedia,
+        aiAllowed,
+        brief,
+        hated: override?.hated,
+        liked: override?.liked,
+      });
+      ({ picked, aiUsed, understood, unmapped, exhausted } = r);
+      request = understood;
+      if (!this.ai) unavailable = 'disabled';
+      else if (!aiAllowed) unavailable = 'consent';
+      else if (r.failed) unavailable = r.failed;
     } else if (!this.ai) unavailable = 'disabled';
-    else if (!(await userAllowsAi(this.db, userId))) unavailable = 'consent';
+    else if (!aiAllowed) unavailable = 'consent';
     else if (briefIsEmpty(brief)) unavailable = 'no_profile';
-    else if (video) {
-      // histórico: amostra do que já viu nos gêneros desta busca + tamanho (grande = menos óbvios)
-      const wantedGenres = asked.length ? asked : genreKey ? [genreKey] : (override?.liked ?? []);
-      const history = await this.seenSample(userId, wantedGenres);
-      // um perfil por rodada (a 2ª ganha o que aprendeu na 1ª), sem alterar o anterior
-      let roundBrief: TasteBrief = { ...brief, seen: history.sample, seenCount: history.total };
-      const max = history.total >= BIG_HISTORY ? MAX_PICKS_LIMIT : filterSubs.length > 0 ? 15 : 10;
-      const kindFilter = kind === 'movie' || kind === 'series' ? { kind } : {};
-      // até duas rodadas: na 2ª, a IA sabe o que ela sugeriu e você já tinha visto (ou não está nos seus serviços)
-      for (let round = 0; round < 2 && picked.length < TONIGHT_SIZE; round++) {
-        const res = await this.ai.tonight(roundBrief, userId, kind, { filtered: filterSubs.length > 0, max });
-        if (!res.ok) {
-          if (!aiUsed) unavailable = res.reason === 'too_long' ? 'failed' : res.reason;
-          break;
-        }
-        aiUsed = true;
-        request ??= res.value.request;
-        const guesses = res.value.picks.flatMap((g: TonightPick) =>
-          g.kind === 'movie' || g.kind === 'series' ? [{ title: g.title, kind: g.kind, ...(g.year ? { year: g.year } : {}), reason: g.reason }] : [],
-        );
-        const { items } = await this.search.confirmGuesses(userId, guesses, { matchedBy: 'description', ...kindFilter, limit: AI_CANDIDATES });
-        const taken = new Set(picked.map((x) => `${x.mediaType}:${x.tmdbId}`));
-        const candidates = items.filter((it) => freshMedia(it) && !taken.has(`${it.mediaType}:${it.tmdbId}`));
-        const got = await this.withAvailability(candidates, filterSubs, TONIGHT_SIZE - picked.length);
-        picked = [...picked, ...got.out];
-        // o que sobrou (ainda não conferido) vira estoque para "novas sugestões"
-        this.pool.set(userId, { sig, items: got.rest, ...(request ? { request } : {}), at: Date.now() });
-        // aprendizado para a 2ª rodada: o que ela sugeriu e não serviu
-        const notFresh = items.filter((it) => !freshMedia(it));
-        roundBrief = {
-          ...roundBrief,
-          avoid: [...roundBrief.avoid, ...[...notFresh, ...got.rejected, ...got.out].map((it) => `${it.title}${it.year ? ` (${it.year})` : ''}`)],
-        };
-        if (got.rest.length > 0) break; // sobrou estoque: não precisa de outra rodada
-      }
-    } else {
+    else {
       const res = await this.ai.tonight(brief, userId, kind);
       if (!res.ok) unavailable = res.reason === 'too_long' ? 'failed' : res.reason;
       else {
@@ -388,20 +382,12 @@ export class TonightService {
               ...(x.creator ? { artist: x.creator } : {}),
               kind: x.kind as 'music_track' | 'music_album' | 'artist',
               ...(x.year ? { year: x.year } : {}),
-              aiReason: x.reason,
+              ...(x.reason ? { aiReason: x.reason } : {}),
             }))
             .filter((m) => fresh(m.key, [m.title]))
             .slice(0, TONIGHT_SIZE);
         }
       }
-    }
-
-    // 2) filme/série: faltou (ou sem IA), busca local nos seus serviços, pelo gênero pedido ou os que você marcou
-    if (video && picked.length < TONIGHT_SIZE && this.tmdb) {
-      const taken = new Set(picked.map((p) => `${p.mediaType}:${p.tmdbId}`));
-      const local = await this.localPicks(userId, kind === 'movie' || kind === 'series' ? kind : undefined, filterSubs, genreKey, override, asked);
-      const more = local.filter((it) => freshMedia(it) && !taken.has(`${it.mediaType}:${it.tmdbId}`));
-      picked = [...picked, ...(await this.withAvailability(more, filterSubs, TONIGHT_SIZE - picked.length)).out];
     }
 
     const now = Date.now();
@@ -413,6 +399,9 @@ export class TonightService {
       aiUsed,
       ...(unavailable ? { unavailable } : {}),
       ...(request ? { request } : {}),
+      ...(understood ? { understood } : {}),
+      ...(unmapped?.length ? { unmapped } : {}),
+      ...(exhausted ? { exhausted } : {}),
       services,
       items: picked,
       ...(books ? { books } : {}),
@@ -421,45 +410,189 @@ export class TonightService {
   }
 
   /**
-   * Onde assistir (TMDB, assinatura no Brasil) de cada candidato, em ordem, até `want` títulos. Com
-   * serviços (`subs`), só fica o que está em algum deles; sem serviços, não filtra e mostra todos.
+   * Filme/série: plano → Minha Área primeiro → descobertas no TMDB → pontuação local → disponibilidade
+   * dos finalistas. A IA só interpreta o pedido (quando o parser local não entendeu tudo) e, se ainda
+   * faltar, sugere nomes uma vez por pedido (complemento).
    */
-  private async withAvailability(
-    items: Omit<TonightItem, 'availableOn'>[],
-    subs: string[],
-    want: number,
-  ): Promise<{ out: TonightItem[]; rejected: Omit<TonightItem, 'availableOn'>[]; rest: Omit<TonightItem, 'availableOn'>[] }> {
-    if (!this.tmdb) return { out: items.slice(0, want).map((it) => ({ ...it, availableOn: [] })), rejected: [], rest: items.slice(want) };
-    const tmdb = this.tmdb;
-    const mine = new Set(subs);
-    const filtering = subs.length > 0;
-    const out: TonightItem[] = [];
-    const rejected: Omit<TonightItem, 'availableOn'>[] = [];
-    const restLater: Omit<TonightItem, 'availableOn'>[] = [];
-    let i = 0;
-    // em lotes, para não consultar mais do que o necessário
-    for (; i < items.length && out.length < want; i += 4) {
-      const batch = items.slice(i, i + 4);
-      const details = await Promise.all(batch.map((it) => tmdb.byId(it.mediaType, it.tmdbId, undefined, { titleLinks: false }).catch(() => null)));
-      batch.forEach((it, j) => {
-        const on = [
-          ...new Set(
-            (details[j]?.providers ?? [])
-              .filter((p) => p.type === 'flatrate' && (!filtering || (p.key && mine.has(p.key))))
-              .map((p) => (p.key ? (PROVIDER_LABEL.get(p.key) ?? p.name) : p.name)),
-          ),
-        ].slice(0, 4);
-        const fits = on.length > 0 || !filtering;
-        if (!fits) rejected.push(it);
-        else if (out.length < want) out.push({ ...it, availableOn: on });
-        // conferido e serve, mas já há o bastante: volta para o estoque
-        else restLater.push(it);
-      });
+  private async videoTonight(
+    userId: string,
+    req: TonightRequest,
+    ctx: {
+      mood?: string;
+      genreKey?: GenreKey;
+      filterSubs: string[];
+      exclude: Set<string>;
+      freshMedia: (it: TitleSearchResult & { anime?: boolean }) => boolean;
+      aiAllowed: boolean;
+      brief: TasteBrief;
+      liked?: GenreKey[];
+      hated?: GenreKey[];
+    },
+  ): Promise<{ picked: TonightItem[]; aiUsed: boolean; understood?: string; unmapped?: string[]; exhausted: boolean; failed?: 'quota' | 'failed' }> {
+    const sessionKey = `${userId}:${req.sessionId ?? 'default'}`;
+    const sig = JSON.stringify({
+      kind: req.kind ?? null,
+      genre: req.genre ?? null,
+      mood: ctx.mood ?? null,
+      subs: [...ctx.filterSubs].sort(),
+      profile: req.profile ?? null,
+      anime: Boolean(req.includeAnime),
+      seen: Boolean(req.includeSeen),
+      queue: req.includeQueue !== false,
+    });
+    let session = this.sessions.get(sessionKey);
+    let aiUsed = false;
+    let failed: 'quota' | 'failed' | undefined;
+    if (!session || Date.now() - session.at > SHOWN_TTL_MS) {
+      session = { sig: '', plan: EMPTY_PLAN, planByAi: false, shown: new Set(), pending: [], cursors: {}, exhausted: false, generated: false, keywordIds: [], at: Date.now() };
+      this.sessions.set(sessionKey, session);
     }
-    return { out, rejected, rest: [...restLater, ...items.slice(i)] };
+    // o cliente também manda o que já mostrou (sobrevive a reinício da API)
+    for (const k of ctx.exclude) session.shown.add(k);
+
+    if (session.sig !== sig) {
+      // nova revisão: plano, estoque e páginas zeram; o que já foi mostrado continua fora
+      let plan = ctx.mood ? localPlan(ctx.mood) : EMPTY_PLAN;
+      let planByAi = false;
+      if (ctx.mood && plan.unmapped.length > 0 && ctx.aiAllowed && this.ai) {
+        const res = await this.ai.planRequest(ctx.mood, userId);
+        if (res.ok) {
+          plan = res.value;
+          planByAi = true;
+          aiUsed = true;
+        } else failed = res.reason === 'quota' ? 'quota' : 'failed';
+      }
+      plan = withSelectedGenre(plan, ctx.genreKey);
+      Object.assign(session, { sig, plan, planByAi, pending: [], cursors: {}, exhausted: false, generated: false, at: Date.now() });
+      session.keywordIds = await this.resolveKeywords(plan);
+      const list = req.includeQueue === false ? [] : await this.listCandidates(userId, plan, req.kind);
+      session.pending = list;
+    }
+    const s = session;
+    const plan = s.plan;
+    const medias: ('movie' | 'tv')[] = req.kind === 'movie' ? ['movie'] : req.kind === 'series' ? ['tv'] : ['movie', 'tv'];
+    const providerIds = ctx.filterSubs.flatMap((k) => PROVIDER_TMDB_IDS[k] ?? []);
+    const softGenres = ctx.liked ?? (await this.likedGenres(userId));
+    const usable = (c: Candidate) =>
+      !s.shown.has(`${c.item.mediaType}:${c.item.tmdbId}`) && ctx.freshMedia({ ...c.item, anime: c.anime }) && (req.includeAnime || !c.anime) && planAccepts(plan, c.genres);
+
+    // repõe o estoque de descobertas quando está baixo (páginas novas, com orçamento)
+    let budget = PAGE_BUDGET;
+    const refill = async () => {
+      if (!this.tmdb || s.exhausted) return;
+      const sources: Exclude<Source, 'list' | 'ai'>[] = ['best', 'theme', 'recent'];
+      let any = false;
+      for (const media of medias) {
+        for (const source of sources) {
+          if (budget <= 0) return;
+          const key = `${media}:${source}`;
+          if (s.cursors[key] === -1) continue;
+          const page = (s.cursors[key] ?? 0) + 1;
+          const themes = source === 'theme' ? plan.prefer.filter((a) => ATTRIBUTES[a].keywords.length > 0) : [];
+          const q: DiscoverQuery = { media, source, page, themes };
+          const params = discoverParams(q, plan, { providerIds, keywordIds: s.keywordIds, softGenres });
+          if (!params) {
+            s.cursors[key] = -1;
+            continue;
+          }
+          budget--;
+          const hits = await this.tmdb.discoverBrowse(media, params).catch(() => [] as TmdbHit[]);
+          s.cursors[key] = hits.length ? page : -1;
+          if (!hits.length) continue;
+          any = true;
+          const known = new Set(s.pending.map((c) => `${c.item.mediaType}:${c.item.tmdbId}`));
+          const fresh = hits.filter((h) => !known.has(`${h.mediaType}:${h.tmdbId}`));
+          const items = await this.search.toResults(userId, fresh, 'browse', fresh.length);
+          const byKey = new Map(fresh.map((h) => [`${h.mediaType}:${h.tmdbId}`, h]));
+          for (const item of items) {
+            const h = byKey.get(`${item.mediaType}:${item.tmdbId}`)!;
+            s.pending.push(rate({ item, source, page, anime: isAnime(h), genres: hitGenres(h), themes }, plan));
+          }
+        }
+      }
+      if (!any && Object.values(s.cursors).every((v) => v === -1)) s.exhausted = true;
+      // Minha Área primeiro; depois pedido, perfil e desempate (sort estável: a fila mantém a ordem)
+      s.pending.sort(compareCandidates);
+    };
+
+    const picked: TonightItem[] = [];
+    const serve = async () => {
+      while (picked.length < TONIGHT_SIZE) {
+        const next = s.pending.filter(usable);
+        if (next.length === 0) return;
+        // lista: mostra mesmo fora dos streamings (você já escolheu); descoberta: só nos streamings
+        const head = next.slice(0, TONIGHT_SIZE - picked.length + 4);
+        const checked = await this.checkAvailability(head.map((c) => c.item), ctx.filterSubs);
+        for (const c of head) {
+          const key = `${c.item.mediaType}:${c.item.tmdbId}`;
+          s.pending = s.pending.filter((x) => x !== c);
+          const on = checked.get(key);
+          const fits = c.source === 'list' || !ctx.filterSubs.length || (on?.mine.length ?? 0) > 0;
+          if (!fits || picked.length >= TONIGHT_SIZE) {
+            if (fits) s.pending.unshift(c);
+            continue;
+          }
+          s.shown.add(key);
+          picked.push({
+            ...c.item,
+            availableOn: (ctx.filterSubs.length && c.source !== 'list' ? on?.mine : on?.all) ?? [],
+            aiReason: reasonFor(c, plan),
+            fit: Math.round(c.fit * 100),
+            profileFit: Math.round(c.profile * 100),
+            ...(c.source === 'list' ? { fromList: true } : {}),
+          });
+        }
+      }
+    };
+
+    if (s.pending.filter(usable).length < STOCK_LOW) await refill();
+    await serve();
+    if (picked.length < TONIGHT_SIZE && !s.exhausted) {
+      await refill();
+      await serve();
+    }
+
+    // ainda faltou: a IA sugere nomes uma vez por pedido (complemento), conferidos com rigor
+    if (picked.length < TONIGHT_SIZE && !s.generated && ctx.aiAllowed && this.ai && (ctx.mood || !planIsEmpty(plan))) {
+      s.generated = true;
+      const history = await this.seenSample(userId, [...plan.genresAll, ...plan.genresAny]);
+      const brief: TasteBrief = { ...ctx.brief, seen: history.sample, seenCount: history.total, ...(ctx.mood ? { mood: ctx.mood } : {}) };
+      const res = await this.ai.tonight(brief, userId, req.kind === 'movie' || req.kind === 'series' ? req.kind : undefined, {
+        filtered: ctx.filterSubs.length > 0,
+        max: AI_CANDIDATES,
+      });
+      if (res.ok) {
+        aiUsed = true;
+        const guesses = res.value.picks.flatMap((g) => (g.kind === 'movie' || g.kind === 'series' ? [{ title: g.title, kind: g.kind, ...(g.year ? { year: g.year } : {}) }] : []));
+        const { items } = await this.search.confirmGuesses(userId, guesses, {
+          matchedBy: 'description',
+          ...(req.kind === 'movie' || req.kind === 'series' ? { kind: req.kind } : {}),
+          limit: AI_CANDIDATES,
+        });
+        const known = new Set(s.pending.map((c) => `${c.item.mediaType}:${c.item.tmdbId}`));
+        for (const item of items) {
+          if (known.has(`${item.mediaType}:${item.tmdbId}`)) continue;
+          // gêneros vêm do resultado conferido (sem gêneros no resultado, o plano não filtra por eles)
+          s.pending.push(rate({ item, source: 'ai', page: 1, anime: Boolean(item.anime), genres: (item.genres ?? []) as GenreKey[], themes: [] }, plan));
+        }
+        s.pending.sort(compareCandidates);
+        await serve();
+      } else failed ??= res.reason === 'quota' ? 'quota' : 'failed';
+    }
+
+    s.at = Date.now();
+    const remaining = s.pending.filter(usable).length;
+    return {
+      picked,
+      aiUsed: aiUsed || s.planByAi,
+      ...(planIsEmpty(plan) ? {} : { understood: planLabel(plan, (g) => GENRE_LABEL.get(g) ?? g) }),
+      ...(plan.unmapped.length && !s.planByAi ? { unmapped: plan.unmapped } : {}),
+      exhausted: picked.length < TONIGHT_SIZE && remaining === 0 && s.exhausted,
+      ...(failed ? { failed } : {}),
+    };
   }
 
-  /** Amostra do que você já viu (assistido/abandonado), dos gêneros desta busca, e quantos já viu. */
+  /** Amostra do que você já viu (assistido/abandonado), dos gêneros da busca, e quantos já viu. */
   private async seenSample(userId: string, genres: GenreKey[]): Promise<{ sample: { title: string; year?: number }[]; total: number }> {
     return withUser(this.db, userId, async (tx) => {
       const seen = inArray(recommendations.status, ['watched', 'dropped']);
@@ -475,79 +608,97 @@ export class TonightService {
     });
   }
 
-  private poolFor(userId: string, sig: string) {
-    const p = this.pool.get(userId);
-    if (!p || p.sig !== sig || Date.now() - p.at > SHOWN_TTL_MS) return undefined;
-    return p;
+  /** Minha Área (Quero assistir / Assistindo) que atende ao plano, na ordem da fila. */
+  private async listCandidates(userId: string, plan: TonightPlan, kind?: TonightKind): Promise<Candidate[]> {
+    const rows = await withUser(this.db, userId, (tx) =>
+      tx
+        .select({ resolution: recommendations.resolution, rank: recommendations.rank, kind: recommendations.kind, genres: recommendations.genres })
+        .from(recommendations)
+        .where(and(inArray(recommendations.status, ['to_watch', 'watching']), inArray(recommendations.kind, kind === 'movie' ? ['movie'] : kind === 'series' ? ['series'] : ['movie', 'series'])))
+        .orderBy(asc(recommendations.rank)),
+    );
+    const hits: { hit: TmdbHit; genres: GenreKey[] }[] = [];
+    for (const r of rows) {
+      const res = r.resolution;
+      if (!res || res.provider !== 'tmdb' || !res.tmdbId || !res.mediaType) continue;
+      const genres = (r.genres ?? []).filter((g): g is GenreKey => GENRE_LABEL.has(g));
+      if (!planAccepts(plan, genres)) continue;
+      hits.push({
+        genres,
+        hit: {
+          tmdbId: res.tmdbId,
+          mediaType: res.mediaType,
+          title: res.title,
+          ...(res.year ? { year: res.year } : {}),
+          ...(res.imageUrl ? { posterUrl: res.imageUrl } : {}),
+          popularity: 0,
+          genreIds: res.genreIds ?? [],
+          ...(res.voteAverage != null ? { voteAverage: res.voteAverage } : {}),
+          ...(res.voteCount != null ? { voteCount: res.voteCount } : {}),
+        },
+      });
+    }
+    if (!hits.length || !this.tmdb) return [];
+    const items = await this.search.toResults(userId, hits.map((h) => h.hit), 'title', hits.length);
+    const genresOf = new Map(hits.map((h) => [`${h.hit.mediaType}:${h.hit.tmdbId}`, h.genres]));
+    // fila na ordem dela; o sort estável depois ordena pelo pedido mantendo essa ordem nos empates
+    return items
+      .map((item) => rate({ item, source: 'list', page: 1, anime: false, genres: genresOf.get(`${item.mediaType}:${item.tmdbId}`) ?? [], themes: [] }, plan))
+      .sort(compareCandidates);
+  }
+
+  /** IDs do TMDB das palavras-chave dos atributos pedidos (resolvidos pelo nome, com cache). */
+  private async resolveKeywords(plan: TonightPlan): Promise<number[]> {
+    if (!this.tmdb) return [];
+    const names = [...new Set(plan.prefer.flatMap((a) => [...ATTRIBUTES[a].keywords]))];
+    const ids = await Promise.all(
+      names.map(async (n) => {
+        if (!this.keywordIds.has(n)) this.keywordIds.set(n, await this.tmdb!.searchKeyword(n).catch(() => null));
+        return this.keywordIds.get(n) ?? null;
+      }),
+    );
+    return ids.filter((x): x is number => x != null);
+  }
+
+  private async likedGenres(userId: string): Promise<GenreKey[]> {
+    const overrides = await withUser(this.db, userId, (tx) => tx.select().from(tasteOverrides));
+    return overrides.filter((o) => overrideScore(o) >= 0.25).map((o) => o.genre as GenreKey);
   }
 
   /**
-   * Busca local (sem IA): mais bem avaliados nos seus serviços. Os gêneros citados no pedido de hoje
-   * são obrigatórios (todos ao mesmo tempo); sem eles, o gênero escolhido; sem ele, os que você
-   * marcou (qualquer um). O motivo só cita gênero que o título tem de fato.
+   * Onde assistir (assinatura no Brasil) dos finalistas, com cache. `mine` = nos streamings
+   * escolhidos; `all` = em qualquer streaming. Sem dado = disponibilidade não confirmada.
    */
-  private async localPicks(
-    userId: string,
-    kind: 'movie' | 'series' | undefined,
-    subs: string[],
-    genre?: GenreKey,
-    override?: { liked: GenreKey[]; hated: GenreKey[] },
-    asked: GenreKey[] = [],
-  ): Promise<Omit<TonightItem, 'availableOn'>[]> {
-    const tmdb = this.tmdb!;
-    const overrides = override ? [] : await withUser(this.db, userId, (tx) => tx.select().from(tasteOverrides));
-    const marked = override?.liked ?? overrides.filter((o) => overrideScore(o) >= 0.25).map((o) => o.genre as GenreKey);
-    // pedido de hoje (todos) > gênero escolhido > os que você marcou (qualquer um)
-    const required = asked.length > 0 ? [...new Set([...asked, ...(genre ? [genre] : [])])] : genre ? [genre] : [];
-    const wanted = required.length > 0 ? required : marked;
-    const all = required.length > 0;
-    const hated = (override?.hated ?? overrides.filter((o) => o.mode === 'exclude').map((o) => o.genre as GenreKey)).filter((g) => !wanted.includes(g));
-    const providerIds = subs.flatMap((k) => PROVIDER_TMDB_IDS[k] ?? []);
-    const medias: ('movie' | 'tv')[] = kind === 'movie' ? ['movie'] : kind === 'series' ? ['tv'] : ['movie', 'tv'];
-    // páginas 1 e 2 (uma página sorteada vinha vazia quando o filtro tinha poucos títulos); o que já
-    // apareceu sai pelo `exclude`, então "novas sugestões" seguem para os próximos
-    const lists = await Promise.all(
-      medias.map(async (m) => {
-        const ids = tmdbGenreIds(wanted, m);
-        // gênero pedido sem equivalente nesse tipo (ex.: terror em série): esse tipo não serve
-        if (all && wanted.some((g) => tmdbGenreIds([g], m).length === 0)) return [] as TmdbHit[];
-        const pages = await Promise.all(
-          [1, 2].map((page) =>
-            tmdb
-              .discoverBrowse(m, {
-                sort: 'best',
-                page,
-                ...(providerIds.length ? { providerIds } : { availableBR: true }),
-                ...(ids.length ? { genreIds: ids, anyGenre: !all } : {}),
-                ...(hated.length ? { withoutGenreIds: tmdbGenreIds(hated, m) } : {}),
-              })
-              .catch(() => [] as TmdbHit[]),
-          ),
-        );
-        return pages.flat();
+  private async checkAvailability(items: TitleSearchResult[], subs: string[]): Promise<Map<string, { mine: string[]; all: string[] }>> {
+    const out = new Map<string, { mine: string[]; all: string[] }>();
+    if (!this.tmdb) return out;
+    const tmdb = this.tmdb;
+    const mineSet = new Set(subs);
+    await Promise.all(
+      items.map(async (it) => {
+        const key = `${it.mediaType}:${it.tmdbId}`;
+        let cached = this.availability.get(key);
+        if (!cached || Date.now() - cached.at > AVAILABILITY_TTL_MS) {
+          const d = await tmdb.byId(it.mediaType, it.tmdbId, undefined, { titleLinks: false }).catch(() => null);
+          cached = { providers: (d?.providers ?? []).map((p) => ({ ...(p.key ? { key: p.key } : {}), name: p.name, type: p.type })), at: Date.now() };
+          this.availability.set(key, cached);
+        }
+        const flat = cached.providers.filter((p) => p.type === 'flatrate');
+        const label = (p: { key?: string; name: string }) => (p.key ? (PROVIDER_LABEL.get(p.key) ?? p.name) : p.name);
+        out.set(key, {
+          mine: [...new Set(flat.filter((p) => p.key && mineSet.has(p.key)).map(label))].slice(0, 4),
+          all: [...new Set(flat.map(label))].slice(0, 4),
+        });
       }),
     );
-    // filmes e séries intercalados
-    const mixed: TmdbHit[] = [];
-    for (let i = 0; i < Math.max(...lists.map((l) => l.length), 0); i++) for (const l of lists) if (l[i]) mixed.push(l[i]!);
-    const reasonOf = new Map(
-      mixed.map((h) => {
-        const has = Object.keys(genresFromTmdb(h.genreIds, h.mediaType)) as GenreKey[];
-        const hit = wanted.filter((g) => has.includes(g)).map((g) => GENRE_LABEL.get(g)!.toLowerCase());
-        const reason =
-          all && hit.length > 0
-            ? `Atende ao seu pedido: ${joinPt(hit)}; bem avaliado.`
-            : hit.length > 0
-              ? `Bem avaliado e de ${joinPt(hit)}, que você gosta.`
-              : 'Entre os mais bem avaliados disponíveis para você.';
-        return [`${h.mediaType}:${h.tmdbId}`, reason] as const;
-      }),
-    );
-    return (await this.search.toResults(userId, mixed, 'browse', 40)).map((it) => ({ ...it, aiReason: reasonOf.get(`${it.mediaType}:${it.tmdbId}`) }));
+    return out;
   }
 
   /** "Já assisti / já li / já ouvi": o título entra (ou fica) na sua lista como consumido e não volta. */
   async markWatched(userId: string, req: TonightWatchedRequest): Promise<Title> {
+    if ('tmdbId' in req) {
+      for (const [k, sess] of this.sessions) if (k.startsWith(`${userId}:`)) sess.shown.add(`${req.mediaType}:${req.tmdbId}`);
+    }
     if ('music' in req) {
       const m = req.music;
       return this.catalog.createTitle(userId, { title: m.title, kind: m.kind, ...(m.artist ? { creator: m.artist } : {}), status: 'watched' }).catch(async (err: unknown) => {
@@ -579,4 +730,19 @@ const tooMany = () => new HttpException('Muitos pedidos em pouco tempo; espere u
 /** chave estável de uma sugestão de música */
 function slug(s: string): string {
   return normTitle(s).replace(/ /g, '-').slice(0, 80) || 'musica';
+}
+
+interface VideoSession {
+  sig: string;
+  plan: TonightPlan;
+  planByAi: boolean;
+  shown: Set<string>;
+  pending: Candidate[];
+  /** página já lida por fonte ("movie:best"); -1 = esgotada */
+  cursors: Record<string, number>;
+  exhausted: boolean;
+  /** o gerador da IA já rodou nesta revisão */
+  generated: boolean;
+  keywordIds: number[];
+  at: number;
 }

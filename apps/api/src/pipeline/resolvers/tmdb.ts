@@ -30,6 +30,8 @@ const SearchHit = z.object({
 type Hit = z.infer<typeof SearchHit>;
 const SearchSchema = z.object({ results: z.array(SearchHit) });
 
+const KeywordSearchSchema = z.object({ results: z.array(z.object({ id: z.number().int(), name: z.string() })) });
+
 const PersonHit = z.object({
   id: z.number().int(),
   name: z.string(),
@@ -337,6 +339,13 @@ export class TmdbResolver {
   }
 
   /** Elenco principal (até 3) para os cards da busca. */
+  /** D-25: ID da palavra-chave do TMDB pelo nome exato (sem inventar IDs); null se não existir. */
+  async searchKeyword(name: string): Promise<number | null> {
+    const r = KeywordSearchSchema.parse(await this.get(`/search/keyword?${new URLSearchParams({ query: name })}`));
+    const want = name.trim().toLowerCase();
+    return r.results.find((k) => k.name.trim().toLowerCase() === want)?.id ?? null;
+  }
+
   async topCast(mediaType: 'movie' | 'tv', id: number): Promise<string[]> {
     const d = DetailsSchema.parse(await this.get(`/${mediaType}/${id}?language=pt-BR&append_to_response=credits`));
     return (d.credits?.cast ?? [])

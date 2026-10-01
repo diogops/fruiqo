@@ -42,10 +42,10 @@ const CHIP_GROUP_LABEL: Record<Group, string> = { love: 'adoro', like: 'gosto', 
 const GROUP_LEVEL: Record<Exclude<Group, 'neutral'>, TasteLevel> = { love: 'love', like: 'like', avoid: 'dislike' };
 
 const UNAVAILABLE: Record<NonNullable<TonightResponse['unavailable']>, string> = {
-  disabled: 'IA desligada no servidor: sugestões pela busca local nos seus streamings.',
-  consent: 'IA não permitida: sugestões pela busca local nos seus streamings.',
-  quota: 'A cota de IA de hoje acabou: sugestões pela busca local.',
-  failed: 'A IA não respondeu agora: sugestões pela busca local.',
+  disabled: 'IA desligada: o pedido foi entendido sem IA.',
+  consent: 'IA não permitida: o pedido foi entendido sem IA.',
+  quota: 'A cota de IA de hoje acabou: o pedido foi entendido sem IA.',
+  failed: 'A IA não respondeu agora: o pedido foi entendido sem IA.',
   no_profile: 'Conte seu gosto no Perfil (resumo, favoritos ou níveis) para a IA acertar mais.',
 };
 
@@ -58,6 +58,10 @@ interface Pick {
   page?: { url: string; label: string };
   reason?: string;
   availableOn: string[];
+  /** compatibilidade com o pedido e com o perfil (0..100) */
+  fit?: number;
+  profileFit?: number;
+  fromList?: boolean;
   wantLabel: string;
   doneLabel: string;
   want: () => Promise<unknown>;
@@ -74,7 +78,10 @@ function picksOf(data: TonightResponse | undefined): Pick[] {
     page: { url: tmdbPageUrl(it.mediaType, it.tmdbId), label: 'TMDB' },
     reason: it.aiReason,
     availableOn: it.availableOn,
-    wantLabel: 'Quero assistir',
+    ...(it.fit != null ? { fit: it.fit } : {}),
+    ...(it.profileFit != null ? { profileFit: it.profileFit } : {}),
+    ...(it.fromList ? { fromList: true } : {}),
+    wantLabel: it.fromList ? 'Assistir hoje' : 'Quero assistir',
     doneLabel: 'Já assisti',
     want: () => api.importTitles({ items: [{ tmdbId: it.tmdbId, mediaType: it.mediaType }] }),
     done: () => api.tonightWatched({ tmdbId: it.tmdbId, mediaType: it.mediaType }),
@@ -119,6 +126,11 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
   const [mood, setMood] = useState('');
   // filme/série: anime só quando pedido
   const [includeAnime, setIncludeAnime] = useState(false);
+  // "Incluir já vistos" (padrão: não) e a Minha Área como 1ª fonte (padrão: sim)
+  const [includeSeen, setIncludeSeen] = useState(false);
+  const [includeQueue, setIncludeQueue] = useState(true);
+  // uma sessão por abertura do painel: o servidor guarda o que já mostrou e o estoque
+  const sessionId = useRef(crypto.randomUUID());
   // streamings desta busca (padrão: os do Perfil); nenhum = em qualquer lugar
   const [services, setServices] = useState<Set<string> | null>(null);
   // "Avançado": o perfil só para esta busca, já preenchido com o salvo
@@ -159,6 +171,9 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
         ...(exclude.length ? { exclude: exclude.slice(-100) } : {}),
         ...(video && services ? { services: [...services] } : {}),
         ...(video && includeAnime ? { includeAnime: true } : {}),
+        ...(includeSeen ? { includeSeen: true } : {}),
+        ...(video && !includeQueue ? { includeQueue: false } : {}),
+        sessionId: sessionId.current,
         ...(advChanged && adv
           ? {
               profile: {
@@ -200,6 +215,29 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
     setShown([]);
     ask.reset();
     if (searched) setRestart((n) => n + 1);
+  }
+
+  function changeSeen(on: boolean) {
+    setIncludeSeen(on);
+    if (ask.data) {
+      ask.reset();
+      setRestart((n) => n + 1);
+    }
+  }
+
+  function changeQueue(on: boolean) {
+    setIncludeQueue(on);
+    if (ask.data) {
+      ask.reset();
+      setRestart((n) => n + 1);
+    }
+  }
+
+  /** esgotou: procurar em qualquer lugar (sem filtro de streaming) */
+  function searchAnywhere() {
+    setServices(new Set());
+    ask.reset();
+    setRestart((n) => n + 1);
   }
 
   function changeAnime(on: boolean) {
@@ -355,6 +393,9 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
             <input type="checkbox" checked={includeAnime} onChange={(e) => changeAnime(e.target.checked)} /> Incluir animes?
           </label>
         )}
+        <label className="check tonight-anime">
+          <input type="checkbox" checked={includeSeen} onChange={(e) => changeSeen(e.target.checked)} /> Incluir já vistos?
+        </label>
         <label>
           {kind === 'book' ? 'O que você quer ler?' : kind === 'music' ? 'O que você quer ouvir?' : 'O que você quer assistir?'} (opcional)
           <input
@@ -374,6 +415,11 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
         </label>
         {adv && defaults.data && (
           <section id="tonight-advanced" className="tonight-advanced" hidden={!advOpen} aria-label="Filtros desta busca">
+            {video && (
+              <label className="check small">
+                <input type="checkbox" checked={includeQueue} onChange={(e) => changeQueue(e.target.checked)} /> Começar pela minha lista (Quero assistir)
+              </label>
+            )}
             <p className="small tonight-adv-title">
               <strong>Filtros desta busca</strong>
               {advChanged ? ' · perfil alterado' : ''}
@@ -506,7 +552,29 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
               ))}
             {kind === 'music' && data.aiUsed && ' Sugestões da IA, sem conferência em catálogo.'}
           </p>
-          {picks.length === 0 && <p className="muted">Nada novo desta vez. Mude o gênero ou o humor e busque de novo.</p>}
+          {(data.understood || data.unmapped?.length) && (
+            <p className="small tonight-understood">
+              {data.understood && (
+                <>
+                  Entendi: <strong>{data.understood}</strong>
+                </>
+              )}
+              {data.unmapped?.length ? <span className="muted"> · não entendi: {data.unmapped.join(', ')}</span> : null}
+            </p>
+          )}
+          {picks.length === 0 &&
+            (data.exhausted ? (
+              <div className="tonight-empty">
+                <p className="muted">Não encontrei mais títulos inéditos com estes filtros.</p>
+                {video && services && services.size > 0 && (
+                  <button type="button" className="btn" onClick={searchAnywhere}>
+                    Procurar em qualquer lugar
+                  </button>
+                )}
+              </div>
+            ) : (
+              <p className="muted">Nada novo desta vez. Mude o gênero ou o pedido e busque de novo.</p>
+            ))}
           <ul className="search-results tonight-results" aria-label="Sugestões para hoje">
             {picks.map((p) => (
               <li key={p.key} className="search-card">
@@ -520,6 +588,13 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
                   </WorkLink>
                   <div className="muted small tonight-sub">{p.sub}</div>
                   {p.availableOn.length > 0 && <div className="small">Em: {p.availableOn.join(', ')}</div>}
+                  {(p.fit != null || p.profileFit != null) && (
+                    <div className="small tonight-fit" aria-label={`Compatível com o pedido: ${p.fit ?? 0}%. Com o seu perfil: ${p.profileFit ?? 0}%`}>
+                      {p.fromList && <span className="badge">na sua lista</span>}
+                      <span>Pedido {p.fit}%</span>
+                      <span>Perfil {p.profileFit}%</span>
+                    </div>
+                  )}
                   {p.reason && (
                     <p className="small ai-reason">
                       <Icon name="sparkles" size={12} /> {p.reason}
@@ -545,12 +620,6 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
               <Icon name="refresh" size={14} /> Novas sugestões
             </button>
           </div>
-          {data.request && (
-            <details className="small tonight-request">
-              <summary>Ver o pedido enviado à IA</summary>
-              <pre>{data.request}</pre>
-            </details>
-          )}
           {data.items.length > 0 && <p className="attribution small">{TMDB_ATTRIBUTION}</p>}
         </>
       )}

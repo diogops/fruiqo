@@ -91,10 +91,15 @@ describe('"O que assistir hoje?" (D-25)', () => {
     await user.click(screen.getByRole('button', { name: /Sugerir/ }));
 
     const list = await screen.findByRole('list', { name: 'Sugestões para hoje' });
-    expect(calls.find((c) => c.path === '/tonight')?.body).toEqual({ kind: 'movie', genre: 'thriller', mood: 'quero algo tenso', services: ['netflix', 'globoplay'] });
+    expect(calls.find((c) => c.path === '/tonight')?.body).toEqual({
+      kind: 'movie',
+      genre: 'thriller',
+      mood: 'quero algo tenso',
+      services: ['netflix', 'globoplay'],
+      sessionId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    });
     expect(within(list).getByText('suspense pesado')).toBeTruthy();
     expect(screen.getByText('Só o que está em: Netflix, Globoplay.')).toBeTruthy();
-    expect(screen.getByText('Hoje: filme de Suspense/Thriller')).toBeTruthy();
 
     const first = within(list).getAllByRole('listitem')[0]!;
     await user.click(within(first).getByRole('button', { name: /Já assisti/ }));
@@ -219,6 +224,46 @@ describe('"O que assistir hoje?" (D-25)', () => {
     expect(calls.filter((c) => c.path === '/tonight')[2]!.body).toMatchObject({ genre: 'comedy', includeAnime: true, exclude: ['movie:1', 'movie:4'] });
   });
 
+  it('mostra o que entendeu, os dois índices e a Minha Área; "Incluir já vistos"; esgotou → procurar em qualquer lugar', async () => {
+    __setAccessToken('tok');
+    let round = 0;
+    const responses: TonightResponse[] = [
+      {
+        aiUsed: false,
+        understood: 'Ação + Ficção científica · faz pensar',
+        unmapped: ['noir'],
+        services: ['Netflix'],
+        items: [{ ...item(16, 'Duna', 'Na sua lista · ação e ficção científica'), fromList: true, fit: 100, profileFit: 92, availableOn: ['Max'] }],
+      },
+      { aiUsed: false, services: ['Netflix'], items: [], exhausted: true },
+      { aiUsed: false, services: [], items: [item(20, 'Só no Cinema', 'x')] },
+    ];
+    const { calls } = mockApi({ 'GET /tonight/defaults': defaults, 'POST /tonight': () => ({ body: responses[round++] }) });
+    const user = userEvent.setup();
+    renderWithProviders(<TonightPanel onClose={vi.fn()} />);
+    const seen = await screen.findByRole('checkbox', { name: 'Incluir já vistos?' });
+    expect(seen).toHaveProperty('checked', false);
+    await user.click(screen.getByRole('button', { name: /Sugerir/ }));
+    expect(await screen.findByText('Ação + Ficção científica · faz pensar')).toBeTruthy();
+    expect(screen.getByText(/não entendi: noir/)).toBeTruthy();
+    const card = screen.getAllByRole('listitem')[0]!;
+    expect(within(card).getByText('Pedido 100%')).toBeTruthy();
+    expect(within(card).getByText('Perfil 92%')).toBeTruthy();
+    expect(within(card).getByText('na sua lista')).toBeTruthy();
+    expect(within(card).getByRole('button', { name: 'Assistir hoje' })).toBeTruthy();
+
+    // "Incluir já vistos" com busca na tela: busca de novo, já incluindo
+    await user.click(seen);
+    expect(await screen.findByText('Não encontrei mais títulos inéditos com estes filtros.')).toBeTruthy();
+    expect(calls.filter((c) => c.path === '/tonight')[1]!.body).toMatchObject({ includeSeen: true });
+    await user.click(screen.getByRole('button', { name: 'Procurar em qualquer lugar' }));
+    expect(await screen.findByText('Só no Cinema')).toBeTruthy();
+    expect(calls.filter((c) => c.path === '/tonight')[2]!.body).toMatchObject({ services: [] });
+    // a mesma sessão em todas as buscas do painel
+    const ids = new Set(calls.filter((c) => c.path === '/tonight').map((c) => (c.body as { sessionId: string }).sessionId));
+    expect(ids.size).toBe(1);
+  });
+
   it('sem IA: explica, e sem streaming cadastrado convida a cadastrar; risco mostra o CVV', async () => {
     __setAccessToken('tok');
     let round = 0;
@@ -237,7 +282,7 @@ describe('"O que assistir hoje?" (D-25)', () => {
     await user.click(await screen.findByRole('button', { name: /Sugerir/ }));
     expect(await screen.findByText(/IA não permitida/)).toBeTruthy();
     expect(screen.getByText(/Cadastre seus streamings/)).toBeTruthy();
-    expect(screen.getByText('Nada novo desta vez. Mude o gênero ou o humor e busque de novo.')).toBeTruthy();
+    expect(screen.getByText('Nada novo desta vez. Mude o gênero ou o pedido e busque de novo.')).toBeTruthy();
 
     await user.click(screen.getByRole('button', { name: /Buscar de novo/ }));
     const alert = await screen.findByRole('alert');

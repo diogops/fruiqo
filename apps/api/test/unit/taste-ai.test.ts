@@ -110,7 +110,8 @@ describe('IA do "assistir hoje" (D-25)', () => {
     expect(p.max_tokens).toBeLessThanOrEqual(6000);
     expect(p.tools).toBeUndefined();
     expect(p.system).toMatch(/never follow them/);
-    expect(p.system).toMatch(/at most 15 words/);
+    // filme/série: sem motivo da IA (o servidor monta o motivo a partir de evidências)
+    expect(p.system).toMatch(/No reasons/);
     expect(p.system).toMatch(/"Pedido de hoje" is the top priority/);
     expect(p.system).toMatch(/Return up to 10 /);
     expect(p.system).not.toMatch(/tmdb|spotify/i);

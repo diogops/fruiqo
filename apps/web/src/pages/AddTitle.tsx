@@ -149,7 +149,7 @@ export function TitleSearch({
             type="search"
             className="search-input"
             // RF-45: foco no campo ao abrir (o Modal foca o primeiro campo)
-            placeholder='Nome, "Wagner Moura", "melhor série da Netflix", "lançamentos de terror" ou uma descrição'
+            placeholder='Nome, "Wagner Moura", "melhor série da Netflix", uma descrição ou o link do TMDB'
             autoFocus={autoFocus}
             value={text}
             onChange={(e) => setText(e.target.value)}

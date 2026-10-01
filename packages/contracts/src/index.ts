@@ -1308,6 +1308,8 @@ export const TitleSearchResultSchema = z.object({
   autoRating: z.number().min(0).max(5).optional(),
   /** anime (animação de origem japonesa) */
   anime: z.boolean().optional(),
+  /** gêneros (chaves da taxonomia própria) */
+  genres: z.array(z.string()).optional(),
 });
 export type TitleSearchResult = z.infer<typeof TitleSearchResultSchema>;
 
@@ -1438,6 +1440,12 @@ export const TonightRequestSchema = z
     genre: z.string().trim().min(1).max(40).optional(),
     /** filme/série: trazer animes também (padrão: não) */
     includeAnime: z.boolean().optional(),
+    /** trazer também o que você já assistiu/abandonou (padrão: não) */
+    includeSeen: z.boolean().optional(),
+    /** sessão do painel (o servidor guarda o que já mostrou, o estoque e as páginas já lidas) */
+    sessionId: z.uuid().optional(),
+    /** filme/série: incluir a Minha Área (Quero assistir/Assistindo) como 1ª fonte (padrão: sim) */
+    includeQueue: z.boolean().optional(),
     /**
      * filme/série: em quais streamings procurar (chaves do Perfil, ex. "netflix"). Ausente = os que
      * você marcou no Perfil; vazio = em qualquer lugar (sem filtro)
@@ -1463,8 +1471,14 @@ export const TonightResponseSchema = z.object({
   unavailable: z.enum(['disabled', 'consent', 'quota', 'failed', 'no_profile']).optional(),
   /** RNF-07: o humor indicou risco; sem sugestões, com o apoio do CVV */
   risk: z.lazy(() => RiskSupportSchema).nullable().optional(),
-  /** o pedido que a IA montou do seu perfil/humor e usou na busca (transparência) */
+  /** o pedido que foi buscado (transparência) */
   request: z.string().max(2000).optional(),
+  /** filme/série: o que foi entendido do pedido ("ação + ficção científica · faz pensar") */
+  understood: z.string().max(300).optional(),
+  /** trechos do pedido que não viraram filtro (mostrados para o usuário reformular) */
+  unmapped: z.array(z.string().max(40)).optional(),
+  /** não há mais títulos inéditos com estes filtros */
+  exhausted: z.boolean().optional(),
   /** serviços usados no filtro (vazio = você não cadastrou nenhum; nada foi filtrado por serviço) */
   services: z.array(z.string()),
   items: z.array(
@@ -1472,6 +1486,12 @@ export const TonightResponseSchema = z.object({
       aiReason: z.string().max(300).optional(),
       /** onde o título está na assinatura no Brasil (seus serviços; em "qualquer lugar", todos) */
       availableOn: z.array(z.string()),
+      /** veio da sua Minha Área (Quero assistir / Assistindo) */
+      fromList: z.boolean().optional(),
+      /** compatibilidade com o pedido (0..100) */
+      fit: z.number().int().min(0).max(100).optional(),
+      /** compatibilidade com o seu perfil (0..100) */
+      profileFit: z.number().int().min(0).max(100).optional(),
     }),
   ),
   /** pedido de livro: conferidos na Open Library */

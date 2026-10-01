@@ -326,71 +326,81 @@ describe('RF-46: busca e importação', () => {
     await post(user, '/search/ai', { mode: 'ocr', text: 'x'.repeat(1001) }).expect(200);
   });
 
-  it('D-25: "assistir hoje" (humor, tipo, gênero, streaming) e resumo sugerido/melhorado; tira assistidos, favoritos e já mostrados', async () => {
+  it('D-25: "assistir hoje" — Minha Área primeiro, plano do pedido, descobertas nos streamings, sessão sem repetir, IA só interpreta', async () => {
     const user = await newUser();
-    const movies: Record<number, { title: string; original?: string; date: string; providers?: string[]; lang?: string; genres?: number[] }> = {
-      11: { title: 'Fresh', date: '2022-03-04', providers: ['Disney Plus'] },
-      12: { title: 'A Mão do Diabo', original: 'Frailty', date: '2001-04-12', providers: ['Netflix'] },
-      13: { title: 'Prisioneiros', date: '2013-09-20', providers: ['Netflix'] },
-      14: { title: 'Ilha do Medo', date: '2010-02-19', providers: ['Netflix'] },
-      15: { title: 'Zodíaco', date: '2007-03-02' },
-      16: { title: 'Só na Locadora', date: '2016-01-01', providers: ['Globoplay'] },
-      17: { title: 'Matrix', date: '1999-03-31', providers: ['Netflix'] },
-      30: { title: 'Akira', date: '1988-07-16', lang: 'ja', genres: [16, 878] },
+    type M = { title: string; original?: string; date: string; providers?: string[]; genres?: number[]; lang?: string; votes?: number };
+    const movies: Record<number, M> = {
+      11: { title: 'Fresh', date: '2022-03-04', providers: ['Disney Plus'], genres: [27] },
+      13: { title: 'Prisioneiros', date: '2013-09-20', providers: ['Netflix'], genres: [80, 53] },
+      14: { title: 'Ilha do Medo', date: '2010-02-19', providers: ['Netflix'], genres: [53] },
+      15: { title: 'Zodíaco', date: '2007-03-02', genres: [80] },
+      16: { title: 'Duna', date: '2021-09-15', providers: ['Max'], genres: [28, 878] },
+      17: { title: 'Matrix', date: '1999-03-31', providers: ['Netflix'], genres: [28, 878], votes: 26000 },
+      18: { title: 'A Origem', date: '2010-07-16', providers: ['Netflix'], genres: [28, 878], votes: 36000 },
+      19: { title: 'Tenet', date: '2020-08-26', providers: ['Netflix'], genres: [28, 878] },
+      20: { title: 'Só no Cinema', date: '2019-01-01', providers: [], genres: [28, 878] },
+      21: { title: 'Duna: Parte 2', date: '2024-02-28', providers: ['Netflix'], genres: [28, 878] },
+      30: { title: 'Akira', date: '1988-07-16', providers: ['Netflix'], genres: [16, 28, 878], lang: 'ja' },
+      40: { title: 'Ex Machina', date: '2015-01-21', providers: ['Netflix'], genres: [878, 28] },
     };
-    // estoque: 10 títulos novos, sem streaming (busca "em qualquer lugar")
-    for (let i = 20; i < 30; i++) movies[i] = { title: `Filme Novo ${i}`, date: '2015-01-01' };
-    const discovered: URL[] = [];
-    const byName = new Map<string, number>();
-    for (const [id, m] of Object.entries(movies)) {
-      byName.set(m.title, Number(id));
-      if (m.original) byName.set(m.original, Number(id));
-    }
+    const urls: URL[] = [];
+    const hit = (id: number) => ({
+      id,
+      media_type: 'movie',
+      title: movies[id]!.title,
+      original_title: movies[id]!.original ?? movies[id]!.title,
+      release_date: movies[id]!.date,
+      popularity: 10,
+      genre_ids: movies[id]!.genres ?? [],
+      vote_average: 8,
+      vote_count: movies[id]!.votes ?? 5000,
+      ...(movies[id]!.lang ? { original_language: movies[id]!.lang } : {}),
+    });
     const fetchImpl = (async (input: RequestInfo | URL) => {
       const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url);
+      urls.push(url);
+      const q = url.searchParams;
       let body: unknown = { results: [] };
-      const hit = (id: number) => ({
-        id,
-        media_type: 'movie',
-        title: movies[id]!.title,
-        original_title: movies[id]!.original ?? movies[id]!.title,
-        release_date: movies[id]!.date,
-        popularity: 10,
-        genre_ids: movies[id]!.genres ?? [],
-        ...(movies[id]!.lang ? { original_language: movies[id]!.lang } : {}),
-      });
-      if (url.pathname.endsWith('/search/multi')) {
-        const id = byName.get(url.searchParams.get('query') ?? '');
-        if (id) body = { results: [hit(id)] };
-      }
-      // reserva local: só responde ao filtro "ação E ficção científica" (todos os gêneros: vírgula)
-      if (url.pathname.endsWith('/discover/movie')) {
-        discovered.push(url);
-        if (url.searchParams.get('with_genres') === '28,878')
-          body = { results: [{ id: 17, title: 'Matrix', release_date: '1999-03-31', genre_ids: [28, 878], popularity: 50, vote_average: 8.2, vote_count: 20000 }] };
-      }
-      const one = /\/movie\/(\d+)$/.exec(url.pathname);
-      if (one && movies[Number(one[1])]) {
-        const m = movies[Number(one[1])]!;
-        body = {
-          ...hit(Number(one[1])),
-          'watch/providers': { results: { BR: { flatrate: (m.providers ?? []).map((provider_name, i) => ({ provider_name, provider_id: i + 1 })) } } },
-        };
+      if (url.pathname.endsWith('/search/keyword')) {
+        const ids: Record<string, number> = { philosophy: 490, 'artificial intelligence': 310 };
+        const id = ids[q.get('query') ?? ''];
+        if (id) body = { results: [{ id, name: q.get('query') }] };
+      } else if (url.pathname.endsWith('/search/multi')) {
+        const id = Object.entries(movies).find(([, m]) => m.title === q.get('query'))?.[0];
+        if (id) body = { results: [hit(Number(id))] };
+      } else if (url.pathname.endsWith('/discover/movie')) {
+        const page = q.get('page') ?? '1';
+        const genres = q.get('with_genres');
+        const pick = (ids: number[]) => ({ results: page === '1' ? ids.map(hit) : [] });
+        if (genres === '28,878' && q.get('with_keywords')) body = pick([18, 40]);
+        else if (genres === '28,878' && q.get('sort_by')?.startsWith('primary_release_date')) body = pick([21]);
+        else if (genres === '28,878') body = pick([17, 30, 15, 20]);
+        else if (!genres && !q.get('with_keywords')) body = pick([11, 14]);
+      } else {
+        const one = /\/movie\/(\d+)$/.exec(url.pathname);
+        const m = one ? movies[Number(one[1])] : undefined;
+        if (m)
+          body = {
+            ...hit(Number(one![1])),
+            genres: (m.genres ?? []).map((id) => ({ id })),
+            'watch/providers': { results: { BR: { flatrate: (m.providers ?? []).map((provider_name, i) => ({ provider_name, provider_id: i + 1 })) } } },
+          };
       }
       return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
     }) as typeof fetch;
-    const calls: { brief: TasteBrief; kind?: string }[] = [];
+
+    const planCalls: string[] = [];
+    const genCalls: TasteBrief[] = [];
     const ai: TasteAi = {
       improveSummary: async (text) => ({ ok: true, value: `Melhorado: ${text}` }),
+      planRequest: async (text) => {
+        planCalls.push(text);
+        return { ok: true, value: { genresAll: ['scifi'], genresAny: [], genresNone: ['horror'], prefer: ['thought_provoking'], avoid: [], unmapped: [] } };
+      },
       tonight: async (brief, _userId, kind) => {
-        calls.push({ brief, ...(kind ? { kind } : {}) });
-        if (brief.mood === 'estoque') {
-          const titles = ['Akira', ...Array.from({ length: 10 }, (_, i) => `Filme Novo ${20 + i}`)];
-          return { ok: true, value: { picks: titles.map((title) => ({ title, kind: 'movie' as const, reason: 'estoque' })), request: 'pedido estoque' } };
-        }
+        genCalls.push(brief);
         if (kind === 'music') return { ok: true, value: { picks: [{ title: 'Construção', kind: 'music_track', creator: 'Chico Buarque', reason: 'MPB densa' }], request: 'pedido' } };
-        const titles = ['Fresh', 'Frailty', 'Prisioneiros', 'Ilha do Medo', 'Zodíaco', 'Só na Locadora', 'Inexistente'];
-        return { ok: true, value: { picks: titles.map((title) => ({ title, kind: 'movie' as const, reason: `por que ${title}` })), request: 'pedido otimizado' } };
+        return { ok: true, value: { picks: [{ title: 'Tenet', kind: 'movie', year: 2020 }, { title: 'Inexistente', kind: 'movie' }], request: 'pedido' } };
       },
     };
     const tmdb = new TmdbResolver('k'.repeat(32), fetchImpl);
@@ -399,145 +409,121 @@ describe('RF-46: busca e importação', () => {
     process.env.TONIGHT_RATE_LIMIT_PER_MIN = '100';
     const tonight = new TonightService(db, search, ctx.app.get(LibraryService), ctx.app.get(CatalogService), ai, tmdb);
     delete process.env.TONIGHT_RATE_LIMIT_PER_MIN;
+    const session = () => randomUUID();
 
-    // sem consentimento: sem IA (a busca local roda, mas aqui o /discover não traz nada)
-    expect(await tonight.tonight(user.userId, {})).toEqual({ aiUsed: false, unavailable: 'consent', services: [], items: [] });
-    await setUserSettings(db, user.userId, { aiConsent: true });
-    expect((await tonight.tonight(user.userId, {})).unavailable).toBe('no_profile');
-
-    // RNF-07: humor com risco não chama a IA e traz o CVV
+    // RNF-07: pedido com risco não busca nada e traz o CVV
     const risky = await tonight.tonight(user.userId, { mood: 'não aguento mais, quero sumir e me matar' });
     expect(risky.items).toEqual([]);
     expect(risky.risk?.cvvPhone).toBeTruthy();
-    expect(calls).toEqual([]);
 
-    // perfil: resumo, níveis, favorito (Ilha do Medo), assistido com 5 estrelas (Zodíaco), Netflix assinada
-    await put(user, '/profile/summary', { summary: 'Gosto de suspense que mexe com a cabeça.' }).expect(200);
-    await ctx.http().patch('/profile/taste').set(...auth(user)).send({ levels: [{ key: 'thriller', level: 'love' }, { key: 'horror', level: 'hate' }] }).expect(200);
-    await post(user, '/profile/favorites', { title: 'Ilha do Medo', kind: 'movie', year: 2010, tmdbId: 14, mediaType: 'movie', rating: 5 }).expect(201);
-    const zodiac = await tonight.markWatched(user.userId, { tmdbId: 15, mediaType: 'movie' });
-    await patch(user, `/library/${zodiac.id}`, { rating: 5 }).expect(200);
-
-    const suggestion = await tonight.suggestSummary(user.userId);
-    expect(suggestion.aiUsed).toBe(false);
-    expect(suggestion.summary).toContain('Adoro suspense');
-    expect(suggestion.summary).toContain('Não gosto de terror');
-    expect(suggestion.summary).toContain('Ilha do Medo (2010)');
-    expect(suggestion.summary).toContain('Zodíaco (2007)');
-    expect(await tonight.improveSummary(user.userId, 'adoro suspense')).toEqual({ summary: 'Melhorado: adoro suspense', aiUsed: true });
-
-    // sem streaming cadastrado: não filtra por serviço; tira assistidos (Zodíaco), favorito (Ilha do Medo)
-    const open = await tonight.tonight(user.userId, { mood: 'quero algo tenso', genre: 'thriller' });
-    expect(open.services).toEqual([]);
-    expect(open.request).toBe('pedido otimizado');
-    expect(open.items.map((i) => i.title)).toEqual(['Fresh', 'A Mão do Diabo', 'Prisioneiros', 'Só na Locadora']);
-    expect(calls[0]!.brief).toMatchObject({ mood: 'quero algo tenso', genre: 'Suspense/Thriller', loves: ['Suspense/Thriller'], hates: ['Terror'] });
-    expect(calls[0]!.brief.loved).toEqual([{ title: 'Zodíaco', year: 2007, rating: 5 }]);
-
-    // com Netflix: só o que está na Netflix; "novas sugestões" sem repetir, e a IA é avisada pelo nome
+    // perfil: Netflix assinada, favorito (Ilha do Medo), assistido (Zodíaco), na Minha Área: Duna (Max) e Prisioneiros
     await put(user, '/profile/subscriptions', { providers: ['netflix'] }).expect(200);
-    const first = await tonight.tonight(user.userId, {});
-    expect(first.services).toEqual(['Netflix']);
-    expect(first.items.map((i) => [i.title, i.availableOn, i.aiReason])).toEqual([
-      ['A Mão do Diabo', ['Netflix'], 'por que Frailty'],
-      ['Prisioneiros', ['Netflix'], 'por que Prisioneiros'],
-    ]);
-    // "em qualquer lugar" (nenhum serviço marcado na tela): não filtra, mas mostra onde está
-    const anywhere = await tonight.tonight(user.userId, { services: [] });
-    expect(anywhere.services).toEqual([]);
-    expect(anywhere.items.map((i) => [i.title, i.availableOn])).toEqual([
-      ['Fresh', ['Disney+']],
-      ['A Mão do Diabo', ['Netflix']],
-      ['Prisioneiros', ['Netflix']],
-      ['Só na Locadora', ['Globoplay']],
-    ]);
-    // só um serviço escolhido na tela (o Perfil tem a Netflix)
-    const globo = await tonight.tonight(user.userId, { services: ['globoplay'] });
-    expect(globo.services).toEqual(['Globoplay']);
-    expect(globo.items.map((i) => i.title)).toEqual(['Só na Locadora']);
+    await post(user, '/profile/favorites', { title: 'Ilha do Medo', kind: 'movie', year: 2010, tmdbId: 14, mediaType: 'movie', rating: 5 }).expect(201);
+    await tonight.markWatched(user.userId, { tmdbId: 15, mediaType: 'movie' });
+    await search.import(user.userId, { items: [{ tmdbId: 16, mediaType: 'movie' }, { tmdbId: 13, mediaType: 'movie' }] });
 
-    // "Avançado": perfil só desta busca (não salva)
-    await tonight.tonight(user.userId, {
-      profile: { summary: 'Hoje só comédia boba.', genres: [{ key: 'comedy', group: 'love' }, { key: 'thriller', group: 'avoid' }], subgenres: [{ key: 'feelgood', pref: 'like' }] },
-    });
-    expect(calls.at(-1)!.brief).toMatchObject({ summary: 'Hoje só comédia boba.', loves: ['Comédia'], likes: [], hates: ['Suspense/Thriller'], likedSubgenres: ['Feel-good'] });
-    expect((await tonight.suggestSummary(user.userId)).summary).toContain('Adoro suspense');
+    // sem consentimento: sem IA, mas o pedido simples é entendido localmente e a busca roda
+    const s1 = session();
+    const local = await tonight.tonight(user.userId, { sessionId: s1, kind: 'movie', mood: 'um bom filme de ação, mas que seja scifi e inteligente' });
+    expect(local.unavailable).toBe('consent');
+    expect(local.understood).toBe('Ação + Ficção científica · faz pensar');
+    expect(planCalls).toEqual([]);
+    // 1º a Minha Área (Duna, mesmo fora dos streamings), depois descobertas: tema (palavra-chave), mais bem
+    // avaliados, recentes — só na Netflix, sem anime, sem assistido/favorito, sem o que não atende ao pedido
+    expect(local.items.map((i) => i.title)).toEqual(['Duna', 'A Origem', 'Ex Machina', 'Duna: Parte 2', 'Matrix']);
+    expect(local.items[0]).toMatchObject({ fromList: true, availableOn: ['Max'], aiReason: expect.stringMatching(/^Na sua lista · ação e ficção científica · nota 8,0 no TMDB/) });
+    expect(local.items[1]).toMatchObject({ availableOn: ['Netflix'], aiReason: expect.stringMatching(/^Ação e ficção científica · tema: faz pensar · nota 8,0 no TMDB/) });
+    // as palavras-chave vêm resolvidas pelo nome (sem inventar IDs) e os gêneros, todos ao mesmo tempo
+    const themed = urls.find((u) => u.pathname.endsWith('/discover/movie') && u.searchParams.get('with_keywords'))!;
+    expect(themed.searchParams.get('with_keywords')).toBe('490|310');
+    expect(themed.searchParams.get('with_genres')).toBe('28,878');
+    expect(themed.searchParams.get('with_watch_providers')).toBe('8');
 
-    // o pedido de hoje manda: "ação" + "scifi" viram filtro obrigatório (os dois) na reserva local,
-    // e o motivo só cita o que o título é de fato
-    const asked = await tonight.tonight(user.userId, { kind: 'movie', mood: 'um bom filme de ação, mas que seja scifi e inteligente' });
-    expect(calls.at(-1)!.brief.mood).toBe('um bom filme de ação, mas que seja scifi e inteligente');
-    expect(discovered.at(-1)!.searchParams.get('with_genres')).toBe('28,878');
-    expect(asked.items.find((i) => i.title === 'Matrix')).toMatchObject({
-      availableOn: ['Netflix'],
-      aiReason: 'Atende ao seu pedido: ação e ficção científica; bem avaliado.',
-    });
+    // mesma sessão: "novas sugestões" não repetem; acabou o que há com estes filtros → esgotado (sem IA aqui)
+    const more = await tonight.tonight(user.userId, { sessionId: s1, kind: 'movie', mood: 'um bom filme de ação, mas que seja scifi e inteligente' });
+    expect(more.items.map((i) => i.title)).toEqual([]);
+    expect(more.exhausted).toBe(true);
 
-    const before = calls.length;
-    const again = await tonight.tonight(user.userId, { exclude: ['movie:12'] });
-    expect(again.items.map((i) => i.title)).toEqual(['Prisioneiros']);
-    // 1ª rodada: a IA é avisada do que já apareceu, pelo nome
-    expect(calls[before]!.brief.avoid).toEqual(['A Mão do Diabo (2001)']);
-    // faltaram sugestões: 2ª rodada, já sabendo o que ela sugeriu e não serviu (visto, favorito, fora dos serviços)
-    expect(calls).toHaveLength(before + 2);
-    expect(calls[before + 1]!.brief.avoid).toEqual(expect.arrayContaining(['A Mão do Diabo (2001)', 'Zodíaco (2007)', 'Ilha do Medo (2010)', 'Fresh (2022)', 'Prisioneiros (2013)']));
-    // histórico vai como amostra do que já viu, não a lista inteira
-    expect(calls[before]!.brief.seen).toEqual(expect.arrayContaining([{ title: 'Zodíaco', year: 2007 }]));
+    // com IA: só interpreta o que o parser não entendeu (sem histórico, sem catálogo) e completa com nomes uma vez
+    await setUserSettings(db, user.userId, { aiConsent: true });
+    const s2 = session();
+    const noir = await tonight.tonight(user.userId, { sessionId: s2, kind: 'movie', mood: 'algo noir cyberpunk sem terror' });
+    expect(planCalls).toEqual(['algo noir cyberpunk sem terror']);
+    expect(noir.aiUsed).toBe(true);
+    expect(noir.understood).toBe('Ficção científica · faz pensar · sem terror');
+    // gerador: só como complemento, sem motivo da IA (o motivo vem das evidências); "Inexistente" não se confirma
+    expect(genCalls).toHaveLength(1);
+    // amostra do que já viu só dos gêneros da busca (Zodíaco é crime: fica de fora); o total vai à parte
+    expect(genCalls[0]!.seen).toEqual([]);
+    expect(genCalls[0]!.seenCount).toBe(1);
+    expect(noir.items.find((i) => i.title === 'Tenet')?.aiReason).toMatch(/^Sugestão da IA para o seu pedido/);
 
-    // "já assisti" grava como assistido e o título não volta
-    const watched = await tonight.markWatched(user.userId, { tmdbId: 13, mediaType: 'movie' });
+    // "Incluir animes?" traz o Akira; "Só novidades" (sem a Minha Área) não traz Duna
+    const anime = await tonight.tonight(user.userId, { sessionId: session(), kind: 'movie', mood: 'ação e scifi', includeAnime: true, includeQueue: false });
+    expect(anime.items.map((i) => i.title)).toContain('Akira');
+    expect(anime.items.map((i) => i.title)).not.toContain('Duna');
+    // "Qualquer lugar": não filtra por streaming e mostra onde está
+    const anywhere = await tonight.tonight(user.userId, { sessionId: session(), kind: 'movie', mood: 'ação e scifi', services: [] });
+    expect(anywhere.items.find((i) => i.title === 'Só no Cinema')).toMatchObject({ availableOn: [] });
+
+    // "já assisti" grava e o título sai de todas as sessões
+    const s3 = session();
+    const first = await tonight.tonight(user.userId, { sessionId: s3, kind: 'movie', mood: 'ação e scifi' });
+    expect(first.items[0]!.title).toBe('Duna');
+    const watched = await tonight.markWatched(user.userId, { tmdbId: 16, mediaType: 'movie' });
     expect(watched.status).toBe('watched');
-    expect((await tonight.tonight(user.userId, {})).items.map((i) => i.title)).toEqual(['A Mão do Diabo']);
+    const again = await tonight.tonight(user.userId, { sessionId: session(), kind: 'movie', mood: 'ação e scifi' });
+    expect(again.items.map((i) => i.title)).not.toContain('Duna');
 
-    // música: sugestão da IA sem conferência; "já ouvi" entra na lista e não volta
+    // já visto não volta; com "Incluir já vistos", volta
+    await tonight.markWatched(user.userId, { tmdbId: 17, mediaType: 'movie' });
+    expect((await tonight.tonight(user.userId, { sessionId: session(), kind: 'movie', mood: 'ação e scifi' })).items.map((i) => i.title)).not.toContain('Matrix');
+    expect((await tonight.tonight(user.userId, { sessionId: session(), kind: 'movie', mood: 'ação e scifi', includeSeen: true })).items.map((i) => i.title)).toContain('Matrix');
+
+    // música: sugestão da IA (sem conferência); "já ouvi" entra na lista
     const music = await tonight.tonight(user.userId, { kind: 'music', genre: 'MPB' });
-    expect(calls.at(-1)).toMatchObject({ kind: 'music', brief: { genre: 'MPB' } });
     expect(music.music).toEqual([{ key: 'music:construcao-chico-buarque', title: 'Construção', artist: 'Chico Buarque', kind: 'music_track', aiReason: 'MPB densa' }]);
-    expect(music.services).toEqual([]);
     const heard = await tonight.markWatched(user.userId, { music: { title: 'Construção', artist: 'Chico Buarque', kind: 'music_track' } });
     expect(heard).toMatchObject({ title: 'Construção', status: 'watched' });
-    expect((await tonight.tonight(user.userId, { kind: 'music', exclude: ['music:construcao-chico-buarque'] })).music).toEqual([]);
 
-    // o widget abre com a sua cara: gêneros na ordem do gosto (adora primeiro, evita por último) e o tipo que mais vê
-    // hábito: com mais um filme assistido, "filme" fica claro
-    await tonight.markWatched(user.userId, { tmdbId: 12, mediaType: 'movie' });
+    // resumo sugerido (local) e melhorado; padrões do painel
+    expect((await tonight.suggestSummary(user.userId)).summary).toContain('Ilha do Medo (2010)');
+    expect(await tonight.improveSummary(user.userId, 'adoro suspense')).toEqual({ summary: 'Melhorado: adoro suspense', aiUsed: true });
     const defaults = await tonight.defaults(user.userId);
-    expect(defaults.genres[0]).toMatchObject({ key: 'thriller', group: 'love', forVideo: true });
-    expect(defaults.genres.at(-1)).toMatchObject({ key: 'horror', group: 'avoid' });
-    expect(defaults.top[0]).toBe('Suspense/Thriller');
-    expect(defaults.genres.find((g) => g.key === 'poetry')).toMatchObject({ forVideo: false });
-    expect(defaults.kind).toBe('movie');
-    expect(defaults.summary).toBe('Gosto de suspense que mexe com a cabeça.');
     expect(defaults.services.find((x) => x.key === 'netflix')).toEqual({ key: 'netflix', label: 'Netflix', selected: true });
-    expect(defaults.services.find((x) => x.key === 'globoplay')?.selected).toBe(false);
-    expect(defaults.subgenres.length).toBeGreaterThan(0);
-    expect((await get(user, '/tonight/defaults').expect(200)).body.genres).toHaveLength(defaults.genres.length);
 
-    // muitos candidatos: mostra 5 e guarda o resto; "novas sugestões" com o mesmo pedido saem do estoque, sem IA.
-    // Anime só com "Incluir animes?" (padrão: não)
-    const p1 = await tonight.tonight(user.userId, { mood: 'estoque', services: [] });
-    expect(p1.items.map((i) => i.title)).toEqual(['Filme Novo 20', 'Filme Novo 21', 'Filme Novo 22', 'Filme Novo 23', 'Filme Novo 24']);
-    expect(calls.at(-1)!.brief.anime).toBe(false);
-    const aiCalls = calls.length;
-    const p2 = await tonight.tonight(user.userId, { mood: 'estoque', services: [], exclude: p1.items.map((i) => `${i.mediaType}:${i.tmdbId}`) });
-    expect(p2.items.map((i) => i.title)).toEqual(['Filme Novo 25', 'Filme Novo 26', 'Filme Novo 27', 'Filme Novo 28', 'Filme Novo 29']);
-    expect(p2.aiUsed).toBe(true);
-    expect(calls).toHaveLength(aiCalls);
-    const withAnime = await tonight.tonight(user.userId, { mood: 'estoque', services: [], includeAnime: true });
-    expect(withAnime.items[0]).toMatchObject({ title: 'Akira', anime: true });
-    expect(calls.at(-1)!.brief.anime).toBe(true);
-
-    // HTTP: contrato; no ambiente de teste a IA está desligada
+    // HTTP: contrato; no ambiente de teste a IA está desligada (busca local roda)
     expect((await post(user, '/tonight', {}).expect(200)).body).toMatchObject({ aiUsed: false, unavailable: 'disabled', services: ['Netflix'] });
+    expect((await get(user, '/tonight/defaults').expect(200)).body.genres.length).toBeGreaterThan(0);
     expect((await get(user, '/profile/summary/suggestion').expect(200)).body.summary).toContain('Ilha do Medo');
-    expect((await post(user, '/profile/summary/improve', { text: 'adoro suspense psicológico' }).expect(200)).body).toEqual({
-      summary: 'adoro suspense psicológico',
-      aiUsed: false,
-      unavailable: 'disabled',
-    });
     await post(user, '/tonight', { exclude: ['nope'] }).expect(400);
+    await post(user, '/tonight', { sessionId: 'nope' }).expect(400);
     await post(user, '/tonight', { kind: 'podcast' }).expect(400);
     await post(user, '/tonight/watched', { tmdbId: -1, mediaType: 'movie' }).expect(400);
+  });
+
+  it('link do TMDB colado na busca traz o título exato (filme ou série), pronto para incluir', async () => {
+    const user = await newUser();
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url);
+      const body = url.pathname.endsWith('/tv/276161')
+        ? { id: 276161, name: 'Série do Link', first_air_date: '2025-05-01', genres: [{ id: 18 }], vote_average: 7.9, vote_count: 900 }
+        : url.pathname.endsWith('/movie/603')
+          ? { id: 603, title: 'Matrix', release_date: '1999-03-31', genres: [{ id: 28 }, { id: 878 }] }
+          : { results: [] };
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const search = new SearchService(db, ctx.app.get(ReviewService), ctx.app.get(LibraryService), new TmdbResolver('k'.repeat(32), fetchImpl), null);
+    const tv = await search.search(user.userId, 'https://www.themoviedb.org/tv/276161');
+    expect(tv.items).toHaveLength(1);
+    expect(tv.items[0]).toMatchObject({ tmdbId: 276161, mediaType: 'tv', kind: 'series', title: 'Série do Link', year: 2025 });
+    const movie = await search.search(user.userId, 'themoviedb.org/movie/603-the-matrix?language=pt-BR');
+    expect(movie.items[0]).toMatchObject({ tmdbId: 603, mediaType: 'movie', title: 'Matrix' });
+    // e entra na lista como qualquer resultado da busca
+    const imported = await search.import(user.userId, { items: [{ tmdbId: 276161, mediaType: 'tv' }] });
+    expect(imported.created[0]).toMatchObject({ title: 'Série do Link', status: 'to_watch' });
+    // outro site não é tratado como link do TMDB
+    expect((await search.search(user.userId, 'https://www.imdb.com/title/tt0133093/')).items.every((i) => i.tmdbId !== 603)).toBe(true);
   });
 
   it('D-23: "melhor" e lançamentos viram /discover ao vivo (serviço no Brasil, pessoa, minissérie, datas)', async () => {

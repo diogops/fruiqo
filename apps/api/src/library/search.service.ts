@@ -47,8 +47,12 @@ const UPCOMING_DAYS = 180;
 const SHORT_MAX_MIN = 40;
 /** D-23: semelhança mínima de título para sugerir a categoria no import */
 const CLASSIFY_MIN_SIMILARITY = 0.75;
+/** link de uma obra no site do TMDB (filme ou série), com ou sem o nome depois do ID */
+const TMDB_LINK = /^(?:https?:\/\/)?(?:www\.)?themoviedb\.org\/(movie|tv)\/(\d{1,9})(?:-[^/?#]*)?(?:[/?#].*)?$/i;
 /** D-24: semelhança mínima entre o palpite da IA e o TMDB para confirmar a obra */
 const AI_MATCH_MIN = 0.6;
+/** dois resultados com pontuação a menos disto, sem ano no palpite: ambíguo */
+const AI_MATCH_MARGIN = 0.05;
 const AI_MAX_RESULTS = 30;
 /** gêneros sem equivalente em séries no TMDB: Mistério (9648), Crime (80), Sci-Fi & Fantasy (10765) */
 const TV_GENRE_PROXY: Partial<Record<string, number[]>> = { thriller: [9648, 80], horror: [9648, 10765] };
@@ -136,6 +140,32 @@ export class SearchService {
             new Promise<BookHit[]>((r) => setTimeout(() => r([]), BOOKS_IN_MIXED_SEARCH_MS).unref()),
           ])
         : Promise.resolve(null);
+    // link do TMDB colado ("https://www.themoviedb.org/tv/276161-nome"): o título exato, pelo ID
+    const link = TMDB_LINK.exec(q.trim());
+    if (link) {
+      const mediaType = link[1] as 'movie' | 'tv';
+      const res = await tmdb.byId(mediaType, Number(link[2]), undefined, { titleLinks: false }).catch(() => null);
+      const hit: TmdbHit | null = res?.tmdbId
+        ? {
+            tmdbId: res.tmdbId,
+            mediaType,
+            title: res.title,
+            ...(res.year ? { year: res.year } : {}),
+            ...(res.imageUrl ? { posterUrl: res.imageUrl } : {}),
+            ...(res.overview ? { overview: res.overview } : {}),
+            popularity: 0,
+            genreIds: res.genreIds ?? [],
+            ...(res.voteAverage != null ? { voteAverage: res.voteAverage } : {}),
+            ...(res.voteCount != null ? { voteCount: res.voteCount } : {}),
+          }
+        : null;
+      const library = await this.libraryIndex(userId);
+      return {
+        query: q,
+        interpreted: { type: 'title', genres: [], aiUsed: false, sort: 'relevance' },
+        items: hit ? await this.mediaResults(tmdb, userId, [{ hit, matchedBy: 'title' }], 'relevance', library, 1) : [],
+      };
+    }
     let type: TitleSearchResponse['interpreted']['type'] = interp.type;
     let person: string | undefined;
     let aiUsed = false;
@@ -259,6 +289,7 @@ export class SearchService {
         ...(hit.voteAverage != null && hit.voteCount ? { generalRating: hit.voteAverage, generalVotes: hit.voteCount } : {}),
         ...(autoOf.get(`${hit.mediaType}:${hit.tmdbId}`) != null ? { autoRating: autoOf.get(`${hit.mediaType}:${hit.tmdbId}`)! } : {}),
         ...(isAnime(hit) ? { anime: true } : {}),
+        ...(hit.genreIds.length ? { genres: Object.keys(genresFromTmdb(hit.genreIds, hit.mediaType)) } : {}),
       };
     });
   }
@@ -500,11 +531,17 @@ export class SearchService {
       if (g.kind === 'book') return { g, hit: null };
       const mediaType = g.kind === 'series' ? ('tv' as const) : ('movie' as const);
       const multi = await tmdb.searchMulti(g.title).catch(() => null);
-      const best = multi?.titles
+      const ranked = (multi?.titles ?? [])
         .filter((hit) => !opts.kind || hit.mediaType === (opts.kind === 'series' ? 'tv' : 'movie'))
         .map((hit) => ({ hit, score: matchScore({ title: g.title, ...(g.year ? { year: g.year } : {}), mediaType }, hit) }))
-        .sort((a, b) => b.score - a.score || b.hit.popularity - a.hit.popularity)[0];
-      return { g, hit: best && best.score >= AI_MATCH_MIN ? best.hit : null };
+        .sort((a, b) => b.score - a.score || b.hit.popularity - a.hit.popularity);
+      const [best, second] = ranked;
+      if (!best || best.score < AI_MATCH_MIN) return { g, hit: null };
+      // ano informado tem de bater (±1: estreia em festival × lançamento)
+      if (g.year && best.hit.year && Math.abs(best.hit.year - g.year) > 1) return { g, hit: null };
+      // remake/homônimo quase empatado e sem ano para desempatar: ambíguo, descarta
+      if (!g.year && second && second.score >= best.score - AI_MATCH_MARGIN) return { g, hit: null };
+      return { g, hit: best.hit };
     });
     const reasonOf = new Map<string, string>();
     for (const { g, hit } of checked) if (hit && g.reason && !reasonOf.has(`${hit.mediaType}:${hit.tmdbId}`)) reasonOf.set(`${hit.mediaType}:${hit.tmdbId}`, g.reason);
