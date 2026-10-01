@@ -4,60 +4,89 @@
 // interpreta o que ele não entendeu, devolvendo o MESMO formato (enums fechados).
 import { GENRE_KEYS, type GenreKey, genreTermsIn } from '@fruiqo/taxonomy';
 
-/** Atributos qualitativos (ontologia própria). `keywords`: nomes de palavras-chave do TMDB, resolvidos no servidor. */
+/**
+ * Atributos qualitativos (ontologia própria).
+ * - `keywords`: nomes de palavras-chave do TMDB (resolvidos no servidor pelo nome; evidência forte);
+ * - `like` / `avoid`: pista de gêneros (evidência mais fraca; `avoid` sai da busca quando pedido);
+ * - `maxRuntime`: duração máxima (filmes), quando o atributo é sobre tempo.
+ */
 export const ATTRIBUTES = {
   thought_provoking: {
     label: 'faz pensar',
     terms: ['inteligente', 'inteligentes', 'que faca pensar', 'que me faca pensar', 'faz pensar', 'reflexivo', 'reflexao', 'cerebral', 'filosofico', 'profundo', 'cabeca'],
     // sem "dystopia": muita ação pós-apocalíptica (Mad Max) entrava como "inteligente"
     keywords: ['philosophy', 'artificial intelligence', 'existentialism', 'moral dilemma', 'consciousness'],
+    like: ['scifi', 'drama', 'mystery'],
+    avoid: [],
   },
   complex_plot: {
     label: 'trama complexa',
     terms: ['complexo', 'complexa', 'quebra cabeca', 'nao linear', 'enigmatico', 'mind bending', 'confuso'],
     keywords: ['nonlinear timeline', 'time loop', 'time travel', 'parallel world'],
+    like: ['mystery', 'thriller', 'scifi'],
+    avoid: [],
   },
   plot_twist: {
     label: 'com reviravolta',
     terms: ['reviravolta', 'reviravoltas', 'plot twist', 'final surpreendente', 'final inesperado', 'twist'],
     keywords: ['twist ending', 'plot twist'],
+    like: ['thriller', 'mystery'],
+    avoid: [],
   },
   light_tone: {
     label: 'leve',
-    terms: ['leve', 'levinho', 'relaxar', 'tranquilo', 'descontraido', 'despretensioso', 'sessao da tarde'],
+    terms: ['leve', 'levinho', 'relaxar', 'relaxante', 'tranquilo', 'descontraido', 'despretensioso', 'sessao da tarde', 'cansado', 'cansada', 'exausto', 'exausta', 'esgotado', 'esgotada', 'sem pensar muito'],
     keywords: ['feel-good', 'lighthearted'],
+    like: ['comedy', 'family', 'romance', 'adventure'],
+    avoid: ['horror', 'war', 'thriller', 'crime'],
   },
   feel_good: {
     label: 'para cima',
-    terms: ['feel good', 'alto astral', 'inspirador', 'motivador', 'otimista', 'pra cima'],
+    terms: ['feel good', 'alto astral', 'inspirador', 'motivador', 'otimista', 'pra cima', 'animado', 'animada', 'feliz'],
     keywords: ['feel-good', 'inspirational'],
+    like: ['comedy', 'family', 'music', 'romance'],
+    avoid: ['horror', 'war'],
   },
   true_story: {
     label: 'história real',
     terms: ['historia real', 'fatos reais', 'baseado em fatos reais', 'caso real', 'biografia', 'biografico'],
     keywords: ['based on true story', 'biography'],
+    like: ['history', 'documentary', 'drama'],
+    avoid: [],
   },
   epic: {
     label: 'épico',
     terms: ['epico', 'grandioso', 'superproducao'],
     keywords: ['epic'],
+    like: ['adventure', 'history', 'war', 'fantasy'],
+    avoid: [],
   },
   emotional: {
     label: 'emocionante',
     terms: ['emocionante', 'chorar', 'comovente', 'tocante', 'sensivel'],
     keywords: ['tearjerker'],
+    like: ['drama', 'romance'],
+    avoid: [],
   },
   fast_paced: {
     label: 'ritmo rápido',
     terms: ['sem enrolacao', 'ritmo rapido', 'agil', 'frenetico', 'eletrizante'],
     keywords: [],
+    like: ['action', 'thriller'],
+    avoid: [],
   },
   short: {
     label: 'curto',
-    terms: ['curto', 'curtinho', 'rapidinho', 'nao muito longo'],
+    terms: ['curto', 'curtinho', 'rapidinho', 'nao muito longo', 'rapido de ver'],
     keywords: [],
+    like: [],
+    avoid: [],
+    maxRuntime: 100,
   },
-} as const satisfies Record<string, { label: string; terms: readonly string[]; keywords: readonly string[] }>;
+} as const satisfies Record<
+  string,
+  { label: string; terms: readonly string[]; keywords: readonly string[]; like: readonly GenreKey[]; avoid: readonly GenreKey[]; maxRuntime?: number }
+>;
 export type Attr = keyof typeof ATTRIBUTES;
 export const ATTRIBUTE_KEYS = Object.keys(ATTRIBUTES) as Attr[];
 
@@ -89,7 +118,7 @@ const norm = (s: string) =>
 
 /** palavras que não carregam pedido (não viram "não entendi") */
 const STOP = new Set(
-  'quero queria assistir ver filme filmes serie series um uma uns umas bom boa bons boas que seja sejam mas e de do da dos das algo hoje pra para me eu com muito muita mais tipo alguma algum coisa legal hoje agora tambem ou nao noite assim isso esse essa ai la uns tenha tenham tiver ser sendo estou to tô esta ta'
+  'estou quero queria assistir ver filme filmes serie series um uma uns umas bom boa bons boas que seja sejam mas e de do da dos das algo hoje pra para me eu com muito muita mais tipo alguma algum coisa legal hoje agora tambem ou nao noite assim isso esse essa ai la uns tenha tenham tiver ser sendo estou to tô esta ta'
     .split(' '),
 );
 

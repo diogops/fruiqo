@@ -432,7 +432,7 @@ describe('RF-46: busca e importação', () => {
     // 1º a Minha Área (Duna, mesmo fora dos streamings), depois descobertas: tema (palavra-chave), mais bem
     // avaliados, recentes — só na Netflix, sem anime, sem assistido/favorito, sem o que não atende ao pedido
     expect(local.items.map((i) => i.title)).toEqual(['Duna', 'A Origem', 'Ex Machina', 'Matrix']);
-    expect(local.items[0]).toMatchObject({ fromList: true, availableOn: ['Max'], aiReason: expect.stringMatching(/^Na sua lista · ação e ficção científica · nota 8,0 no TMDB/) });
+    expect(local.items[0]).toMatchObject({ fromList: true, availableOn: ['Max'], aiReason: expect.stringMatching(/^Na sua lista · ação e ficção científica/) });
     expect(local.items[1]).toMatchObject({ availableOn: ['Netflix'], aiReason: expect.stringMatching(/^Ação e ficção científica · tema: faz pensar · nota 8,0 no TMDB/) });
     // as palavras-chave vêm resolvidas pelo nome (sem inventar IDs) e os gêneros, todos ao mesmo tempo
     const themed = urls.find((u) => u.pathname.endsWith('/discover/movie') && u.searchParams.get('with_keywords'))!;

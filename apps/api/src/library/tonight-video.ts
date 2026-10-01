@@ -13,6 +13,12 @@ import { isAnime } from '../pipeline/resolvers/tmdb.js';
 import { tmdbGenreIds } from './search-query.js';
 import { ATTRIBUTES, type Attr, type TonightPlan } from './tonight-plan.js';
 
+/** O plano pede duração máxima (filmes)? */
+export function planMaxRuntime(plan: TonightPlan): number | undefined {
+  const m = Math.min(...plan.prefer.map((a) => (ATTRIBUTES[a] as { maxRuntime?: number }).maxRuntime ?? Infinity));
+  return Number.isFinite(m) ? m : undefined;
+}
+
 export const GENRE_LABEL = new Map<string, string>(GENRES.map((g) => [g.key, g.label]));
 
 export type Source = 'list' | 'best' | 'theme' | 'recent' | 'ai';
@@ -26,6 +32,8 @@ export interface Candidate {
   genres: GenreKey[];
   /** atributos do plano que a fonte comprova (veio da busca por palavra-chave deles) */
   themes: Attr[];
+  /** veio de uma busca com a duração máxima pedida ("curto") */
+  runtimeOk?: boolean;
   /** compatibilidade com o pedido (0..1) */
   fit: number;
   /** compatibilidade com o perfil (0..1) */
@@ -69,7 +77,17 @@ export function searchFit(c: Omit<Candidate, 'score' | 'fit' | 'profile'>, plan:
   if (plan.genresAll.length) parts.push(plan.genresAll.filter((g) => c.genres.includes(g)).length / plan.genresAll.length);
   else if (plan.genresAny.length) parts.push(Math.min(1, plan.genresAny.filter((g) => c.genres.includes(g)).length / Math.min(2, plan.genresAny.length)));
   // sugestão da IA para o texto: tema provável, não comprovado
-  if (plan.prefer.length) parts.push(c.source === 'ai' ? 0.6 : plan.prefer.filter((a) => c.themes.includes(a)).length / plan.prefer.length);
+  if (plan.prefer.length) {
+    // por atributo: palavra-chave comprovada (1) > duração dentro do pedido (1) > pista de gênero (0,6) > IA (0,6)
+    const per: number[] = plan.prefer.map((a) => {
+      if (c.themes.includes(a)) return 1;
+      const def = ATTRIBUTES[a] as { like: readonly GenreKey[]; maxRuntime?: number };
+      if (def.maxRuntime && c.runtimeOk) return 1;
+      if (def.like.some((g) => c.genres.includes(g))) return 0.6;
+      return c.source === 'ai' ? 0.6 : 0;
+    });
+    parts.push(per.reduce((x, y) => x + y, 0) / per.length);
+  }
   if (plan.decade) parts.push(c.item.year && c.item.year >= plan.decade && c.item.year < plan.decade + 10 ? 1 : 0);
   return parts.length ? parts.reduce((x, y) => x + y, 0) / parts.length : 1;
 }
@@ -114,8 +132,15 @@ export function reasonFor(c: Omit<Candidate, 'score' | 'fit' | 'profile'>, plan:
   const asked = [...plan.genresAll, ...plan.genresAny].filter((g) => c.genres.includes(g));
   if (asked.length) parts.push(joinPt(asked.map((g) => GENRE_LABEL.get(g)!.toLowerCase())));
   if (c.themes.length) parts.push(`tema: ${joinPt(c.themes.map((a) => ATTRIBUTES[a].label))}`);
+  else {
+    // sem palavra-chave: cita o atributo só quando há pista concreta (gênero típico ou duração)
+    const hinted = plan.prefer.filter((a) => {
+      const def = ATTRIBUTES[a] as { like: readonly GenreKey[]; maxRuntime?: number };
+      return (def.maxRuntime && c.runtimeOk) || def.like.some((g) => c.genres.includes(g));
+    });
+    if (hinted.length) parts.push(joinPt(hinted.map((a) => ATTRIBUTES[a].label)));
+  }
   if (c.item.generalRating != null && (c.item.generalVotes ?? 0) >= 100) parts.push(`nota ${c.item.generalRating.toFixed(1).replace('.', ',')} no TMDB`);
-  if ((c.item.autoRating ?? 0) >= 4) parts.push('combina com o seu gosto');
   const text = parts.join(' · ') || 'Bem avaliado e disponível para você';
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
@@ -142,8 +167,15 @@ export function discoverParams(
   if (q.source === 'theme' && opts.keywordIds.length === 0) return null;
   const all = ids(plan.genresAll);
   const any = ids(plan.genresAny);
-  // sem gênero no pedido: os de que você gosta (qualquer um) só na fonte "best"
-  const soft = !all.length && !any.length && q.source === 'best' ? ids(opts.softGenres) : [];
+  // sem gênero no pedido: pista dos atributos ("leve" → comédia, família...) ou, sem ela, os de que
+  // você gosta (qualquer um), só na fonte "best"
+  const hint = [...new Set(plan.prefer.flatMap((a) => [...(ATTRIBUTES[a] as { like: readonly GenreKey[] }).like]))];
+  const soft = !all.length && !any.length && q.source !== 'theme' ? (hint.length ? ids(hint) : q.source === 'best' ? ids(opts.softGenres) : []) : [];
+  // o que o atributo pede para evitar ("leve" → sem terror/guerra) sai da busca
+  const avoid = [...new Set([...plan.genresNone, ...plan.prefer.flatMap((a) => [...(ATTRIBUTES[a] as { avoid: readonly GenreKey[] }).avoid])])].filter(
+    (g) => !plan.genresAll.includes(g) && !plan.genresAny.includes(g),
+  );
+  const maxRuntime = q.media === 'movie' ? Math.min(...plan.prefer.map((a) => (ATTRIBUTES[a] as { maxRuntime?: number }).maxRuntime ?? Infinity)) : Infinity;
   const genreIds = all.length ? all : any.length ? any : soft;
   const decade = plan.decade ? { fromDate: `${plan.decade}-01-01`, toDate: `${plan.decade + 9}-12-31` } : {};
   return {
@@ -151,10 +183,11 @@ export function discoverParams(
     page: q.page,
     ...(opts.providerIds.length ? { providerIds: opts.providerIds } : { availableBR: true }),
     ...(genreIds.length ? { genreIds, anyGenre: !all.length } : {}),
-    ...(plan.genresNone.length ? { withoutGenreIds: ids(plan.genresNone) } : {}),
+    ...(avoid.length ? { withoutGenreIds: ids(avoid) } : {}),
     ...(q.source === 'theme' ? { keywordIds: opts.keywordIds } : {}),
-    // recentes: com algum voto, para não trazer lançamento sem avaliação nenhuma
-    ...(q.source === 'recent' ? { minVotes: 50 } : {}),
+    ...(Number.isFinite(maxRuntime) ? { maxRuntime } : {}),
+    // recentes: com votos suficientes (lançamento sem avaliação não toma vaga)
+    ...(q.source === 'recent' ? { minVotes: 200 } : {}),
     ...decade,
   };
 }

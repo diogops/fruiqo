@@ -818,7 +818,6 @@ html.has-docked-bulkbar .toasts { bottom: calc(5.75rem + env(safe-area-inset-bot
 .chip.adv-like { color: var(--accent); border-color: rgb(34 211 238 / 0.35); background: rgb(34 211 238 / 0.08); }
 .chip.adv-avoid { opacity: 0.7; text-decoration: line-through; }
 .tonight-more { margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border, rgb(148 163 184 / 0.2)); }
-.tonight-results .search-card { align-items: flex-start; }
 @media (max-width: 640px) {
   /* celular: tudo grande o bastante para o dedo, um caminho só */
   .tonight-row { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); }
@@ -826,11 +825,9 @@ html.has-docked-bulkbar .toasts { bottom: calc(5.75rem + env(safe-area-inset-bot
   .tonight-row select, .tonight-form input, .tonight-form textarea { min-height: var(--touch, 44px); font-size: 1rem; }
   .tonight-submit .btn, .tonight-more .btn { width: 100%; min-height: var(--touch, 44px); justify-content: center; font-size: 1rem; }
   .tonight-services .chip, .tonight-advanced .chip { min-height: 38px; }
-  .tonight-actions { display: grid; grid-template-columns: 1fr 1fr; }
-  .tonight-actions > :nth-child(3) { grid-column: 1 / -1; }
-  .tonight-actions .btn { min-height: var(--touch, 44px); justify-content: center; }
-  .tonight-results .tonight-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-  .tonight-results .search-card { padding: 0.65rem; gap: 0.6rem; }
+  /* card compacto também no celular: botões numa linha, altura confortável */
+  .tonight-card .tonight-actions .btn { min-height: 36px; padding: 0.2rem 0.5rem; }
+  .tonight-checks .check { min-height: 36px; }
 }
 /* aviso de busca centralizado na tela, sem bloquear */
 .tonight-loading { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 60; padding: 1rem; }
@@ -838,11 +835,16 @@ html.has-docked-bulkbar .toasts { bottom: calc(5.75rem + env(safe-area-inset-bot
 .tonight-loading-card span { color: inherit; font-weight: 600; }
 @media (prefers-reduced-motion: no-preference) { .tonight-loading-card svg { animation: pulse 1.2s ease-in-out infinite; } }
 @keyframes pulse { 50% { opacity: 0.35; } }
-.tonight-anime { font-size: 0.9rem; }
-@media (max-width: 640px) { .tonight-anime { min-height: var(--touch, 44px); align-items: center; } }
-.tonight-understood { margin: 0.25rem 0 0.5rem; }
-.tonight-fit { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; color: var(--accent); margin-top: 0.15rem; }
 .tonight-empty { display: grid; gap: 0.5rem; justify-items: start; margin: 0.5rem 0; }
+.tonight-checks { display: flex; flex-wrap: wrap; gap: 0.35rem 1.25rem; align-items: center; font-size: 0.9rem; }
+/* card compacto: imagem e texto na mesma altura (3 linhas) */
+.tonight-results { display: grid; gap: 0.5rem; list-style: none; margin: 0; padding: 0; max-height: none; }
+.tonight-card { display: flex; gap: 0.65rem; align-items: center; padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2, transparent); }
+.tonight-card .thumb { width: 44px; height: 66px; flex: none; }
+.tonight-card-body { min-width: 0; flex: 1; display: grid; gap: 0.15rem; line-height: 1.3; }
+.tc-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tonight-card .tonight-actions { display: flex; flex-wrap: nowrap; gap: 0.25rem; align-items: center; margin-top: 0; }
+.btn.btn-sm { padding: 0.2rem 0.6rem; font-size: 0.82rem; min-height: 0; }
 .tonight-btn { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
 .tonight-form .chips { margin-bottom: 0.25rem; }
 .tonight-note { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin: 0.5rem 0; }

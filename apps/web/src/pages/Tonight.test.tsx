@@ -98,7 +98,7 @@ describe('"O que assistir hoje?" (D-25)', () => {
       services: ['netflix', 'globoplay'],
       sessionId: expect.stringMatching(/^[0-9a-f-]{36}$/),
     });
-    expect(within(list).getByText('suspense pesado')).toBeTruthy();
+    expect(within(list).getByText(/suspense pesado/)).toBeTruthy();
     expect(screen.getByText('Só o que está em: Netflix, Globoplay.')).toBeTruthy();
 
     const first = within(list).getAllByRole('listitem')[0]!;
@@ -224,7 +224,7 @@ describe('"O que assistir hoje?" (D-25)', () => {
     expect(calls.filter((c) => c.path === '/tonight')[2]!.body).toMatchObject({ genre: 'comedy', includeAnime: true, exclude: ['movie:1', 'movie:4'] });
   });
 
-  it('mostra o que entendeu, os dois índices e a Minha Área; "Incluir já vistos"; esgotou → procurar em qualquer lugar', async () => {
+  it('card compacto (título · ano / onde · motivo / ações); Minha Área; "Incluir já vistos"; esgotou → procurar em qualquer lugar', async () => {
     __setAccessToken('tok');
     let round = 0;
     const responses: TonightResponse[] = [
@@ -244,12 +244,13 @@ describe('"O que assistir hoje?" (D-25)', () => {
     const seen = await screen.findByRole('checkbox', { name: 'Incluir já vistos?' });
     expect(seen).toHaveProperty('checked', false);
     await user.click(screen.getByRole('button', { name: /Sugerir/ }));
-    expect(await screen.findByText('Ação + Ficção científica · faz pensar')).toBeTruthy();
-    expect(screen.getByText(/não entendi: noir/)).toBeTruthy();
-    const card = screen.getAllByRole('listitem')[0]!;
-    expect(within(card).getByText('Pedido 100%')).toBeTruthy();
-    expect(within(card).getByText('Perfil 92%')).toBeTruthy();
-    expect(within(card).getByText('na sua lista')).toBeTruthy();
+    const card = (await screen.findAllByRole('listitem'))[0]!;
+    // sem "Entendi", sem os índices na tela; motivo e onde assistir numa linha
+    expect(screen.queryByText(/Entendi/)).toBeNull();
+    expect(within(card).queryByText(/Pedido/)).toBeNull();
+    expect(within(card).getByText('· 2013')).toBeTruthy();
+    expect(within(card).getByText('Em: Max')).toBeTruthy();
+    expect(within(card).getByText(/Na sua lista · ação e ficção científica/)).toBeTruthy();
     expect(within(card).getByRole('button', { name: 'Assistir hoje' })).toBeTruthy();
 
     // "Incluir já vistos" com busca na tela: busca de novo, já incluindo

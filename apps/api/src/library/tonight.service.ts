@@ -10,6 +10,7 @@ import {
   discoverParams,
   type DiscoverQuery,
   hitGenres,
+  planMaxRuntime,
   isAnime,
   planAccepts,
   compareCandidates,
@@ -514,7 +515,8 @@ export class TonightService {
           const byKey = new Map(fresh.map((h) => [`${h.mediaType}:${h.tmdbId}`, h]));
           for (const item of items) {
             const h = byKey.get(`${item.mediaType}:${item.tmdbId}`)!;
-            s.pending.push(rate({ item, source, page, anime: isAnime(h), genres: hitGenres(h), themes }, plan));
+            const runtimeOk = media === 'movie' && planMaxRuntime(plan) !== undefined;
+            s.pending.push(rate({ item, source, page, anime: isAnime(h), genres: hitGenres(h), themes, ...(runtimeOk ? { runtimeOk } : {}) }, plan));
           }
         }
       }

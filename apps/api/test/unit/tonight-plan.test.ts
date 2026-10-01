@@ -1,7 +1,7 @@
 // D-25: o pedido vira plano (gêneros todos/algum/nenhum, atributos, década) e o servidor busca.
 import { describe, expect, it } from 'vitest';
 import { localPlan, planIsEmpty, planLabel, sanitizePlan } from '../../src/library/tonight-plan.js';
-import { adjustedQuality, compareCandidates, franchiseKey, GENRE_LABEL, planAccepts, rate, reasonFor, withSelectedGenre } from '../../src/library/tonight-video.js';
+import { adjustedQuality, compareCandidates, discoverParams, franchiseKey, GENRE_LABEL, planAccepts, rate, reasonFor, withSelectedGenre } from '../../src/library/tonight-video.js';
 
 const label = (g: string) => GENRE_LABEL.get(g) ?? g;
 
@@ -17,6 +17,15 @@ describe('parser local do pedido', () => {
     const p = localPlan('um suspense dos anos 90 sem reviravolta');
     expect(p).toMatchObject({ genresAll: ['thriller'], decade: 1990, avoid: ['plot_twist'], prefer: [] });
     expect(planLabel(p, label)).toBe('Suspense/Thriller · anos 90 · nada com reviravolta');
+  });
+
+  it('"estou cansado, quero algo leve e curto": leve + curto, sem IA; a busca usa pistas de gênero e duração', () => {
+    const p = localPlan('estou cansado, quero algo leve e curto');
+    expect(p).toMatchObject({ prefer: ['light_tone', 'short'], genresAll: [], unmapped: [] });
+    const params = discoverParams({ media: 'movie', source: 'best', page: 1, themes: [] }, p, { providerIds: [8], keywordIds: [], softGenres: ['crime'] })!;
+    // pista de "leve" (qualquer um): comédia, família, romance, aventura; sem terror/guerra/suspense/crime; até 100 min
+    expect(params).toMatchObject({ genreIds: [35, 10751, 10749, 12], anyGenre: true, withoutGenreIds: [27, 10752, 53, 80], maxRuntime: 100, providerIds: [8] });
+    expect(discoverParams({ media: 'movie', source: 'recent', page: 1, themes: [] }, p, { providerIds: [], keywordIds: [], softGenres: [] })).toMatchObject({ minVotes: 200 });
   });
 
   it('o que não entendeu fica em "unmapped" (motivo para chamar a IA)', () => {
@@ -62,7 +71,8 @@ describe('pontuação e motivo (só evidência)', () => {
     const sameFitBetterProfile = rate({ ...base, genres: ['action', 'scifi'], item: { ...item, generalRating: 6, autoRating: 4.8 }, source: 'theme', themes: ['thought_provoking'] }, plan);
     const fromList = rate({ ...base, genres: ['action', 'scifi'], item: { ...item, autoRating: 2 }, source: 'list', themes: [] }, plan);
     expect(themedLowRating.fit).toBe(1);
-    expect(famousNoTheme.fit).toBe(0.5);
+    // sem palavra-chave, mas ficção científica é pista de "faz pensar" (evidência mais fraca: 0,6)
+    expect(famousNoTheme.fit).toBeCloseTo(0.8);
     expect(sameFitBetterProfile.profile).toBeCloseTo(0.96);
     const order = [famousNoTheme, themedLowRating, fromList, sameFitBetterProfile].sort(compareCandidates);
     expect(order).toEqual([fromList, sameFitBetterProfile, themedLowRating, famousNoTheme]);
@@ -73,9 +83,11 @@ describe('pontuação e motivo (só evidência)', () => {
   });
 
   it('motivo: lista, gêneros pedidos, tema, nota e gosto', () => {
+    // sem "combina com o seu gosto"; o atributo só aparece com pista concreta (aqui, ficção científica)
     expect(reasonFor({ item, source: 'list', page: 1, anime: false, genres: ['action', 'scifi'], themes: [] }, plan)).toBe(
-      'Na sua lista · ação e ficção científica · nota 8,1 no TMDB · combina com o seu gosto',
+      'Na sua lista · ação e ficção científica · faz pensar · nota 8,1 no TMDB',
     );
+    expect(reasonFor({ item, source: 'best', page: 1, anime: false, genres: ['comedy'], themes: [] }, localPlan('algo leve e curto'))).toBe('Leve · nota 8,1 no TMDB');
     expect(reasonFor({ item: { ...item, autoRating: 3 }, source: 'theme', page: 1, anime: false, genres: ['action', 'scifi'], themes: ['thought_provoking'] }, plan)).toBe(
       'Ação e ficção científica · tema: faz pensar · nota 8,1 no TMDB',
     );

@@ -54,6 +54,8 @@ interface Pick {
   key: string;
   title: string;
   sub: string;
+  /** linha do título: ano (livro: ano · autor; música: artista · ano) */
+  meta?: string;
   posterUrl?: string;
   page?: { url: string; label: string };
   reason?: string;
@@ -74,6 +76,7 @@ function picksOf(data: TonightResponse | undefined): Pick[] {
     key: `${it.mediaType}:${it.tmdbId}`,
     title: it.title,
     sub: [kindLabel(it.kind), it.year, it.cast.slice(0, 2).join(', ')].filter(Boolean).join(' · '),
+    ...(it.year ? { meta: String(it.year) } : {}),
     posterUrl: it.posterUrl,
     page: { url: tmdbPageUrl(it.mediaType, it.tmdbId), label: 'TMDB' },
     reason: it.aiReason,
@@ -90,6 +93,7 @@ function picksOf(data: TonightResponse | undefined): Pick[] {
     key: `book:${b.olWorkId}`,
     title: b.title,
     sub: ['Livro', b.year, b.authors.slice(0, 2).join(', ')].filter(Boolean).join(' · '),
+    meta: [b.year, b.authors[0]].filter(Boolean).join(' · '),
     posterUrl: b.coverUrl,
     page: { url: b.url, label: 'Open Library' },
     reason: b.aiReason,
@@ -103,6 +107,7 @@ function picksOf(data: TonightResponse | undefined): Pick[] {
     key: m.key,
     title: m.title,
     sub: [kindLabel(m.kind), m.year, m.artist].filter(Boolean).join(' · '),
+    meta: [m.artist, m.year].filter(Boolean).join(' · '),
     reason: m.aiReason,
     availableOn: [],
     wantLabel: 'Quero ouvir',
@@ -388,14 +393,16 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
             </select>
           </label>
         </div>
-        {video && (
-          <label className="check tonight-anime">
-            <input type="checkbox" checked={includeAnime} onChange={(e) => changeAnime(e.target.checked)} /> Incluir animes e animações?
+        <div className="tonight-checks">
+          {video && (
+            <label className="check">
+              <input type="checkbox" checked={includeAnime} onChange={(e) => changeAnime(e.target.checked)} /> Incluir animes e animações?
+            </label>
+          )}
+          <label className="check">
+            <input type="checkbox" checked={includeSeen} onChange={(e) => changeSeen(e.target.checked)} /> Incluir já vistos?
           </label>
-        )}
-        <label className="check tonight-anime">
-          <input type="checkbox" checked={includeSeen} onChange={(e) => changeSeen(e.target.checked)} /> Incluir já vistos?
-        </label>
+        </div>
         <label>
           {kind === 'book' ? 'O que você quer ler?' : kind === 'music' ? 'O que você quer ouvir?' : 'O que você quer assistir?'} (opcional)
           <input
@@ -552,16 +559,6 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
               ))}
             {kind === 'music' && data.aiUsed && ' Sugestões da IA, sem conferência em catálogo.'}
           </p>
-          {(data.understood || data.unmapped?.length) && (
-            <p className="small tonight-understood">
-              {data.understood && (
-                <>
-                  Entendi: <strong>{data.understood}</strong>
-                </>
-              )}
-              {data.unmapped?.length ? <span className="muted"> · não entendi: {data.unmapped.join(', ')}</span> : null}
-            </p>
-          )}
           {picks.length === 0 &&
             (data.exhausted ? (
               <div className="tonight-empty">
@@ -577,38 +574,33 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
             ))}
           <ul className="search-results tonight-results" aria-label="Sugestões para hoje">
             {picks.map((p) => (
-              <li key={p.key} className="search-card">
+              <li key={p.key} className="tonight-card">
                 <WorkLink href={p.page?.url} label={`Ver ${p.title}${p.page ? ` no ${p.page.label}` : ''}`} className="work-link-thumb">
-                  <Thumb src={p.posterUrl} title={p.title} width={54} height={81} />
+                  <Thumb src={p.posterUrl} title={p.title} width={44} height={66} />
                 </WorkLink>
-                <div className="grow">
-                  <WorkLink href={p.page?.url} label={`Ver ${p.title}${p.page ? ` no ${p.page.label}` : ''}`}>
-                    <strong>{p.title}</strong>
-                    {p.page && <Icon name="external" size={13} className="work-ext-icon" />}
-                  </WorkLink>
-                  <div className="muted small tonight-sub">{p.sub}</div>
-                  {p.availableOn.length > 0 && <div className="small">Em: {p.availableOn.join(', ')}</div>}
-                  {(p.fit != null || p.profileFit != null) && (
-                    <div className="small tonight-fit" aria-label={`Compatível com o pedido: ${p.fit ?? 0}%. Com o seu perfil: ${p.profileFit ?? 0}%`}>
-                      {p.fromList && <span className="badge">na sua lista</span>}
-                      <span>Pedido {p.fit}%</span>
-                      <span>Perfil {p.profileFit}%</span>
+                <div className="tonight-card-body">
+                  <div className="tc-line">
+                    <WorkLink href={p.page?.url} label={`Ver ${p.title}${p.page ? ` no ${p.page.label}` : ''}`}>
+                      <strong>{p.title}</strong>
+                    </WorkLink>
+                    {p.meta && <span className="muted small"> · {p.meta}</span>}
+                  </div>
+                  {(p.availableOn.length > 0 || p.reason) && (
+                    <div className="tc-line small muted" title={[p.availableOn.length ? `Em: ${p.availableOn.join(', ')}` : '', p.reason ?? ''].filter(Boolean).join(' · ')}>
+                      {p.availableOn.length > 0 && <span className="tc-where">Em: {p.availableOn.join(', ')}</span>}
+                      {p.availableOn.length > 0 && p.reason && ' · '}
+                      {p.reason}
                     </div>
                   )}
-                  {p.reason && (
-                    <p className="small ai-reason">
-                      <Icon name="sparkles" size={12} /> {p.reason}
-                    </p>
-                  )}
-                  <div className="row tonight-actions">
-                    <button type="button" className="btn" disabled={busyKey === p.key} onClick={() => void act(p, 'want')}>
+                  <div className="tonight-actions">
+                    <button type="button" className="btn btn-sm" disabled={busyKey === p.key} onClick={() => void act(p, 'want')}>
                       {p.wantLabel}
                     </button>
-                    <button type="button" className="btn btn-link" disabled={busyKey === p.key} onClick={() => void act(p, 'done')}>
-                      <Icon name="check" size={14} /> {p.doneLabel}
+                    <button type="button" className="btn btn-link btn-sm" disabled={busyKey === p.key} onClick={() => void act(p, 'done')}>
+                      <Icon name="check" size={13} /> {p.doneLabel}
                     </button>
-                    <button type="button" className="btn btn-link muted" disabled={busyKey === p.key} onClick={() => skip(p)} aria-label={`Hoje não: ${p.title}`}>
-                      <Icon name="x" size={14} /> Hoje não
+                    <button type="button" className="btn btn-link btn-sm muted" disabled={busyKey === p.key} onClick={() => skip(p)} aria-label={`Hoje não: ${p.title}`}>
+                      <Icon name="x" size={13} /> Hoje não
                     </button>
                   </div>
                 </div>
