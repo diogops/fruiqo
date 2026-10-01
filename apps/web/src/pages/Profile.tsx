@@ -69,7 +69,7 @@ export function Profile() {
     if (
       next &&
       !window.confirm(
-        'Permitir IA externa? O texto que você escrever no "Como estou" e nas buscas por descrição será enviado à Anthropic (provedora do Claude), com servidores fora do Brasil, só para interpretar o pedido. Ele não é guardado nem usado para treinar modelos.',
+        'Permitir IA externa? O texto que você escrever no "Como estou" e nas buscas por descrição, e o texto lido dos prints que você importar (nunca a imagem), será enviado à Anthropic (provedora do Claude), com servidores fora do Brasil, só para interpretar o pedido e separar os títulos. Ele não é guardado nem usado para treinar modelos.',
       )
     )
       return;
@@ -211,12 +211,12 @@ export function Profile() {
           </label>
           <label className="check">
             <input type="checkbox" checked={settings.data.aiConsent} onChange={(e) => toggleAi(e.target.checked)} /> Permitir
-            IA externa no "Como estou" e na busca por descrição
+            IA externa no "Como estou", na busca por descrição e na leitura de prints
             <span className="muted small">
               {' '}
               ·{' '}
               {settings.data.aiAvailable
-                ? 'o texto vai à Anthropic, fora do Brasil, só para interpretar o pedido'
+                ? 'o texto (nunca a imagem) vai à Anthropic, fora do Brasil, só para interpretar o pedido'
                 : settings.data.aiUnavailableReason === 'tmdb_clearance_pending'
                   ? 'IA indisponível no momento: desligada até a confirmação do TMDB (decisão D-07); sua escolha fica salva'
                   : 'IA indisponível no momento; sua escolha fica salva para quando ela for ligada'}

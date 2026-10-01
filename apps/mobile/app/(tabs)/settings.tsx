@@ -54,7 +54,7 @@ export default function Settings() {
     if (!next) return void toggle({ aiConsent: false });
     Alert.alert(
       'Permitir IA externa?',
-      'O texto que você escrever no "Como estou" será enviado à Anthropic (provedora do Claude), com servidores fora do Brasil, só para interpretar o que você procura. Ele não é guardado nem usado para treinar modelos.',
+      'O texto que você escrever no "Como estou" e nas buscas por descrição, e o texto lido dos prints que você importar (nunca a imagem), será enviado à Anthropic (provedora do Claude), com servidores fora do Brasil, só para interpretar o que você procura e separar os títulos. Ele não é guardado nem usado para treinar modelos.',
       [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Permitir', onPress: () => void toggle({ aiConsent: true }) },
@@ -147,10 +147,10 @@ export default function Settings() {
           </View>
           <View style={[ui.card, { flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
             <View style={{ flex: 1, gap: 4 }}>
-              <Text style={ui.body}>Permitir IA externa no "Como estou"</Text>
+              <Text style={ui.body}>Permitir IA externa ("Como estou", busca por descrição e prints)</Text>
               <Text style={ui.muted}>
                 {privacy.aiAvailable
-                  ? 'O texto vai à Anthropic, fora do Brasil, só para interpretar o pedido.'
+                  ? 'O texto (nunca a imagem) vai à Anthropic, fora do Brasil, só para interpretar o pedido.'
                   : privacy.aiUnavailableReason === 'tmdb_clearance_pending'
                     ? 'IA indisponível no momento: desligada até a confirmação do TMDB (decisão D-07). Sua escolha fica salva.'
                     : 'IA indisponível no momento. Sua escolha fica salva para quando ela for ligada.'}
