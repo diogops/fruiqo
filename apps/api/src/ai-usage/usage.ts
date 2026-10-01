@@ -28,6 +28,9 @@ const PRICES: [prefix: string, input: number, output: number][] = [
   ['claude-sonnet-5', 2, 10],
   ['claude-sonnet-4', 3, 15],
   ['claude-haiku-4-5', 1, 5],
+  ['gpt-6.1-sol', 2, 10],
+  ['gpt-6-astra', 10, 50],
+  ['gpt-6-luna', 0.1, 0.5],
 ];
 
 export function priceOf(model: string): { input: number; output: number } | null {

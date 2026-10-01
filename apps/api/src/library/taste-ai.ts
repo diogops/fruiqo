@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { Env } from '../config/env.js';
 import { trackingClient } from '../ai-usage/usage.js';
 import { type LlmClient, PipelineGateway } from '../pipeline/gateway.js';
+import { openAiLlmClient } from './openai-llm.js';
 import { ATTRIBUTE_KEYS, sanitizePlan, type TonightPlan } from './tonight-plan.js';
 
 // D-25: IA do perfil de gosto, em dois usos:
@@ -239,6 +240,8 @@ export class AnthropicTasteAi implements TasteAi {
       model: string;
       /** interpretar o pedido (tarefa simples: modelo barato acerta igual; ausente = `model`) */
       planModel?: string;
+      /** D-26: gerador de títulos em outro provedor (cliente com a mesma forma) */
+      titles?: { client: LlmClient; model: string };
       dailyQuota: number;
       client: LlmClient;
       /** profundidade do raciocínio na sugestão (o raciocínio conta como saída); ausente = padrão do modelo */
@@ -322,12 +325,30 @@ export class AnthropicTasteAi implements TasteAi {
     if (!this.take(userId)) return { ok: false, reason: 'quota' };
     try {
       // uma chamada só: o pedido já vai otimizado
-      const res = (await this.opts.client.messages.parse(
-        this.params(tonightSystem(kind, max), Picks, `<request>\n${request}\n</request>\n<constraints>\n${constraints}\n</constraints>`, 4000 + max * 120, this.opts.effort),
-      )) as ParsedResponse;
-      if (res.stop_reason === 'refusal' || res.stop_reason === 'max_tokens') return { ok: false, reason: 'failed' };
-      const parsed = Picks.safeParse(res.parsed_output);
-      if (!parsed.success) return { ok: false, reason: 'failed' };
+      const call = async (client: LlmClient, model: string) => {
+        const res = (await client.messages.parse(
+          this.params(
+            tonightSystem(kind, max),
+            Picks,
+            `<request>\n${request}\n</request>\n<constraints>\n${constraints}\n</constraints>`,
+            4000 + max * 120,
+            this.opts.effort,
+            model,
+          ),
+        )) as ParsedResponse;
+        if (res.stop_reason === 'refusal' || res.stop_reason === 'max_tokens') return null;
+        const p = Picks.safeParse(res.parsed_output);
+        return p.success ? p : null;
+      };
+      const titles = this.opts.titles;
+      let parsed: Awaited<ReturnType<typeof call>> = null;
+      if (titles) {
+        // D-26: outro provedor fora, recusou ou respondeu fora do formato → modelo principal da Anthropic
+        // (o que conhece obras; o Haiku errava 2 de 3 títulos). Uma tentativa só, sem repetir.
+        parsed = await call(titles.client, titles.model).catch(() => null);
+      }
+      parsed ??= await call(this.opts.client, this.opts.model);
+      if (!parsed) return { ok: false, reason: 'failed' };
       const allowed = new Set(KIND_OK[kind ?? 'video']);
       const seen = new Set<string>();
       const picks: TonightPick[] = parsed.data.p
@@ -371,5 +392,13 @@ export function createTasteAi(env: Env, gateway?: PipelineGateway): TasteAi | nu
     ...(env.AI_TONIGHT_EFFORT ? { effort: env.AI_TONIGHT_EFFORT } : {}),
     // o modelo pensa antes de responder: pode levar mais de um minuto
     client: trackingClient(gw.llmClient(() => new Anthropic({ maxRetries: 1, timeout: 180_000 }) as unknown as LlmClient)),
+    ...(env.AI_TONIGHT_TITLES_PROVIDER === 'openai' && env.OPENAI_API_KEY
+      ? {
+          titles: {
+            model: env.AI_TONIGHT_OPENAI_MODEL,
+            client: trackingClient(gw.llmClient(() => openAiLlmClient({ apiKey: env.OPENAI_API_KEY!, timeoutMs: 180_000 }))),
+          },
+        }
+      : {}),
   });
 }

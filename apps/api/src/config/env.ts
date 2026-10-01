@@ -67,6 +67,13 @@ const EnvSchema = z.object({
   AI_TONIGHT_MODEL: z.string().default('claude-opus-5-5'),
   /** D-25: modelo que interpreta o pedido do "O que assistir hoje?" (tarefa simples) */
   AI_TONIGHT_PLAN_MODEL: z.string().default('claude-haiku-4-5'),
+  /**
+   * D-26: quem gera os nomes de títulos do "O que assistir hoje?". `openai` só com OPENAI_API_KEY e a
+   * D-26 aceita (docs/phase0/openai-api-tos.md); interpretar o pedido e o resumo seguem na Anthropic.
+   */
+  AI_TONIGHT_TITLES_PROVIDER: z.enum(['anthropic', 'openai']).default('anthropic'),
+  AI_TONIGHT_OPENAI_MODEL: z.string().default('gpt-6.1-sol'),
+  OPENAI_API_KEY: optionalSecret,
   /** profundidade do raciocínio na sugestão (o raciocínio conta como saída: custo × qualidade); o passo de melhorar o pedido roda sempre em `low` */
   AI_TONIGHT_EFFORT: z.enum(['low', 'medium', 'high']).default('low'),
   /** preço por milhão de tokens do AI_MODEL (padrão: Haiku 4.5, US$ 1 / US$ 5) */
@@ -119,6 +126,10 @@ const EnvSchema = z.object({
   LLM_PRICE_IN_PER_MTOK: z.coerce.number().min(0).default(0),
   LLM_PRICE_OUT_PER_MTOK: z.coerce.number().min(0).default(0),
 }).superRefine((env, ctx) => {
+  // Fail-closed: OpenAI escolhida sem chave não cai em silêncio para outro provedor
+  if (env.AI_TONIGHT_TITLES_PROVIDER === 'openai' && !env.OPENAI_API_KEY) {
+    ctx.addIssue({ code: 'custom', path: ['OPENAI_API_KEY'], message: 'obrigatória com AI_TONIGHT_TITLES_PROVIDER=openai' });
+  }
   // Fail-closed: gravação e respostas simuladas não existem em produção (RF-20).
   if (env.NODE_ENV === 'production' && env.PIPELINE_MODE !== 'live') {
     ctx.addIssue({ code: 'custom', path: ['PIPELINE_MODE'], message: 'só live em produção' });
