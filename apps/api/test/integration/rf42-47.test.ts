@@ -328,7 +328,7 @@ describe('RF-46: busca e importação', () => {
 
   it('D-25: "assistir hoje" (humor, tipo, gênero, streaming) e resumo sugerido/melhorado; tira assistidos, favoritos e já mostrados', async () => {
     const user = await newUser();
-    const movies: Record<number, { title: string; original?: string; date: string; providers?: string[] }> = {
+    const movies: Record<number, { title: string; original?: string; date: string; providers?: string[]; lang?: string; genres?: number[] }> = {
       11: { title: 'Fresh', date: '2022-03-04', providers: ['Disney Plus'] },
       12: { title: 'A Mão do Diabo', original: 'Frailty', date: '2001-04-12', providers: ['Netflix'] },
       13: { title: 'Prisioneiros', date: '2013-09-20', providers: ['Netflix'] },
@@ -336,7 +336,10 @@ describe('RF-46: busca e importação', () => {
       15: { title: 'Zodíaco', date: '2007-03-02' },
       16: { title: 'Só na Locadora', date: '2016-01-01', providers: ['Globoplay'] },
       17: { title: 'Matrix', date: '1999-03-31', providers: ['Netflix'] },
+      30: { title: 'Akira', date: '1988-07-16', lang: 'ja', genres: [16, 878] },
     };
+    // estoque: 10 títulos novos, sem streaming (busca "em qualquer lugar")
+    for (let i = 20; i < 30; i++) movies[i] = { title: `Filme Novo ${i}`, date: '2015-01-01' };
     const discovered: URL[] = [];
     const byName = new Map<string, number>();
     for (const [id, m] of Object.entries(movies)) {
@@ -346,7 +349,16 @@ describe('RF-46: busca e importação', () => {
     const fetchImpl = (async (input: RequestInfo | URL) => {
       const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url);
       let body: unknown = { results: [] };
-      const hit = (id: number) => ({ id, media_type: 'movie', title: movies[id]!.title, original_title: movies[id]!.original ?? movies[id]!.title, release_date: movies[id]!.date, popularity: 10 });
+      const hit = (id: number) => ({
+        id,
+        media_type: 'movie',
+        title: movies[id]!.title,
+        original_title: movies[id]!.original ?? movies[id]!.title,
+        release_date: movies[id]!.date,
+        popularity: 10,
+        genre_ids: movies[id]!.genres ?? [],
+        ...(movies[id]!.lang ? { original_language: movies[id]!.lang } : {}),
+      });
       if (url.pathname.endsWith('/search/multi')) {
         const id = byName.get(url.searchParams.get('query') ?? '');
         if (id) body = { results: [hit(id)] };
@@ -372,6 +384,10 @@ describe('RF-46: busca e importação', () => {
       improveSummary: async (text) => ({ ok: true, value: `Melhorado: ${text}` }),
       tonight: async (brief, _userId, kind) => {
         calls.push({ brief, ...(kind ? { kind } : {}) });
+        if (brief.mood === 'estoque') {
+          const titles = ['Akira', ...Array.from({ length: 10 }, (_, i) => `Filme Novo ${20 + i}`)];
+          return { ok: true, value: { picks: titles.map((title) => ({ title, kind: 'movie' as const, reason: 'estoque' })), request: 'pedido estoque' } };
+        }
         if (kind === 'music') return { ok: true, value: { picks: [{ title: 'Construção', kind: 'music_track', creator: 'Chico Buarque', reason: 'MPB densa' }], request: 'pedido' } };
         const titles = ['Fresh', 'Frailty', 'Prisioneiros', 'Ilha do Medo', 'Zodíaco', 'Só na Locadora', 'Inexistente'];
         return { ok: true, value: { picks: titles.map((title) => ({ title, kind: 'movie' as const, reason: `por que ${title}` })), request: 'pedido otimizado' } };
@@ -457,9 +473,16 @@ describe('RF-46: busca e importação', () => {
       aiReason: 'Atende ao seu pedido: ação e ficção científica; bem avaliado.',
     });
 
+    const before = calls.length;
     const again = await tonight.tonight(user.userId, { exclude: ['movie:12'] });
     expect(again.items.map((i) => i.title)).toEqual(['Prisioneiros']);
-    expect(calls.at(-1)!.brief.avoid).toEqual(['A Mão do Diabo (2001)']);
+    // 1ª rodada: a IA é avisada do que já apareceu, pelo nome
+    expect(calls[before]!.brief.avoid).toEqual(['A Mão do Diabo (2001)']);
+    // faltaram sugestões: 2ª rodada, já sabendo o que ela sugeriu e não serviu (visto, favorito, fora dos serviços)
+    expect(calls).toHaveLength(before + 2);
+    expect(calls[before + 1]!.brief.avoid).toEqual(expect.arrayContaining(['A Mão do Diabo (2001)', 'Zodíaco (2007)', 'Ilha do Medo (2010)', 'Fresh (2022)', 'Prisioneiros (2013)']));
+    // histórico vai como amostra do que já viu, não a lista inteira
+    expect(calls[before]!.brief.seen).toEqual(expect.arrayContaining([{ title: 'Zodíaco', year: 2007 }]));
 
     // "já assisti" grava como assistido e o título não volta
     const watched = await tonight.markWatched(user.userId, { tmdbId: 13, mediaType: 'movie' });
@@ -489,6 +512,20 @@ describe('RF-46: busca e importação', () => {
     expect(defaults.services.find((x) => x.key === 'globoplay')?.selected).toBe(false);
     expect(defaults.subgenres.length).toBeGreaterThan(0);
     expect((await get(user, '/tonight/defaults').expect(200)).body.genres).toHaveLength(defaults.genres.length);
+
+    // muitos candidatos: mostra 5 e guarda o resto; "novas sugestões" com o mesmo pedido saem do estoque, sem IA.
+    // Anime só com "Incluir animes?" (padrão: não)
+    const p1 = await tonight.tonight(user.userId, { mood: 'estoque', services: [] });
+    expect(p1.items.map((i) => i.title)).toEqual(['Filme Novo 20', 'Filme Novo 21', 'Filme Novo 22', 'Filme Novo 23', 'Filme Novo 24']);
+    expect(calls.at(-1)!.brief.anime).toBe(false);
+    const aiCalls = calls.length;
+    const p2 = await tonight.tonight(user.userId, { mood: 'estoque', services: [], exclude: p1.items.map((i) => `${i.mediaType}:${i.tmdbId}`) });
+    expect(p2.items.map((i) => i.title)).toEqual(['Filme Novo 25', 'Filme Novo 26', 'Filme Novo 27', 'Filme Novo 28', 'Filme Novo 29']);
+    expect(p2.aiUsed).toBe(true);
+    expect(calls).toHaveLength(aiCalls);
+    const withAnime = await tonight.tonight(user.userId, { mood: 'estoque', services: [], includeAnime: true });
+    expect(withAnime.items[0]).toMatchObject({ title: 'Akira', anime: true });
+    expect(calls.at(-1)!.brief.anime).toBe(true);
 
     // HTTP: contrato; no ambiente de teste a IA está desligada
     expect((await post(user, '/tonight', {}).expect(200)).body).toMatchObject({ aiUsed: false, unavailable: 'disabled', services: ['Netflix'] });

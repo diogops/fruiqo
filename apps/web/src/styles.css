@@ -838,6 +838,8 @@ html.has-docked-bulkbar .toasts { bottom: calc(5.75rem + env(safe-area-inset-bot
 .tonight-loading-card span { color: inherit; font-weight: 600; }
 @media (prefers-reduced-motion: no-preference) { .tonight-loading-card svg { animation: pulse 1.2s ease-in-out infinite; } }
 @keyframes pulse { 50% { opacity: 0.35; } }
+.tonight-anime { font-size: 0.9rem; }
+@media (max-width: 640px) { .tonight-anime { min-height: var(--touch, 44px); align-items: center; } }
 .tonight-btn { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
 .tonight-form .chips { margin-bottom: 0.25rem; }
 .tonight-note { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin: 0.5rem 0; }

@@ -1306,6 +1306,8 @@ export const TitleSearchResultSchema = z.object({
   generalVotes: z.number().int().nonnegative().optional(),
   /** D-23: nota automática (0..5) pelo seu gosto, calculada localmente */
   autoRating: z.number().min(0).max(5).optional(),
+  /** anime (animação de origem japonesa) */
+  anime: z.boolean().optional(),
 });
 export type TitleSearchResult = z.infer<typeof TitleSearchResultSchema>;
 
@@ -1434,6 +1436,8 @@ export const TonightRequestSchema = z
     kind: z.enum(['movie', 'series', 'book', 'music']).optional(),
     /** gênero escolhido (taxonomia para filme/série/livro; texto curto para música) */
     genre: z.string().trim().min(1).max(40).optional(),
+    /** filme/série: trazer animes também (padrão: não) */
+    includeAnime: z.boolean().optional(),
     /**
      * filme/série: em quais streamings procurar (chaves do Perfil, ex. "netflix"). Ausente = os que
      * você marcou no Perfil; vazio = em qualquer lugar (sem filtro)

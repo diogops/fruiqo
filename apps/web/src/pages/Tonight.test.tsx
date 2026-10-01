@@ -189,6 +189,7 @@ describe('"O que assistir hoje?" (D-25)', () => {
     const responses: TonightResponse[] = [
       { aiUsed: true, services: ['Netflix'], items: [item(1, 'Prisioneiros', 'a')] },
       { aiUsed: true, services: ['Netflix'], items: [item(4, 'Se Beber, Não Case!', 'b')] },
+      { aiUsed: true, services: ['Netflix'], items: [item(5, 'Akira', 'c')] },
     ];
     const { calls } = mockApi({ 'GET /tonight/defaults': defaults, 'POST /tonight': () => ({ body: responses[round++] }) });
     const user = userEvent.setup();
@@ -206,7 +207,16 @@ describe('"O que assistir hoje?" (D-25)', () => {
     const posts = calls.filter((c) => c.path === '/tonight');
     expect(posts).toHaveLength(2);
     expect(posts[1]!.body).toMatchObject({ genre: 'comedy' });
-    expect((posts[1]!.body as { exclude?: string[] }).exclude).toBeUndefined();
+    // o que já apareceu não volta, nem trocando o gênero
+    expect(posts[1]!.body).toMatchObject({ exclude: ['movie:1'] });
+    expect((posts[1]!.body as { includeAnime?: boolean }).includeAnime).toBeUndefined();
+
+    // "Incluir animes?" vem desmarcado; marcar com busca na tela busca de novo, já com animes
+    const anime = screen.getByRole('checkbox', { name: 'Incluir animes?' });
+    expect(anime).toHaveProperty('checked', false);
+    await user.click(anime);
+    await waitFor(() => expect(calls.filter((c) => c.path === '/tonight')).toHaveLength(3));
+    expect(calls.filter((c) => c.path === '/tonight')[2]!.body).toMatchObject({ genre: 'comedy', includeAnime: true, exclude: ['movie:1', 'movie:4'] });
   });
 
   it('sem IA: explica, e sem streaming cadastrado convida a cadastrar; risco mostra o CVV', async () => {

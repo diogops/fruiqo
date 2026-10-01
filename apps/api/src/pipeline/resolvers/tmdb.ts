@@ -25,6 +25,7 @@ const SearchHit = z.object({
   genre_ids: z.array(z.number().int()).optional(),
   vote_average: z.number().optional(),
   vote_count: z.number().int().optional(),
+  original_language: z.string().optional(),
 });
 type Hit = z.infer<typeof SearchHit>;
 const SearchSchema = z.object({ results: z.array(SearchHit) });
@@ -131,6 +132,13 @@ export interface TmdbHit {
   voteCount?: number;
   /** AAAA-MM-DD (lançamento do filme ou estreia da série) */
   releaseDate?: string;
+  /** idioma original (ISO 639-1), ex. "ja" */
+  originalLanguage?: string;
+}
+
+/** Anime: animação (gênero 16 do TMDB) de idioma original japonês. */
+export function isAnime(h: Pick<TmdbHit, 'genreIds' | 'originalLanguage'>): boolean {
+  return h.genreIds.includes(16) && h.originalLanguage === 'ja';
 }
 
 const MAX_ALTERNATIVES = 3;
@@ -407,6 +415,7 @@ function toHit(r: Hit): TmdbHit | null {
     ...(r.overview ? { overview: r.overview } : {}),
     popularity: r.popularity ?? 0,
     genreIds: r.genre_ids ?? [],
+    ...(r.original_language ? { originalLanguage: r.original_language } : {}),
     ...(r.vote_count ? { voteAverage: round1(r.vote_average ?? 0), voteCount: r.vote_count } : {}),
     ...((r.release_date || r.first_air_date) && /^\d{4}-\d{2}-\d{2}$/.test((r.release_date || r.first_air_date)!) ? { releaseDate: (r.release_date || r.first_air_date)! } : {}),
   };

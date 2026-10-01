@@ -45,6 +45,7 @@ describe('pedido otimizado no código (D-25)', () => {
       'Pedido de hoje (prioridade máxima; toda sugestão tem que atender): cansado, quero algo leve',
       'Hoje: filme de Comédia',
       'Onde vai assistir: Netflix, Max',
+      'Sem anime (animação japonesa)',
       'Adora: Suspense/Thriller',
       'Gosta: Drama, Crime, Thriller psicológico',
       'Evita: Romance, Slasher',

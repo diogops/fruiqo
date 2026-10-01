@@ -21,7 +21,7 @@ import { loadFitContext } from './fit-context.js';
 import { dedupKey } from '../pipeline/dedup.js';
 import { matchScore, similarity } from '../pipeline/resolvers/match.js';
 import { type BookHit, displayTitle, type OpenLibraryResolver } from '../pipeline/resolvers/openlibrary.js';
-import type { TmdbHit, TmdbResolver } from '../pipeline/resolvers/tmdb.js';
+import { isAnime, type TmdbHit, type TmdbResolver } from '../pipeline/resolvers/tmdb.js';
 import { llmSafeInput } from './mood-interpreter.js';
 import { LibraryService } from './library.service.js';
 import { ReviewService } from './review.service.js';
@@ -258,6 +258,7 @@ export class SearchService {
         matchedBy,
         ...(hit.voteAverage != null && hit.voteCount ? { generalRating: hit.voteAverage, generalVotes: hit.voteCount } : {}),
         ...(autoOf.get(`${hit.mediaType}:${hit.tmdbId}`) != null ? { autoRating: autoOf.get(`${hit.mediaType}:${hit.tmdbId}`)! } : {}),
+        ...(isAnime(hit) ? { anime: true } : {}),
       };
     });
   }

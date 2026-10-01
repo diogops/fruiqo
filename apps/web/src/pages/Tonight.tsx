@@ -117,6 +117,8 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
   const [kind, setKind] = useState<KindChoice>('');
   const [genre, setGenre] = useState('');
   const [mood, setMood] = useState('');
+  // filme/série: anime só quando pedido
+  const [includeAnime, setIncludeAnime] = useState(false);
   // streamings desta busca (padrão: os do Perfil); nenhum = em qualquer lugar
   const [services, setServices] = useState<Set<string> | null>(null);
   // "Avançado": o perfil só para esta busca, já preenchido com o salvo
@@ -156,6 +158,7 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
         ...(mood.trim() ? { mood: mood.trim() } : {}),
         ...(exclude.length ? { exclude: exclude.slice(-100) } : {}),
         ...(video && services ? { services: [...services] } : {}),
+        ...(video && includeAnime ? { includeAnime: true } : {}),
         ...(advChanged && adv
           ? {
               profile: {
@@ -185,7 +188,7 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
   // trocou tipo ou gênero com uma busca na tela: limpa e busca de novo (já com a escolha nova)
   const [restart, setRestart] = useState(0);
   useEffect(() => {
-    if (restart > 0) ask.mutate([]);
+    if (restart > 0) ask.mutate(shownRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restart]);
 
@@ -199,10 +202,17 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
     if (searched) setRestart((n) => n + 1);
   }
 
+  function changeAnime(on: boolean) {
+    setIncludeAnime(on);
+    if (ask.data) {
+      ask.reset();
+      setRestart((n) => n + 1);
+    }
+  }
+
   function changeGenre(g: string) {
     setGenre(g);
     if (ask.data) {
-      setShown([]);
       ask.reset();
       setRestart((n) => n + 1);
     }
@@ -251,9 +261,13 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
     }
   }
 
+  // nada que já apareceu neste painel volta (nem em "Buscar de novo"); só zera ao trocar o tipo
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
+
   function submit(e?: FormEvent) {
     e?.preventDefault();
-    ask.mutate([]);
+    ask.mutate(shown);
   }
 
   /** "Hoje não": sai desta busca (e das "novas sugestões" dela), sem gravar nada */
@@ -336,6 +350,11 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
             </select>
           </label>
         </div>
+        {video && (
+          <label className="check tonight-anime">
+            <input type="checkbox" checked={includeAnime} onChange={(e) => changeAnime(e.target.checked)} /> Incluir animes?
+          </label>
+        )}
         <label>
           {kind === 'book' ? 'O que você quer ler?' : kind === 'music' ? 'O que você quer ouvir?' : 'O que você quer assistir?'} (opcional)
           <input
