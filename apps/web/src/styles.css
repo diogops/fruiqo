@@ -1160,6 +1160,11 @@ select[data-from='tmdb'] { border-color: var(--accent, #4f8cff); }
 .tonight-more { justify-content: center; border-top: 0; margin-top: 0; padding-top: 0; }
 
 .poster { display: block; width: 100%; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 10px; background: var(--surface-2); box-shadow: var(--shadow-1); }
+/* o cartaz aparece suave quando carrega (antes, o fundo da superfície) */
+img.poster { opacity: 0; }
+img.poster.loaded { opacity: 1; }
+@media (prefers-reduced-motion: no-preference) { img.poster { transition: opacity 260ms var(--ease), transform 200ms var(--ease), box-shadow 200ms var(--ease); } }
+.tonight-poster, .shelf-poster { background: var(--surface-2); border-radius: 10px; }
 .poster-fallback { display: grid; place-items: center; font-size: 2rem; font-weight: 700; color: var(--muted); }
 .poster-badge { position: absolute; left: 6px; bottom: 6px; padding: 0.1rem 0.45rem; border-radius: 999px; font-size: 0.68rem; font-weight: 600; background: rgb(15 23 42 / 0.82); color: #e8eef9; backdrop-filter: blur(4px); }
 .poster-rating { position: absolute; right: 6px; top: 6px; display: inline-flex; align-items: center; gap: 0.2rem; padding: 0.1rem 0.4rem; border-radius: 999px; font-size: 0.72rem; font-weight: 700; background: rgb(15 23 42 / 0.82); color: #fbbf24; backdrop-filter: blur(4px); }

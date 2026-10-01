@@ -95,6 +95,8 @@ export interface DiscoverBrowse {
   /** `newest`: pela data de lançamento, do mais novo para o mais velho */
   /** D-25: país de origem (ISO 3166), qualquer um */
   originCountries?: string[];
+  /** D-25: nota geral mínima (0..10) */
+  minRating?: number;
   sort: 'best' | 'popular' | 'newest';
   page?: number;
   /** disponível no Brasil por assinatura ou de graça (sem exigir um serviço específico) */
@@ -323,6 +325,7 @@ export class TmdbResolver {
     if (o.withoutGenreIds?.length) params.set('without_genres', o.withoutGenreIds.join(','));
     if (o.keywordIds?.length) params.set('with_keywords', o.keywordIds.join('|'));
     if (o.originCountries?.length) params.set('with_origin_country', o.originCountries.join('|'));
+    if (o.minRating) params.set('vote_average.gte', String(o.minRating));
     if (o.providerIds?.length) {
       params.set('with_watch_providers', o.providerIds.join('|'));
       params.set('watch_region', 'BR');

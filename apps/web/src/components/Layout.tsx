@@ -233,16 +233,18 @@ export function Layout() {
                   <Icon name="search" />
                 </button>
               )}
-              <button
-                type="button"
-                className={isSmall ? 'icon-btn tonight-btn' : 'btn btn-primary tonight-btn'}
-                aria-label="O que assistir hoje?"
-                title="O que assistir hoje?"
-                onClick={() => navigate('/hoje')}
-              >
-                <Icon name="sparkles" size={isSmall ? 18 : 14} />
-                {!isSmall && <span>O que assistir hoje?</span>}
-              </button>
+              {location.pathname !== '/hoje' && (
+                <button
+                  type="button"
+                  className={isSmall ? 'icon-btn tonight-btn' : 'btn btn-primary tonight-btn'}
+                  aria-label="O que assistir hoje?"
+                  title="O que assistir hoje?"
+                  onClick={() => navigate('/hoje')}
+                >
+                  <Icon name="sparkles" size={isSmall ? 18 : 14} />
+                  {!isSmall && <span>O que assistir hoje?</span>}
+                </button>
+              )}
               <ThemeToggle />
               <Menu
                 label="Menu do usuário"

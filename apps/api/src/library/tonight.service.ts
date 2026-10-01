@@ -72,6 +72,15 @@ const SHELF_SIZE = 18;
 const SHELF_TTL_MS = 3_600_000;
 /** fora das prateleiras: animação (só quando pedida, como na busca) e, em séries, jornal, reality, novela e talk show */
 const SHELF_NOISE = { movie: [16], tv: [16, 10763, 10764, 10766, 10767] } as const;
+/** ação e ficção científica: só o que é recente e bem avaliado (sem procedural antigo de 20 temporadas) */
+const SHELF_RECENT_YEARS = 8;
+const SHELF_MIN_RATING = 6.8;
+const SHELF_MIN_VOTES = 300;
+/**
+ * Série de "ficção científica" no TMDB é "Sci-Fi & Fantasy" (vampiro e bruxa entram): na prateleira, a
+ * série precisa de uma palavra-chave de ficção de verdade.
+ */
+const SCIFI_TV_KEYWORDS = ['science fiction', 'space', 'outer space', 'dystopia', 'alien', 'time travel', 'artificial intelligence (a.i.)', 'cyberpunk', 'post-apocalyptic future'];
 /** o que foi sugerido fica lembrado por um tempo, para "novas sugestões" não repetirem */
 const SHOWN_TTL_MS = 6 * 3_600_000;
 
@@ -653,11 +662,27 @@ export class TonightService {
     const where = providerIds.length ? { providerIds } : { availableBR: true };
     const day = (offset: number) => new Date(Date.now() - offset * 86_400_000).toISOString().slice(0, 10);
     type Media = 'movie' | 'tv';
+    // o que você evita (níveis "não curto"/"detesto" ou excluídos) não aparece nas prateleiras
+    const avoided = (await this.defaults(userId)).genres.filter((g) => g.group === 'avoid').map((g) => g.key as GenreKey);
+    const noise = (m: Media) => [...new Set([...SHELF_NOISE[m], ...tmdbGenreIds(avoided, m)])];
+    const scifiTv = await this.keywordIdsByName(SCIFI_TV_KEYWORDS);
+    const curated = { fromDate: day(365 * SHELF_RECENT_YEARS), minVotes: SHELF_MIN_VOTES, minRating: SHELF_MIN_RATING };
     const defs: { key: TonightShelvesResponse['shelves'][number]['key']; label: string; params: (m: Media) => Parameters<TmdbResolver['discoverBrowse']>[1] }[] = [
       // estreias dos últimos meses (série: estreia da 1ª temporada), já com algum voto
-      { key: 'new', label: 'Lançamentos', params: (m) => ({ ...where, sort: 'popular', fromDate: day(m === 'movie' ? 120 : 180), toDate: day(0), minVotes: 10, withoutGenreIds: [...SHELF_NOISE[m]] }) },
-      { key: 'action', label: 'Ação', params: (m) => ({ ...where, sort: 'popular', genreIds: tmdbGenreIds(['action'], m), minVotes: 200, withoutGenreIds: [...SHELF_NOISE[m]] }) },
-      { key: 'scifi', label: 'Ficção científica', params: (m) => ({ ...where, sort: 'popular', genreIds: tmdbGenreIds(['scifi'], m), minVotes: 200, withoutGenreIds: [...SHELF_NOISE[m]] }) },
+      { key: 'new', label: 'Lançamentos', params: (m) => ({ ...where, sort: 'popular', fromDate: day(m === 'movie' ? 120 : 180), toDate: day(0), minVotes: 10, withoutGenreIds: noise(m) }) },
+      { key: 'action', label: 'Ação', params: (m) => ({ ...where, ...curated, sort: 'popular', genreIds: tmdbGenreIds(['action'], m), withoutGenreIds: noise(m) }) },
+      {
+        key: 'scifi',
+        label: 'Ficção científica',
+        params: (m) => ({
+          ...where,
+          ...curated,
+          sort: 'popular',
+          genreIds: tmdbGenreIds(['scifi'], m),
+          withoutGenreIds: noise(m),
+          ...(m === 'tv' && scifiTv.length ? { keywordIds: scifiTv } : {}),
+        }),
+      },
     ];
     const shelves = await Promise.all(
       defs.map(async (d) => {
@@ -788,16 +813,25 @@ export class TonightService {
     return ids;
   }
 
-  private async resolveKeywords(attrs: Attr[]): Promise<number[]> {
+  /** IDs de palavras-chave pelo nome exato (cache do serviço). */
+  private async keywordIdsByName(names: string[]): Promise<number[]> {
     if (!this.tmdb) return [];
-    const names = [...new Set(attrs.flatMap((a) => [...ATTRIBUTES[a].keywords]))];
     const ids = await Promise.all(
       names.map(async (n) => {
-        if (!this.keywordIds.has(n)) this.keywordIds.set(n, await this.tmdb!.searchKeyword(n).catch(() => null));
+        if (!this.keywordIds.has(n)) {
+          const id = await this.tmdb!.searchKeyword(n).catch(() => undefined);
+          // falha de rede não fica guardada (tenta de novo na próxima); "não existe" fica
+          if (id === undefined) return null;
+          this.keywordIds.set(n, id);
+        }
         return this.keywordIds.get(n) ?? null;
       }),
     );
     return ids.filter((x): x is number => x != null);
+  }
+
+  private async resolveKeywords(attrs: Attr[]): Promise<number[]> {
+    return this.keywordIdsByName([...new Set(attrs.flatMap((a) => [...ATTRIBUTES[a].keywords]))]);
   }
 
   private async likedGenres(userId: string): Promise<GenreKey[]> {

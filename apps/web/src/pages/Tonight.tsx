@@ -347,7 +347,7 @@ export function TonightPage() {
   }
 
   const placeholder =
-    kind === 'book' ? 'Ex.: algo leve para ler antes de dormir' : kind === 'music' ? 'Ex.: algo animado para cozinhar' : 'Ex.: um filme baseado em história real, inteligente';
+    kind === 'book' ? 'Ex.: algo leve para ler' : kind === 'music' ? 'Ex.: algo animado para cozinhar' : 'Ex.: suspense nórdico, história real…';
 
   return (
     <div className="tonight-page">
@@ -629,7 +629,18 @@ export function TonightPage() {
 /** Capa grande (2:3); sem capa ou com erro, a inicial do título. */
 function Poster({ src, title }: { src?: string | null; title: string }) {
   const [failed, setFailed] = useState<string | null>(null);
-  if (src && failed !== src) return <img className="poster" src={src} alt="" loading="lazy" onError={() => setFailed(src)} />;
+  const [loaded, setLoaded] = useState<string | null>(null);
+  if (src && failed !== src)
+    return (
+      <img
+        className={loaded === src ? 'poster loaded' : 'poster'}
+        src={src}
+        alt=""
+        loading="lazy"
+        onLoad={() => setLoaded(src)}
+        onError={() => setFailed(src)}
+      />
+    );
   return (
     <span className="poster poster-fallback" aria-hidden="true">
       {title.trim().charAt(0).toUpperCase() || '?'}
