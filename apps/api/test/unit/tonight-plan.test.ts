@@ -1,6 +1,6 @@
 // D-25: o pedido vira plano (gêneros todos/algum/nenhum, atributos, década) e o servidor busca.
 import { describe, expect, it } from 'vitest';
-import { localPlan, planIsEmpty, planLabel, sanitizePlan } from '../../src/library/tonight-plan.js';
+import { localPlan, planIsEmpty, planLabel, requiredAttrs, sanitizePlan } from '../../src/library/tonight-plan.js';
 import { adjustedQuality, compareCandidates, discoverParams, franchiseKey, GENRE_LABEL, planAccepts, rate, reasonFor, withSelectedGenre } from '../../src/library/tonight-video.js';
 
 const label = (g: string) => GENRE_LABEL.get(g) ?? g;
@@ -83,13 +83,86 @@ describe('pontuação e motivo (só evidência)', () => {
   });
 
   it('motivo: lista, gêneros pedidos, tema, nota e gosto', () => {
-    // sem "combina com o seu gosto"; o atributo só aparece com pista concreta (aqui, ficção científica)
+    // sem "combina com o seu gosto"; atributo só com prova (palavra-chave ou duração): gênero parecido não basta
     expect(reasonFor({ item, source: 'list', page: 1, anime: false, genres: ['action', 'scifi'], themes: [] }, plan)).toBe(
-      'Na sua lista · ação e ficção científica · faz pensar · nota 8,1 no TMDB',
+      'Na sua lista · ação e ficção científica · nota 8,1 no TMDB',
     );
-    expect(reasonFor({ item, source: 'best', page: 1, anime: false, genres: ['comedy'], themes: [] }, localPlan('algo leve e curto'))).toBe('Leve · nota 8,1 no TMDB');
+    expect(reasonFor({ item, source: 'best', page: 1, anime: false, genres: ['comedy'], themes: [] }, localPlan('algo leve e curto'))).toBe('Nota 8,1 no TMDB');
+    expect(reasonFor({ item, source: 'best', page: 1, anime: false, genres: ['comedy'], themes: [], runtimeOk: true }, localPlan('algo leve e curto'))).toBe('Curto · nota 8,1 no TMDB');
     expect(reasonFor({ item: { ...item, autoRating: 3 }, source: 'theme', page: 1, anime: false, genres: ['action', 'scifi'], themes: ['thought_provoking'] }, plan)).toBe(
       'Ação e ficção científica · tema: faz pensar · nota 8,1 no TMDB',
     );
   });
 });
+
+describe('"baseado em história real que seja inteligente" (obrigatório com prova)', () => {
+  const plan = localPlan('quero um filme baseado em historia real que seja inteligente');
+  const opts = { providerIds: [8], keywordIds: [11], softGenres: [] as never[], requiredKeywordIds: [9672, 5565] };
+
+  it('história real é obrigatória; inteligente é só preferência', () => {
+    expect(plan.prefer).toEqual(expect.arrayContaining(['true_story', 'thought_provoking']));
+    expect(requiredAttrs(plan)).toEqual(['true_story']);
+    expect(plan.unmapped).toEqual([]);
+  });
+
+  it('toda fonte busca só com a palavra-chave de história real; sem o ID dela, não busca', () => {
+    expect(discoverParams({ media: 'movie', source: 'best', page: 1, themes: [] }, plan, opts)).toMatchObject({ keywordIds: [9672, 5565] });
+    expect(discoverParams({ media: 'movie', source: 'recent', page: 1, themes: [] }, plan, opts)).toMatchObject({ keywordIds: [9672, 5565] });
+    expect(discoverParams({ media: 'movie', source: 'theme', page: 1, themes: [] }, plan, opts)).toBeNull();
+    expect(discoverParams({ media: 'movie', source: 'best', page: 1, themes: [] }, plan, { ...opts, requiredKeywordIds: [] })).toBeNull();
+  });
+
+  it('o motivo não diz "história real" nem "faz pensar" só porque é drama', () => {
+    const item = { tmdbId: 1, mediaType: 'movie' as const, kind: 'movie' as const, title: 'X', cast: [], inLibrary: null, matchedBy: 'title' as const };
+    expect(reasonFor({ item, source: 'list', page: 1, anime: false, genres: ['drama'], themes: [] }, plan)).toBe('Na sua lista');
+    expect(reasonFor({ item, source: 'list', page: 1, anime: false, genres: ['drama'], themes: ['true_story'] }, plan)).toBe('Na sua lista · tema: história real');
+  });
+});
+
+describe('três índices: pedido → mais assistidos → perfil', () => {
+  const plan = localPlan('um suspense');
+  const item = { tmdbId: 1, mediaType: 'movie' as const, kind: 'movie' as const, title: 'X', cast: [], inLibrary: null, matchedBy: 'browse' as const, generalRating: 7 };
+  const c = (votes: number, auto: number) => rate({ item: { ...item, generalVotes: votes, autoRating: auto }, source: 'best', page: 1, anime: false, genres: ['thriller'], themes: [] }, plan);
+
+  it('mesmo pedido: o mais assistido vem antes, mesmo com perfil um pouco menor', () => {
+    const niche = c(300, 4.9);
+    const famous = c(25_000, 4.2);
+    expect(famous.popular).toBe(1);
+    expect(niche.popular).toBeLessThan(0.6);
+    expect([niche, famous].sort(compareCandidates)).toEqual([famous, niche]);
+  });
+
+  it('mesma faixa de mais assistidos: o perfil decide', () => {
+    const a = c(20_000, 3);
+    const b = c(30_000, 4.8);
+    expect([a, b].sort(compareCandidates)).toEqual([b, a]);
+  });
+});
+
+describe('origem e investigação ("um suspense nórdico com detetive")', () => {
+  it('origem vira requisito (país de origem no TMDB) e detetive vira tema; nada fica sem entender', () => {
+    const p = localPlan('um suspense nórdico com detetive');
+    expect(p).toMatchObject({ genresAll: ['thriller'], origins: ['nordic'], prefer: ['detective'], unmapped: [] });
+    expect(planLabel(p, label)).toBe('Suspense/Thriller · investigação · nórdico');
+    const params = discoverParams({ media: 'movie', source: 'best', page: 1, themes: [] }, p, { providerIds: [], keywordIds: [], softGenres: [] })!;
+    expect(params.originCountries).toEqual(['SE', 'NO', 'DK', 'FI', 'IS']);
+  });
+
+  it('"série coreana", "filme nacional"; a IA só devolve origens conhecidas', () => {
+    expect(localPlan('uma série coreana leve').origins).toEqual(['korean']);
+    expect(localPlan('um filme nacional de comédia').origins).toEqual(['brazilian']);
+    expect(localPlan('um filme de comédia').origins).toBeUndefined();
+    expect(localPlan('um filme que me faça pensar sobre inteligência artificial')).toMatchObject({ prefer: ['thought_provoking', 'ai_topic'], unmapped: [] });
+    expect(requiredAttrs(localPlan('filme sobre robôs'))).toEqual(['ai_topic']);
+    expect(localPlan('uma comédia leve e curta')).toMatchObject({ genresAll: ['comedy'], prefer: ['light_tone', 'short'], unmapped: [] });
+    expect(sanitizePlan({ origins: ['nordic', 'marte'] }).origins).toEqual(['nordic']);
+  });
+
+  it('o motivo cita a origem só quando comprovada', () => {
+    const p = localPlan('um suspense nórdico');
+    const item = { tmdbId: 1, mediaType: 'movie' as const, kind: 'movie' as const, title: 'X', cast: [], inLibrary: null, matchedBy: 'browse' as const };
+    expect(reasonFor({ item, source: 'best', page: 1, anime: false, genres: ['thriller'], themes: [], originOk: true }, p)).toBe('Suspense/thriller · nórdico');
+    expect(reasonFor({ item, source: 'best', page: 1, anime: false, genres: ['thriller'], themes: [] }, p)).toBe('Suspense/thriller');
+  });
+});
+

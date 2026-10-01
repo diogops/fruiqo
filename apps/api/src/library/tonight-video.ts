@@ -11,7 +11,7 @@ import { GENRES, type GenreKey, genresFromTmdb } from '@fruiqo/taxonomy';
 import type { TmdbHit, TmdbResolver } from '../pipeline/resolvers/tmdb.js';
 import { isAnime } from '../pipeline/resolvers/tmdb.js';
 import { tmdbGenreIds } from './search-query.js';
-import { ATTRIBUTES, type Attr, type TonightPlan } from './tonight-plan.js';
+import { ATTRIBUTES, type Attr, ORIGINS, originCountries, requiredAttrs, type TonightPlan } from './tonight-plan.js';
 
 /** O plano pede duração máxima (filmes)? */
 export function planMaxRuntime(plan: TonightPlan): number | undefined {
@@ -34,10 +34,14 @@ export interface Candidate {
   themes: Attr[];
   /** veio de uma busca com a duração máxima pedida ("curto") */
   runtimeOk?: boolean;
+  /** origem pedida comprovada (busca por país de origem ou país da obra conferido) */
+  originOk?: boolean;
   /** compatibilidade com o pedido (0..1) */
   fit: number;
   /** compatibilidade com o perfil (0..1) */
   profile: number;
+  /** "mais assistidos" (0..1): quanta gente viu, pelos votos no TMDB */
+  popular: number;
   /** desempate: qualidade ajustada por votos e novidade */
   score: number;
 }
@@ -72,7 +76,7 @@ export function adjustedQuality(avg?: number, votes?: number): number {
  * palavra-chave do atributo) e época. Sem pedido, todos empatam (1) e quem decide é o perfil.
  * Requisitos obrigatórios já foram filtrados antes: aqui é o grau.
  */
-export function searchFit(c: Omit<Candidate, 'score' | 'fit' | 'profile'>, plan: TonightPlan): number {
+export function searchFit(c: Omit<Candidate, 'score' | 'fit' | 'profile' | 'popular'>, plan: TonightPlan): number {
   const parts: number[] = [];
   if (plan.genresAll.length) parts.push(plan.genresAll.filter((g) => c.genres.includes(g)).length / plan.genresAll.length);
   else if (plan.genresAny.length) parts.push(Math.min(1, plan.genresAny.filter((g) => c.genres.includes(g)).length / Math.min(2, plan.genresAny.length)));
@@ -93,26 +97,38 @@ export function searchFit(c: Omit<Candidate, 'score' | 'fit' | 'profile'>, plan:
 }
 
 /** Índice de compatibilidade com o PERFIL (0..1): a nota automática (níveis, subgêneros, favoritos, resumo, notas). */
-export function profileFit(c: Omit<Candidate, 'score' | 'fit' | 'profile'>): number {
+export function profileFit(c: Omit<Candidate, 'score' | 'fit' | 'profile' | 'popular'>): number {
   return c.item.autoRating != null ? c.item.autoRating / 5 : 0.5;
 }
 
+/** votos a partir dos quais a obra conta como das mais assistidas (índice 1) */
+const POPULAR_VOTES = 20_000;
+
+/**
+ * Índice de "mais assistidos" (0..1): votos no TMDB em escala log (quem avalia viu). 10 votos ≈ 0,24;
+ * 1 mil ≈ 0,7; 20 mil ou mais = 1. Sem votos, 0.
+ */
+export function popularFit(c: Omit<Candidate, 'score' | 'fit' | 'profile' | 'popular'>): number {
+  const v = c.item.generalVotes ?? 0;
+  return v > 0 ? Math.min(1, Math.log10(1 + v) / Math.log10(1 + POPULAR_VOTES)) : 0;
+}
+
 /** Desempate depois do pedido e do perfil: qualidade ajustada por votos e um pouco de novidade. */
-export function scoreCandidate(c: Omit<Candidate, 'score' | 'fit' | 'profile'>): number {
+export function scoreCandidate(c: Omit<Candidate, 'score' | 'fit' | 'profile' | 'popular'>): number {
   const quality = adjustedQuality(c.item.generalRating, c.item.generalVotes);
   const novelty = c.source === 'recent' ? 1 : Math.min(1, 0.5 + 0.2 * (c.page - 1));
   return 0.7 * quality + 0.3 * novelty;
 }
 
 /** Candidato com os dois índices e o desempate. */
-export function rate(c: Omit<Candidate, 'score' | 'fit' | 'profile'>, plan: TonightPlan): Candidate {
-  return { ...c, fit: searchFit(c, plan), profile: profileFit(c), score: scoreCandidate(c) };
+export function rate(c: Omit<Candidate, 'score' | 'fit' | 'profile' | 'popular'>, plan: TonightPlan): Candidate {
+  return { ...c, fit: searchFit(c, plan), popular: popularFit(c), profile: profileFit(c), score: scoreCandidate(c) };
 }
 
 /**
- * Ordem: Minha Área primeiro (fila); depois, pelo grau de compatibilidade com o PEDIDO (em faixas de
- * 10%), depois com o PERFIL (faixas de 5%), e só então qualidade/novidade. Na Minha Área, o pedido
- * e depois a ordem da sua fila.
+ * Ordem: Minha Área primeiro (fila); depois três índices, nesta ordem: compatibilidade com o PEDIDO
+ * (faixas de 10%), MAIS ASSISTIDOS (faixas de 10%) e compatibilidade com o PERFIL (faixas de 5%); só
+ * então qualidade/novidade. Na Minha Área, o pedido e depois a ordem da sua fila.
  */
 export function compareCandidates(a: Candidate, b: Candidate): number {
   const listA = a.source === 'list' ? 1 : 0;
@@ -121,25 +137,22 @@ export function compareCandidates(a: Candidate, b: Candidate): number {
   const fit = Math.round(b.fit * 10) - Math.round(a.fit * 10);
   if (fit) return fit;
   if (listA) return 0; // mesma faixa de pedido: mantém a ordem da sua fila
-  return Math.round(b.profile * 20) - Math.round(a.profile * 20) || b.score - a.score;
+  return Math.round(b.popular * 10) - Math.round(a.popular * 10) || Math.round(b.profile * 20) - Math.round(a.profile * 20) || b.score - a.score;
 }
 
 /** Motivo só com evidência conferida (lista, gêneros, tema, nota, gosto). */
-export function reasonFor(c: Omit<Candidate, 'score' | 'fit' | 'profile'>, plan: TonightPlan): string {
+export function reasonFor(c: Omit<Candidate, 'score' | 'fit' | 'profile' | 'popular'>, plan: TonightPlan): string {
   const parts: string[] = [];
   if (c.source === 'list') parts.push('Na sua lista');
   if (c.source === 'ai') parts.push('Sugestão da IA para o seu pedido');
   const asked = [...plan.genresAll, ...plan.genresAny].filter((g) => c.genres.includes(g));
   if (asked.length) parts.push(joinPt(asked.map((g) => GENRE_LABEL.get(g)!.toLowerCase())));
+  // só o que foi comprovado: palavra-chave do TMDB (tema) ou duração dentro do pedido. Gênero
+  // parecido não prova atributo ("drama" não é "história real" nem "faz pensar")
   if (c.themes.length) parts.push(`tema: ${joinPt(c.themes.map((a) => ATTRIBUTES[a].label))}`);
-  else {
-    // sem palavra-chave: cita o atributo só quando há pista concreta (gênero típico ou duração)
-    const hinted = plan.prefer.filter((a) => {
-      const def = ATTRIBUTES[a] as { like: readonly GenreKey[]; maxRuntime?: number };
-      return (def.maxRuntime && c.runtimeOk) || def.like.some((g) => c.genres.includes(g));
-    });
-    if (hinted.length) parts.push(joinPt(hinted.map((a) => ATTRIBUTES[a].label)));
-  }
+  const timed = plan.prefer.filter((a) => (ATTRIBUTES[a] as { maxRuntime?: number }).maxRuntime && c.runtimeOk && !c.themes.includes(a));
+  if (timed.length) parts.push(joinPt(timed.map((a) => ATTRIBUTES[a].label)));
+  if (c.originOk && plan.origins?.length) parts.push(plan.origins.map((o) => ORIGINS[o].label).join(' ou '));
   if (c.item.generalRating != null && (c.item.generalVotes ?? 0) >= 100) parts.push(`nota ${c.item.generalRating.toFixed(1).replace('.', ',')} no TMDB`);
   const text = parts.join(' · ') || 'Bem avaliado e disponível para você';
   return text.charAt(0).toUpperCase() + text.slice(1);
@@ -159,9 +172,13 @@ export interface DiscoverQuery {
 export function discoverParams(
   q: DiscoverQuery,
   plan: TonightPlan,
-  opts: { providerIds: number[]; keywordIds: number[]; softGenres: GenreKey[] },
+  opts: { providerIds: number[]; keywordIds: number[]; softGenres: GenreKey[]; requiredKeywordIds?: number[] },
 ): Parameters<TmdbResolver['discoverBrowse']>[1] | null {
   const ids = (gs: GenreKey[]) => tmdbGenreIds(gs, q.media);
+  // atributo obrigatório ("história real"): toda fonte busca só obras com a palavra-chave dele; sem o
+  // ID da palavra-chave não há como provar, então não busca. A fonte "theme" vira a mesma coisa: sai
+  const required = requiredAttrs(plan).length > 0;
+  if (required && (!opts.requiredKeywordIds?.length || q.source === 'theme')) return null;
   if (plan.genresAll.some((g) => ids([g]).length === 0)) return null;
   if (plan.genresAny.length && ids(plan.genresAny).length === 0) return null;
   if (q.source === 'theme' && opts.keywordIds.length === 0) return null;
@@ -176,7 +193,9 @@ export function discoverParams(
     (g) => !plan.genresAll.includes(g) && !plan.genresAny.includes(g),
   );
   const maxRuntime = q.media === 'movie' ? Math.min(...plan.prefer.map((a) => (ATTRIBUTES[a] as { maxRuntime?: number }).maxRuntime ?? Infinity)) : Infinity;
-  const genreIds = all.length ? all : any.length ? any : soft;
+  // fonte "theme": o atributo pode exigir gênero junto com a palavra-chave ("pra chorar" → drama)
+  const themeGenres = q.source === 'theme' ? ids([...new Set(plan.prefer.flatMap((a) => [...((ATTRIBUTES[a] as { themeGenres?: readonly GenreKey[] }).themeGenres ?? [])]))]) : [];
+  const genreIds = all.length ? all : any.length ? any : themeGenres.length ? themeGenres : soft;
   const decade = plan.decade ? { fromDate: `${plan.decade}-01-01`, toDate: `${plan.decade + 9}-12-31` } : {};
   return {
     sort: q.source === 'recent' ? 'newest' : 'best',
@@ -184,10 +203,12 @@ export function discoverParams(
     ...(opts.providerIds.length ? { providerIds: opts.providerIds } : { availableBR: true }),
     ...(genreIds.length ? { genreIds, anyGenre: !all.length } : {}),
     ...(avoid.length ? { withoutGenreIds: ids(avoid) } : {}),
-    ...(q.source === 'theme' ? { keywordIds: opts.keywordIds } : {}),
+    ...(required ? { keywordIds: opts.requiredKeywordIds! } : q.source === 'theme' ? { keywordIds: opts.keywordIds } : {}),
     ...(Number.isFinite(maxRuntime) ? { maxRuntime } : {}),
-    // recentes: com votos suficientes (lançamento sem avaliação não toma vaga)
-    ...(q.source === 'recent' ? { minVotes: 200 } : {}),
+    ...(originCountries(plan).length ? { originCountries: originCountries(plan) } : {}),
+    // recentes: com votos suficientes (lançamento sem avaliação não toma vaga); tema: o conjunto com a
+    // palavra-chave é pequeno, então aceita obras menos votadas
+    ...(q.source === 'recent' ? { minVotes: 200 } : q.source === 'theme' ? { minVotes: 300 } : {}),
     ...decade,
   };
 }

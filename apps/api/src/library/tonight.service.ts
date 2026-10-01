@@ -1,5 +1,5 @@
 import { HttpException, HttpStatus, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
-import type { SummaryDraft, Title, TitleSearchResult, TonightDefaults, TonightRequest, TonightResponse, TonightWatchedRequest } from '@fruiqo/contracts';
+import type { SummaryDraft, Title, TitleSearchResult, TonightDefaults, TonightRequest, TonightResponse, TonightShelvesResponse, TonightWatchedRequest } from '@fruiqo/contracts';
 import { detectRisk, GENRES, type GenreKey, RISK_SUPPORT, SUBGENRES } from '@fruiqo/taxonomy';
 import { and, arrayOverlaps, asc, count, desc, eq, gte, inArray, isNotNull, lte } from 'drizzle-orm';
 import { DB, type Db, withUser } from '../db/client.js';
@@ -20,11 +20,12 @@ import {
   type Source,
   withSelectedGenre,
 } from './tonight-video.js';
-import { ATTRIBUTES, EMPTY_PLAN, localPlan, planIsEmpty, planLabel, type TonightPlan } from './tonight-plan.js';
+import { type Attr, ATTRIBUTES, EMPTY_PLAN, localPlan, originCountries, planIsEmpty, planLabel, requiredAttrs, type TonightPlan } from './tonight-plan.js';
 import { withAiUsage } from '../ai-usage/usage.js';
 import { CatalogService } from './catalog.service.js';
 import { LibraryService } from './library.service.js';
 import { PROVIDER_LABEL, STREAMING_PROVIDERS } from './providers.js';
+import { tmdbGenreIds } from './search-query.js';
 import { PerUserRateLimiter, SearchService } from './search.service.js';
 import { briefIsEmpty, TASTE_AI, type TasteAi, type TasteBrief, type TonightKind } from './taste-ai.js';
 import { TMDB_CATALOG } from './tmdb-catalog.js';
@@ -66,6 +67,11 @@ const PROVIDER_TMDB_IDS: Record<string, number[]> = {
   mubi: [11],
   crunchyroll: [283],
 };
+/** prateleiras: quantos títulos por prateleira e por quanto tempo valem (as listas do TMDB mudam devagar) */
+const SHELF_SIZE = 18;
+const SHELF_TTL_MS = 3_600_000;
+/** fora das prateleiras: animação (só quando pedida, como na busca) e, em séries, jornal, reality, novela e talk show */
+const SHELF_NOISE = { movie: [16], tv: [16, 10763, 10764, 10766, 10767] } as const;
 /** o que foi sugerido fica lembrado por um tempo, para "novas sugestões" não repetirem */
 const SHOWN_TTL_MS = 6 * 3_600_000;
 
@@ -122,6 +128,9 @@ export class TonightService {
    */
   private readonly sessions = new Map<string, VideoSession>();
   private readonly keywordIds = new Map<string, number | null>();
+  private readonly titleKeywords = new Map<string, { ids: number[]; at: number }>();
+  private readonly titleCountries = new Map<string, { ids: string[]; at: number }>();
+  private readonly shelfCache = new Map<string, { value: TonightShelvesResponse; at: number }>();
   private readonly availability = new Map<string, { providers: { key?: string; name: string; type: string }[]; at: number }>();
 
   constructor(
@@ -449,7 +458,7 @@ export class TonightService {
     let aiUsed = false;
     let failed: 'quota' | 'failed' | undefined;
     if (!session || Date.now() - session.at > SHOWN_TTL_MS) {
-      session = { sig: '', plan: EMPTY_PLAN, planByAi: false, shown: new Set(), pending: [], cursors: {}, exhausted: false, generated: false, keywordIds: [], at: Date.now() };
+      session = { sig: '', plan: EMPTY_PLAN, planByAi: false, shown: new Set(), pending: [], cursors: {}, exhausted: false, generated: false, keywordIds: [], requiredKeywordIds: [], at: Date.now() };
       this.sessions.set(sessionKey, session);
     }
     // o cliente também manda o que já mostrou (sobrevive a reinício da API)
@@ -471,8 +480,10 @@ export class TonightService {
       }
       plan = withSelectedGenre(plan, ctx.genreKey);
       Object.assign(session, { sig, plan, planByAi, pending: [], cursors: {}, exhausted: false, generated: false, at: Date.now() });
-      session.keywordIds = await this.resolveKeywords(plan);
-      const list = req.includeQueue === false ? [] : await this.listCandidates(userId, plan, req.kind);
+      const required = requiredAttrs(plan);
+      session.keywordIds = await this.resolveKeywords(plan.prefer.filter((a) => !required.includes(a)));
+      session.requiredKeywordIds = await this.resolveKeywords(required);
+      const list = req.includeQueue === false ? [] : await this.listCandidates(userId, plan, req.kind, session.requiredKeywordIds);
       session.pending = list;
     }
     const s = session;
@@ -484,8 +495,12 @@ export class TonightService {
     // o pedido seja de animação
     const wantsAnimation = Boolean(req.includeAnime) || plan.genresAll.includes('animation') || plan.genresAny.includes('animation');
     const retrievalPlan: TonightPlan = wantsAnimation ? plan : { ...plan, genresNone: [...new Set([...plan.genresNone, 'animation' as GenreKey])] };
+    const required = requiredAttrs(plan);
     const usable = (c: Candidate) =>
       !s.shown.has(`${c.item.mediaType}:${c.item.tmdbId}`) &&
+      // obrigatório só com prova (a sugestão da IA é conferida no TMDB e entra como "sugestão da IA")
+      (c.source === 'ai' || required.every((a) => c.themes.includes(a))) &&
+      (c.source === 'ai' || !plan.origins?.length || Boolean(c.originOk)) &&
       ctx.freshMedia({ ...c.item, anime: c.anime }) &&
       (wantsAnimation || (!c.anime && !c.genres.includes('animation'))) &&
       planAccepts(plan, c.genres);
@@ -502,9 +517,10 @@ export class TonightService {
           const key = `${media}:${source}`;
           if (s.cursors[key] === -1) continue;
           const page = (s.cursors[key] ?? 0) + 1;
-          const themes = source === 'theme' ? plan.prefer.filter((a) => ATTRIBUTES[a].keywords.length > 0) : [];
+          // tema comprovado: a busca foi pela palavra-chave dele (obrigatórios entram em toda fonte)
+          const themes = [...(source === 'theme' ? plan.prefer.filter((a) => ATTRIBUTES[a].keywords.length > 0 && !required.includes(a)) : []), ...required];
           const q: DiscoverQuery = { media, source, page, themes };
-          const params = discoverParams(q, retrievalPlan, { providerIds, keywordIds: s.keywordIds, softGenres });
+          const params = discoverParams(q, retrievalPlan, { providerIds, keywordIds: s.keywordIds, softGenres, requiredKeywordIds: s.requiredKeywordIds });
           if (!params) {
             s.cursors[key] = -1;
             continue;
@@ -521,7 +537,9 @@ export class TonightService {
           for (const item of items) {
             const h = byKey.get(`${item.mediaType}:${item.tmdbId}`)!;
             const runtimeOk = media === 'movie' && planMaxRuntime(plan) !== undefined;
-            s.pending.push(rate({ item, source, page, anime: isAnime(h), genres: hitGenres(h), themes, ...(runtimeOk ? { runtimeOk } : {}) }, plan));
+            // a busca já filtrou pelo país de origem pedido
+            const originOk = originCountries(plan).length > 0;
+            s.pending.push(rate({ item, source, page, anime: isAnime(h), genres: hitGenres(h), themes, ...(runtimeOk ? { runtimeOk } : {}), ...(originOk ? { originOk } : {}) }, plan));
           }
         }
       }
@@ -615,6 +633,69 @@ export class TonightService {
     };
   }
 
+  /**
+   * Prateleiras da tela: lançamentos, ação e ficção científica, populares nos seus streamings (sem
+   * streaming cadastrado, o que está em assinatura no Brasil), sem o que você já assistiu/abandonou.
+   * Filmes e séries intercalados por popularidade. Cache de 1 h por usuário e streamings.
+   */
+  async shelves(userId: string): Promise<TonightShelvesResponse> {
+    const subs = await withUser(this.db, userId, async (tx) =>
+      (await tx.select().from(userSubscriptions)).map((r) => r.provider).filter((p) => PROVIDER_TMDB_IDS[p]),
+    );
+    const services = subs.map((k) => PROVIDER_LABEL.get(k) ?? k);
+    const tmdb = this.tmdb;
+    if (!tmdb) return { services, shelves: [] };
+    const cacheKey = `${userId}:${[...subs].sort().join(',')}`;
+    const cached = this.shelfCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < SHELF_TTL_MS) return cached.value;
+
+    const providerIds = subs.flatMap((k) => PROVIDER_TMDB_IDS[k] ?? []);
+    const where = providerIds.length ? { providerIds } : { availableBR: true };
+    const day = (offset: number) => new Date(Date.now() - offset * 86_400_000).toISOString().slice(0, 10);
+    type Media = 'movie' | 'tv';
+    const defs: { key: TonightShelvesResponse['shelves'][number]['key']; label: string; params: (m: Media) => Parameters<TmdbResolver['discoverBrowse']>[1] }[] = [
+      // estreias dos últimos meses (série: estreia da 1ª temporada), já com algum voto
+      { key: 'new', label: 'Lançamentos', params: (m) => ({ ...where, sort: 'popular', fromDate: day(m === 'movie' ? 120 : 180), toDate: day(0), minVotes: 10, withoutGenreIds: [...SHELF_NOISE[m]] }) },
+      { key: 'action', label: 'Ação', params: (m) => ({ ...where, sort: 'popular', genreIds: tmdbGenreIds(['action'], m), minVotes: 200, withoutGenreIds: [...SHELF_NOISE[m]] }) },
+      { key: 'scifi', label: 'Ficção científica', params: (m) => ({ ...where, sort: 'popular', genreIds: tmdbGenreIds(['scifi'], m), minVotes: 200, withoutGenreIds: [...SHELF_NOISE[m]] }) },
+    ];
+    const shelves = await Promise.all(
+      defs.map(async (d) => {
+        const [movies, tv] = await Promise.all((['movie', 'tv'] as const).map((m) => tmdb.discoverBrowse(m, d.params(m)).catch(() => [] as TmdbHit[])));
+        // intercala filme e série (cada lista já vem por popularidade)
+        const mixed: TmdbHit[] = [];
+        for (let i = 0; i < Math.max(movies!.length, tv!.length); i++) {
+          if (movies![i]) mixed.push(movies![i]!);
+          if (tv![i]) mixed.push(tv![i]!);
+        }
+        const items = mixed.length ? await this.search.toResults(userId, mixed, 'browse', mixed.length) : [];
+        const order = new Map(mixed.map((h, i) => [`${h.mediaType}:${h.tmdbId}`, i]));
+        return {
+          key: d.key,
+          label: d.label,
+          items: items
+            .filter((it) => it.inLibrary?.status !== 'watched' && it.inLibrary?.status !== 'dropped' && !it.anime)
+            .sort((a, b) => order.get(`${a.mediaType}:${a.tmdbId}`)! - order.get(`${b.mediaType}:${b.tmdbId}`)!),
+        };
+      }),
+    );
+    // cada título numa prateleira só (a primeira em que aparece: lançamentos, ação, ficção científica)
+    const used = new Set<string>();
+    for (const shelf of shelves) {
+      shelf.items = shelf.items
+        .filter((it) => {
+          const k = `${it.mediaType}:${it.tmdbId}`;
+          if (used.has(k)) return false;
+          used.add(k);
+          return true;
+        })
+        .slice(0, SHELF_SIZE);
+    }
+    const value = { services, shelves: shelves.filter((s) => s.items.length > 0) };
+    this.shelfCache.set(cacheKey, { value, at: Date.now() });
+    return value;
+  }
+
   /** Amostra do que você já viu (assistido/abandonado), dos gêneros da busca, e quantos já viu. */
   private async seenSample(userId: string, genres: GenreKey[]): Promise<{ sample: { title: string; year?: number }[]; total: number }> {
     return withUser(this.db, userId, async (tx) => {
@@ -632,7 +713,9 @@ export class TonightService {
   }
 
   /** Minha Área (Quero assistir / Assistindo) que atende ao plano, na ordem da fila. */
-  private async listCandidates(userId: string, plan: TonightPlan, kind?: TonightKind): Promise<Candidate[]> {
+  private async listCandidates(userId: string, plan: TonightPlan, kind?: TonightKind, requiredKeywordIds: number[] = []): Promise<Candidate[]> {
+    const required = requiredAttrs(plan);
+    if (required.length && !requiredKeywordIds.length) return [];
     const rows = await withUser(this.db, userId, (tx) =>
       tx
         .select({ resolution: recommendations.resolution, rank: recommendations.rank, kind: recommendations.kind, genres: recommendations.genres })
@@ -662,18 +745,52 @@ export class TonightService {
       });
     }
     if (!hits.length || !this.tmdb) return [];
+    // origem pedida ("nórdico"): só fica o que o TMDB comprova pelo país da obra
+    const countries = new Set(originCountries(plan));
+    if (countries.size) {
+      const kept = await Promise.all(hits.map(async (h) => ((await this.countriesOfTitle(h.hit.mediaType, h.hit.tmdbId)).some((c) => countries.has(c)) ? h : null)));
+      hits.splice(0, hits.length, ...kept.filter((h): h is (typeof hits)[number] => h !== null));
+      if (!hits.length) return [];
+    }
+    // atributo obrigatório: só fica o que o TMDB comprova pelas palavras-chave da obra
+    if (required.length) {
+      const want = new Set(requiredKeywordIds);
+      const kept = await Promise.all(hits.map(async (h) => ((await this.keywordsOf(h.hit.mediaType, h.hit.tmdbId)).some((id) => want.has(id)) ? h : null)));
+      hits.splice(0, hits.length, ...kept.filter((h): h is (typeof hits)[number] => h !== null));
+      if (!hits.length) return [];
+    }
     const items = await this.search.toResults(userId, hits.map((h) => h.hit), 'title', hits.length);
     const genresOf = new Map(hits.map((h) => [`${h.hit.mediaType}:${h.hit.tmdbId}`, h.genres]));
     // fila na ordem dela; o sort estável depois ordena pelo pedido mantendo essa ordem nos empates
     return items
-      .map((item) => rate({ item, source: 'list', page: 1, anime: false, genres: genresOf.get(`${item.mediaType}:${item.tmdbId}`) ?? [], themes: [] }, plan))
+      .map((item) => rate({ item, source: 'list', page: 1, anime: false, genres: genresOf.get(`${item.mediaType}:${item.tmdbId}`) ?? [], themes: required, ...(countries.size ? { originOk: true } : {}) }, plan))
       .sort(compareCandidates);
   }
 
   /** IDs do TMDB das palavras-chave dos atributos pedidos (resolvidos pelo nome, com cache). */
-  private async resolveKeywords(plan: TonightPlan): Promise<number[]> {
+  /** Países de uma obra (cache igual ao da disponibilidade). Falha = nenhum (fail-closed). */
+  private async countriesOfTitle(media: 'movie' | 'tv', id: number): Promise<string[]> {
+    const key = `${media}:${id}`;
+    const hit = this.titleCountries.get(key);
+    if (hit && Date.now() - hit.at < AVAILABILITY_TTL_MS) return hit.ids;
+    const ids = await this.tmdb!.countriesOf(media, id).catch(() => [] as string[]);
+    this.titleCountries.set(key, { ids, at: Date.now() });
+    return ids;
+  }
+
+  /** Palavras-chave de uma obra (cache igual ao da disponibilidade). Falha = nenhuma (fail-closed). */
+  private async keywordsOf(media: 'movie' | 'tv', id: number): Promise<number[]> {
+    const key = `${media}:${id}`;
+    const hit = this.titleKeywords.get(key);
+    if (hit && Date.now() - hit.at < AVAILABILITY_TTL_MS) return hit.ids;
+    const ids = await this.tmdb!.keywordIdsOf(media, id).catch(() => [] as number[]);
+    this.titleKeywords.set(key, { ids, at: Date.now() });
+    return ids;
+  }
+
+  private async resolveKeywords(attrs: Attr[]): Promise<number[]> {
     if (!this.tmdb) return [];
-    const names = [...new Set(plan.prefer.flatMap((a) => [...ATTRIBUTES[a].keywords]))];
+    const names = [...new Set(attrs.flatMap((a) => [...ATTRIBUTES[a].keywords]))];
     const ids = await Promise.all(
       names.map(async (n) => {
         if (!this.keywordIds.has(n)) this.keywordIds.set(n, await this.tmdb!.searchKeyword(n).catch(() => null));
@@ -767,5 +884,7 @@ interface VideoSession {
   /** o gerador da IA já rodou nesta revisão */
   generated: boolean;
   keywordIds: number[];
+  /** palavras-chave dos atributos obrigatórios ("história real"): só entra obra que tenha uma delas */
+  requiredKeywordIds: number[];
   at: number;
 }

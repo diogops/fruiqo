@@ -11,6 +11,7 @@ import { Login } from './pages/Login';
 import { Discover } from './pages/Discover';
 import { Profile } from './pages/Profile';
 import { Sandbox } from './pages/Sandbox';
+import { TonightPage } from './pages/Tonight';
 import { SHOW_DEV_TOOLS } from './devTools';
 
 function Gate() {
@@ -30,6 +31,7 @@ function Gate() {
         <Route path="revisao" element={<Navigate to="/minha-area" replace />} />
         <Route path="atividade" element={<Activity />} />
         <Route path="atividade/:shareId" element={<ActivityDetail />} />
+        <Route path="hoje" element={<TonightPage />} />
         <Route path="perfil" element={<Profile />} />
         {SHOW_DEV_TOOLS && <Route path="sandbox" element={<Sandbox />} />}
         <Route path="*" element={<Navigate to="/minha-area" replace />} />

@@ -363,7 +363,7 @@ describe('RF-46: busca e importação', () => {
       const q = url.searchParams;
       let body: unknown = { results: [] };
       if (url.pathname.endsWith('/search/keyword')) {
-        const ids: Record<string, number> = { philosophy: 490, 'artificial intelligence': 310 };
+        const ids: Record<string, number> = { philosophy: 490, 'artificial intelligence (a.i.)': 310 };
         const id = ids[q.get('query') ?? ''];
         if (id) body = { results: [{ id, name: q.get('query') }] };
       } else if (url.pathname.endsWith('/search/multi')) {

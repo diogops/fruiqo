@@ -3,10 +3,10 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { useAuth } from '../auth/AuthContext';
 import { SHOW_DEV_TOOLS } from '../devTools';
 import { useRouteAutofocus } from './autofocus';
-import { TonightPanel } from '../pages/Tonight';
 import { BrandMark, Icon, Menu, MQ, ThemeToggle, useFocusTrap, useMediaQuery, type IconName } from './ui';
 
 const NAV: { to: string; label: string; icon: IconName }[] = [
+  { to: '/hoje', label: 'Assistir hoje', icon: 'play' },
   { to: '/minha-area', label: 'Minha Área', icon: 'star' },
   { to: '/catalogo', label: 'Catálogo', icon: 'film' },
   { to: '/como-estou', label: 'Como estou', icon: 'sparkles' },
@@ -42,8 +42,6 @@ export function Layout() {
   const [collapsedPref, setCollapsedPref] = useState<boolean | null>(readCollapsed);
   const collapsed = !isDrawer && (collapsedPref ?? isCompactRange);
   const [searchOpen, setSearchOpen] = useState(false);
-  // D-25: "O que assistir hoje?" em qualquer tela
-  const [tonightOpen, setTonightOpen] = useState(false);
 
   const sidebarRef = useRef<HTMLElement>(null);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
@@ -230,7 +228,7 @@ export function Layout() {
                 className={isSmall ? 'icon-btn tonight-btn' : 'btn btn-primary tonight-btn'}
                 aria-label="O que assistir hoje?"
                 title="O que assistir hoje?"
-                onClick={() => setTonightOpen(true)}
+                onClick={() => navigate('/hoje')}
               >
                 <Icon name="sparkles" size={isSmall ? 18 : 14} />
                 {!isSmall && <span>O que assistir hoje?</span>}
@@ -272,7 +270,6 @@ export function Layout() {
             </div>
           )}
         </header>
-        {tonightOpen && <TonightPanel onClose={() => setTonightOpen(false)} />}
         <main className="content" ref={mainRef}>
           <InstallTip />
           <Outlet />

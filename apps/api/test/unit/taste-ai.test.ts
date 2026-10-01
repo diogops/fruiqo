@@ -43,7 +43,8 @@ describe('pedido otimizado no código (D-25)', () => {
   it('pedido: hoje e humor primeiro, gosto marcado, referências, histórico, fila e resumo; restrições à parte', () => {
     expect(requestText({ ...brief, mood: 'cansado, quero algo leve', genre: 'Comédia', services: ['Netflix', 'Max'] }, 'movie').split('\n')).toEqual([
       'Pedido de hoje (prioridade máxima; toda sugestão tem que atender): cansado, quero algo leve',
-      'Hoje: filme de Comédia',
+      'Hoje: filme',
+      'Gênero obrigatório (toda sugestão tem que ser deste gênero): Comédia',
       'Onde vai assistir: Netflix, Max',
       'Sem anime nem animação (desenho)',
       'Adora: Suspense/Thriller',

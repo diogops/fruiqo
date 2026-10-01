@@ -31,6 +31,15 @@ type Hit = z.infer<typeof SearchHit>;
 const SearchSchema = z.object({ results: z.array(SearchHit) });
 
 const KeywordSearchSchema = z.object({ results: z.array(z.object({ id: z.number().int(), name: z.string() })) });
+const TitleCountriesSchema = z.object({
+  origin_country: z.array(z.string()).optional(),
+  production_countries: z.array(z.object({ iso_3166_1: z.string() })).optional(),
+});
+/** filme: `keywords`; série: `results` */
+const TitleKeywordsSchema = z.object({
+  keywords: z.array(z.object({ id: z.number().int() })).optional(),
+  results: z.array(z.object({ id: z.number().int() })).optional(),
+});
 
 const PersonHit = z.object({
   id: z.number().int(),
@@ -84,6 +93,8 @@ const DetailsSchema = z.object({
 
 export interface DiscoverBrowse {
   /** `newest`: pela data de lançamento, do mais novo para o mais velho */
+  /** D-25: país de origem (ISO 3166), qualquer um */
+  originCountries?: string[];
   sort: 'best' | 'popular' | 'newest';
   page?: number;
   /** disponível no Brasil por assinatura ou de graça (sem exigir um serviço específico) */
@@ -311,6 +322,7 @@ export class TmdbResolver {
     if (o.genreIds?.length) params.set('with_genres', o.genreIds.join(o.anyGenre ? '|' : ','));
     if (o.withoutGenreIds?.length) params.set('without_genres', o.withoutGenreIds.join(','));
     if (o.keywordIds?.length) params.set('with_keywords', o.keywordIds.join('|'));
+    if (o.originCountries?.length) params.set('with_origin_country', o.originCountries.join('|'));
     if (o.providerIds?.length) {
       params.set('with_watch_providers', o.providerIds.join('|'));
       params.set('watch_region', 'BR');
@@ -339,6 +351,18 @@ export class TmdbResolver {
   }
 
   /** Elenco principal (até 3) para os cards da busca. */
+  /** D-25: países de origem e de produção de uma obra (prova de "nórdico", "coreano"...). */
+  async countriesOf(mediaType: 'movie' | 'tv', id: number): Promise<string[]> {
+    const r = TitleCountriesSchema.parse(await this.get(`/${mediaType}/${id}`));
+    return [...new Set([...(r.origin_country ?? []), ...(r.production_countries ?? []).map((c) => c.iso_3166_1)])];
+  }
+
+  /** D-25: IDs das palavras-chave de uma obra (prova de "baseado em história real" etc.). */
+  async keywordIdsOf(mediaType: 'movie' | 'tv', id: number): Promise<number[]> {
+    const r = TitleKeywordsSchema.parse(await this.get(`/${mediaType}/${id}/keywords`));
+    return (r.keywords ?? r.results ?? []).map((k) => k.id);
+  }
+
   /** D-25: ID da palavra-chave do TMDB pelo nome exato (sem inventar IDs); null se não existir. */
   async searchKeyword(name: string): Promise<number | null> {
     const r = KeywordSearchSchema.parse(await this.get(`/search/keyword?${new URLSearchParams({ query: name })}`));

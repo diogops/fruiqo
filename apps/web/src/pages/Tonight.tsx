@@ -1,23 +1,26 @@
-// D-25: "O que assistir hoje?" — disponível em qualquer tela (botão no cabeçalho). Você escolhe o tipo
-// (filme/série, livro ou música), um gênero e conta o humor se quiser; a IA sugere 5 pelo seu perfil,
-// o servidor confere e tira o que você já assistiu/leu/ouviu e (filme/série) o que não está nos seus
-// streamings. "Novas sugestões" não repete; "Já assisti" grava e não volta. Nada de regra aqui.
+// D-25: "O que assistir hoje?" — página própria (/hoje), aberta pelo botão do cabeçalho. Você escolhe o
+// tipo (filme/série, livro ou música), um gênero e conta o que quer; o servidor busca (Minha Área
+// primeiro, depois seus streamings) e tira o que você já assistiu/leu/ouviu. Embaixo, prateleiras de
+// lançamentos, ação e ficção científica nos seus streamings. "Novas sugestões" não repete; "Já assisti"
+// grava e não volta. Nada de regra aqui: busca, ordem e prateleiras vêm do servidor.
 import {
   MAX_TASTE_SUMMARY_CHARS,
   TONIGHT_MOOD_MAX_CHARS,
   tmdbPageUrl,
   type TasteLevel,
+  type TitleSearchResult,
   type TonightDefaults,
   type TonightRequest,
   type TonightResponse,
+  type TonightShelvesResponse,
 } from '@fruiqo/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import { api } from '../api/client';
-import { ErrorNote, Modal } from '../components/shared';
+import { ErrorNote } from '../components/shared';
 import { useToast } from '../components/Toast';
-import { Icon, Thumb, WorkLink } from '../components/ui';
+import { Icon, WorkLink } from '../components/ui';
 import { kindLabel } from '../labels';
 
 type KindChoice = '' | 'movie' | 'series' | 'book' | 'music';
@@ -117,7 +120,10 @@ function picksOf(data: TonightResponse | undefined): Pick[] {
   return [...media, ...books, ...music];
 }
 
-export function TonightPanel({ onClose }: { onClose: () => void }) {
+export function TonightPage() {
+  // o foco começa no campo de digitar o pedido
+  const askRef = useRef<HTMLInputElement>(null);
+  useEffect(() => askRef.current?.focus(), []);
   // gêneros na ordem do seu gosto e o tipo que você mais vê (o servidor calcula)
   const defaults = useQuery({ queryKey: ['tonight-defaults'], queryFn: api.tonightDefaults, staleTime: 5 * 60_000 });
   // a IA vai mesmo ser usada? (ligada no servidor e permitida por você)
@@ -340,179 +346,179 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
     }
   }
 
+  const placeholder =
+    kind === 'book' ? 'Ex.: algo leve para ler antes de dormir' : kind === 'music' ? 'Ex.: algo animado para cozinhar' : 'Ex.: um filme baseado em história real, inteligente';
+
   return (
-    <Modal
-      title="O que assistir hoje?"
-      onClose={onClose}
-      actions={
-        <button
-          type="button"
-          className={advOpen || advChanged ? 'icon-only active' : 'icon-only'}
-          aria-label="Filtros: onde procurar e perfil desta busca"
-          title="Filtros: onde procurar e perfil desta busca"
-          aria-expanded={advOpen}
-          aria-controls="tonight-advanced"
-          onClick={() => setAdvOpen((o) => !o)}
-        >
-          <Icon name="filter" size={18} />
-        </button>
-      }
-    >
-      <form className="form tonight-form" onSubmit={submit}>
-        <div className="row tonight-row">
-          <label>
-            <span className="sr-only">O que você quer</span>
-            <select value={kind} onChange={(e) => changeKind(e.target.value as KindChoice)} aria-label="O que você quer">
-              {KINDS.map((k) => (
-                <option key={k.value || 'video'} value={k.value}>
-                  {k.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="grow">
-            <span className="sr-only">Gênero</span>
-            <select value={genre} onChange={(e) => changeGenre(e.target.value)} aria-label="Gênero">
-              <option value="">{anyLabel}</option>
-              {kind === 'music'
-                ? MUSIC_GENRES.map((g) => (
-                    <option key={g} value={g}>
-                      {g}
-                    </option>
-                  ))
-                : groups.map(({ grp, items }) => (
-                    <optgroup key={grp} label={GROUP_LABEL[grp]}>
-                      {items.map((g) => (
-                        <option key={g.key} value={g.key}>
-                          {g.label}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-            </select>
-          </label>
+    <div className="tonight-page">
+      <section className="tonight-hero" aria-labelledby="tonight-title">
+        <div className="tonight-hero-head">
+          <h1 id="tonight-title">O que assistir hoje?</h1>
+          <p className="tonight-hero-sub">Conte o que você quer. Procuro primeiro na sua lista e depois nos seus streamings.</p>
         </div>
-        <div className="tonight-checks">
-          {video && (
-            <label className="check">
-              <input type="checkbox" checked={includeAnime} onChange={(e) => changeAnime(e.target.checked)} /> Incluir animes e animações?
+        <form className="tonight-form" onSubmit={submit}>
+          <div className="tonight-ask">
+            <Icon name="sparkles" size={18} />
+            <label className="sr-only" htmlFor="tonight-ask">
+              {kind === 'book' ? 'O que você quer ler?' : kind === 'music' ? 'O que você quer ouvir?' : 'O que você quer assistir?'} (opcional)
             </label>
-          )}
-          <label className="check">
-            <input type="checkbox" checked={includeSeen} onChange={(e) => changeSeen(e.target.checked)} /> Incluir já vistos?
-          </label>
-        </div>
-        <label>
-          {kind === 'book' ? 'O que você quer ler?' : kind === 'music' ? 'O que você quer ouvir?' : 'O que você quer assistir?'} (opcional)
-          <input
-            value={mood}
-            onChange={(e) => setMood(e.target.value)}
-            maxLength={TONIGHT_MOOD_MAX_CHARS}
-            placeholder={
-              kind === 'book'
-                ? 'Ex.: algo leve para ler antes de dormir'
-                : kind === 'music'
-                  ? 'Ex.: algo animado para cozinhar'
-                  : 'Ex.: cansado, quero algo leve e curto'
-            }
-            // o foco começa aqui (o Modal foca o [data-autofocus] antes do primeiro campo)
-            data-autofocus
-          />
-        </label>
-        {adv && defaults.data && (
-          <section id="tonight-advanced" className="tonight-advanced" hidden={!advOpen} aria-label="Filtros desta busca">
+            <input
+              id="tonight-ask"
+              ref={askRef}
+              value={mood}
+              onChange={(e) => setMood(e.target.value)}
+              maxLength={TONIGHT_MOOD_MAX_CHARS}
+              placeholder={placeholder}
+              autoComplete="off"
+            />
+            <button type="submit" className="btn btn-primary tonight-go" disabled={ask.isPending} aria-busy={ask.isPending}>
+              {ask.isPending ? 'Procurando…' : data ? 'Buscar de novo' : 'Sugerir'}
+            </button>
+          </div>
+          <div className="tonight-options">
+            <label className="pill-select">
+              <span className="sr-only">O que você quer</span>
+              <select value={kind} onChange={(e) => changeKind(e.target.value as KindChoice)} aria-label="O que você quer">
+                {KINDS.map((k) => (
+                  <option key={k.value || 'video'} value={k.value}>
+                    {k.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="pill-select grow">
+              <span className="sr-only">Gênero</span>
+              <select value={genre} onChange={(e) => changeGenre(e.target.value)} aria-label="Gênero">
+                <option value="">{anyLabel}</option>
+                {kind === 'music'
+                  ? MUSIC_GENRES.map((g) => (
+                      <option key={g} value={g}>
+                        {g}
+                      </option>
+                    ))
+                  : groups.map(({ grp, items }) => (
+                      <optgroup key={grp} label={GROUP_LABEL[grp]}>
+                        {items.map((g) => (
+                          <option key={g.key} value={g.key}>
+                            {g.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+              </select>
+            </label>
             {video && (
-              <label className="check small">
-                <input type="checkbox" checked={includeQueue} onChange={(e) => changeQueue(e.target.checked)} /> Começar pela minha lista (Quero assistir)
+              <label className="pill-check" title="Incluir animes e animações?">
+                <input type="checkbox" aria-label="Incluir animes e animações?" checked={includeAnime} onChange={(e) => changeAnime(e.target.checked)} />
+                <span aria-hidden="true">Animes</span>
               </label>
             )}
-            <p className="small tonight-adv-title">
-              <strong>Filtros desta busca</strong>
-              {advChanged ? ' · perfil alterado' : ''}
-            </p>
-            {video && services && (
-              <div className="chips tonight-services" role="group" aria-label="Onde procurar">
-                <span className="muted small">Onde:</span>
-                <button type="button" className={services.size === 0 ? 'chip chip-on' : 'chip'} aria-pressed={services.size === 0} onClick={() => toggleService(null)}>
-                  Qualquer lugar
-                </button>
-                {defaults.data.services.map((x) => (
-                  <button key={x.key} type="button" className={services.has(x.key) ? 'chip chip-on' : 'chip'} aria-pressed={services.has(x.key)} onClick={() => toggleService(x.key)}>
-                    {x.label}
-                  </button>
-                ))}
-              </div>
-            )}
-            <label>
-              Resumo do gosto
-              <textarea
-                rows={3}
-                maxLength={MAX_TASTE_SUMMARY_CHARS}
-                value={adv.summary}
-                onChange={(e) => {
-                  const summary = e.target.value;
-                  editAdv((a) => ({ ...a, summary }));
-                }}
-              />
+            <label className="pill-check" title="Incluir já vistos?">
+              <input type="checkbox" aria-label="Incluir já vistos?" checked={includeSeen} onChange={(e) => changeSeen(e.target.checked)} />
+              <span aria-hidden="true">Já vistos</span>
             </label>
-            <p className="muted small">Gêneros (toque para mudar: neutro → gosto → adoro → evito)</p>
-            <div className="chips" role="group" aria-label="Gêneros desta busca">
-              {defaults.data.genres
-                .filter((g) => !video || g.forVideo)
-                .map((g) => {
-                  const grp = adv.genres[g.key] ?? 'neutral';
+            <button
+              type="button"
+              className={advOpen || advChanged ? 'pill-btn active' : 'pill-btn'}
+              aria-label="Filtros: onde procurar e perfil desta busca"
+              title="Filtros: onde procurar e perfil desta busca"
+              aria-expanded={advOpen}
+              aria-controls="tonight-advanced"
+              onClick={() => setAdvOpen((o) => !o)}
+            >
+              <Icon name="filter" size={15} /> <span className="pill-btn-label">Filtros</span>
+            </button>
+          </div>
+          {adv && defaults.data && (
+            <section id="tonight-advanced" className="tonight-advanced" hidden={!advOpen} aria-label="Filtros desta busca">
+              {video && (
+                <label className="check small">
+                  <input type="checkbox" checked={includeQueue} onChange={(e) => changeQueue(e.target.checked)} /> Começar pela minha lista (Quero assistir)
+                </label>
+              )}
+              <p className="small tonight-adv-title">
+                <strong>Filtros desta busca</strong>
+                {advChanged ? ' · perfil alterado' : ''}
+              </p>
+              {video && services && (
+                <div className="chips tonight-services" role="group" aria-label="Onde procurar">
+                  <span className="muted small">Onde:</span>
+                  <button type="button" className={services.size === 0 ? 'chip chip-on' : 'chip'} aria-pressed={services.size === 0} onClick={() => toggleService(null)}>
+                    Qualquer lugar
+                  </button>
+                  {defaults.data.services.map((x) => (
+                    <button key={x.key} type="button" className={services.has(x.key) ? 'chip chip-on' : 'chip'} aria-pressed={services.has(x.key)} onClick={() => toggleService(x.key)}>
+                      {x.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <label>
+                Resumo do gosto
+                <textarea
+                  rows={3}
+                  maxLength={MAX_TASTE_SUMMARY_CHARS}
+                  value={adv.summary}
+                  onChange={(e) => {
+                    const summary = e.target.value;
+                    editAdv((a) => ({ ...a, summary }));
+                  }}
+                />
+              </label>
+              <p className="muted small">Gêneros (toque para mudar: neutro → gosto → adoro → evito)</p>
+              <div className="chips" role="group" aria-label="Gêneros desta busca">
+                {defaults.data.genres
+                  .filter((g) => !video || g.forVideo)
+                  .map((g) => {
+                    const grp = adv.genres[g.key] ?? 'neutral';
+                    return (
+                      <button
+                        key={g.key}
+                        type="button"
+                        className={`chip adv-${grp}`}
+                        aria-label={`${g.label}: ${CHIP_GROUP_LABEL[grp]}`}
+                        onClick={() => editAdv((a) => ({ ...a, genres: { ...a.genres, [g.key]: NEXT_GROUP[grp] } }))}
+                      >
+                        {grp === 'love' ? '★ ' : grp === 'avoid' ? '✕ ' : ''}
+                        {g.label}
+                      </button>
+                    );
+                  })}
+              </div>
+              <p className="muted small">Subgêneros (toque: gosto → não gosto → neutro)</p>
+              <div className="chips" role="group" aria-label="Subgêneros desta busca">
+                {defaults.data.subgenres.map((x) => {
+                  const pref = adv.subs[x.key] ?? null;
                   return (
                     <button
-                      key={g.key}
+                      key={x.key}
                       type="button"
-                      className={`chip adv-${grp}`}
-                      aria-label={`${g.label}: ${CHIP_GROUP_LABEL[grp]}`}
-                      onClick={() => editAdv((a) => ({ ...a, genres: { ...a.genres, [g.key]: NEXT_GROUP[grp] } }))}
+                      className={`chip sub-pref sub-${pref ?? 'none'}`}
+                      aria-label={`${x.label}: ${pref === 'like' ? 'gosto' : pref === 'dislike' ? 'não gosto' : 'neutro'}`}
+                      onClick={() => editAdv((a) => ({ ...a, subs: { ...a.subs, [x.key]: NEXT_SUB[pref ?? 'none'] } }))}
                     >
-                      {grp === 'love' ? '★ ' : grp === 'avoid' ? '✕ ' : ''}
-                      {g.label}
+                      {x.label}
                     </button>
                   );
                 })}
-            </div>
-            <p className="muted small">Subgêneros (toque: gosto → não gosto → neutro)</p>
-            <div className="chips" role="group" aria-label="Subgêneros desta busca">
-              {defaults.data.subgenres.map((x) => {
-                const pref = adv.subs[x.key] ?? null;
-                return (
-                  <button
-                    key={x.key}
-                    type="button"
-                    className={`chip sub-pref sub-${pref ?? 'none'}`}
-                    aria-label={`${x.label}: ${pref === 'like' ? 'gosto' : pref === 'dislike' ? 'não gosto' : 'neutro'}`}
-                    onClick={() => editAdv((a) => ({ ...a, subs: { ...a.subs, [x.key]: NEXT_SUB[pref ?? 'none'] } }))}
-                  >
-                    {x.label}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="row tonight-actions">
-              <button type="button" className="btn" disabled={!advChanged || savingProfile} onClick={() => void saveProfile()}>
-                {savingProfile ? 'Salvando…' : 'Salvar no meu perfil'}
-              </button>
-              <span className="muted small">Sem salvar, as mudanças valem só para esta busca.</span>
-            </div>
-          </section>
-        )}
-        <div className="actions tonight-submit">
-          <button type="submit" className="btn btn-primary" disabled={ask.isPending} aria-busy={ask.isPending}>
-            <Icon name="sparkles" size={14} /> {ask.isPending ? 'Procurando…' : data ? 'Buscar de novo' : 'Sugerir'}
-          </button>
-        </div>
-      </form>
+              </div>
+              <div className="row tonight-adv-actions">
+                <button type="button" className="btn" disabled={!advChanged || savingProfile} onClick={() => void saveProfile()}>
+                  {savingProfile ? 'Salvando…' : 'Salvar no meu perfil'}
+                </button>
+                <span className="muted small">Sem salvar, as mudanças valem só para esta busca.</span>
+              </div>
+            </section>
+          )}
+        </form>
+      </section>
 
       <ErrorNote error={ask.error ?? actionError} />
       {ask.isPending && (
         <div className="tonight-loading" role="status" aria-live="polite">
           <div className="tonight-loading-card">
             <Icon name={aiOn ? 'sparkles' : 'search'} size={22} />
-            <span>{aiOn ? 'A IA está escolhendo pelo seu perfil; pode levar alguns segundos.' : 'Procurando…'}</span>
+            <span>{aiOn ? 'Procurando pelo seu pedido e pelo seu perfil; pode levar alguns segundos.' : 'Procurando…'}</span>
           </div>
         </div>
       )}
@@ -532,30 +538,33 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
       )}
 
       {data && !data.risk && (
-        <>
-          <p className="muted small tonight-note" role="status">
-            {data.aiUsed && (
-              <span className="badge badge-ai">
-                <Icon name="sparkles" size={12} /> escolhido pela IA
-              </span>
-            )}{' '}
-            {data.unavailable && UNAVAILABLE[data.unavailable]}
-            {data.unavailable === 'consent' && (
-              <>
-                {' '}
-                Permita em <Link to="/perfil">Perfil</Link>.
-              </>
-            )}{' '}
-            {(kind === '' || kind === 'movie' || kind === 'series') &&
-              (data.services.length > 0 ? null : defaults.data?.services.some((x) => x.selected) ? (
-                'Em qualquer lugar.'
-              ) : (
+        <section className="tonight-section" aria-labelledby="tonight-picks-title">
+          <div className="tonight-section-head">
+            <h2 id="tonight-picks-title">Para hoje</h2>
+            <p className="muted small tonight-note" role="status">
+              {data.aiUsed && (
+                <span className="badge badge-ai">
+                  <Icon name="sparkles" size={12} /> escolhido pela IA
+                </span>
+              )}{' '}
+              {data.unavailable && UNAVAILABLE[data.unavailable]}
+              {data.unavailable === 'consent' && (
                 <>
-                  Cadastre seus streamings no <Link to="/perfil">Perfil</Link> para ver só o que você assiste.
+                  {' '}
+                  Permita em <Link to="/perfil">Perfil</Link>.
                 </>
-              ))}
-            {kind === 'music' && data.aiUsed && ' Sugestões da IA, sem conferência em catálogo.'}
-          </p>
+              )}{' '}
+              {video &&
+                (data.services.length > 0 ? null : defaults.data?.services.some((x) => x.selected) ? (
+                  'Em qualquer lugar.'
+                ) : (
+                  <>
+                    Cadastre seus streamings no <Link to="/perfil">Perfil</Link> para ver só o que você assiste.
+                  </>
+                ))}
+              {kind === 'music' && data.aiUsed && ' Sugestões da IA, sem conferência em catálogo.'}
+            </p>
+          </div>
           {picks.length === 0 &&
             (data.exhausted ? (
               <div className="tonight-empty">
@@ -569,28 +578,28 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
             ) : (
               <p className="muted">Nada novo desta vez. Mude o gênero ou o pedido e busque de novo.</p>
             ))}
-          <ul className="search-results tonight-results" aria-label="Sugestões para hoje">
+          <ul className="tonight-results" aria-label="Sugestões para hoje">
             {picks.map((p) => (
               <li key={p.key} className="tonight-card">
-                <WorkLink href={p.page?.url} label={`Ver ${p.title}${p.page ? ` no ${p.page.label}` : ''}`} className="work-link-thumb">
-                  <Thumb src={p.posterUrl} title={p.title} width={44} height={66} />
+                <WorkLink href={p.page?.url} label={`Ver ${p.title}${p.page ? ` no ${p.page.label}` : ''}`} className="tonight-poster">
+                  <Poster src={p.posterUrl} title={p.title} />
+                  {p.fromList && <span className="poster-badge">Na sua lista</span>}
                 </WorkLink>
                 <div className="tonight-card-body">
                   <div className="tc-line">
                     <WorkLink href={p.page?.url} label={`Ver ${p.title}${p.page ? ` no ${p.page.label}` : ''}`}>
-                      <strong>{p.title}</strong>
+                      <strong className="tc-title">{p.title}</strong>
                     </WorkLink>
                     {p.meta && <span className="muted small"> · {p.meta}</span>}
                   </div>
-                  {(p.availableOn.length > 0 || p.reason) && (
-                    <div className="tc-line small muted" title={[p.availableOn.length ? `Em: ${p.availableOn.join(', ')}` : '', p.reason ?? ''].filter(Boolean).join(' · ')}>
-                      {p.availableOn.length > 0 && <span className="tc-where">Em: {p.availableOn.join(', ')}</span>}
-                      {p.availableOn.length > 0 && p.reason && ' · '}
+                  {p.availableOn.length > 0 && <div className="tc-where small">Em: {p.availableOn.join(', ')}</div>}
+                  {p.reason && (
+                    <div className="tc-reason small muted" title={p.reason}>
                       {p.reason}
                     </div>
                   )}
                   <div className="tonight-actions">
-                    <button type="button" className="btn btn-sm" disabled={busyKey === p.key} onClick={() => void act(p, 'want')}>
+                    <button type="button" className="btn btn-sm btn-primary" disabled={busyKey === p.key} onClick={() => void act(p, 'want')}>
                       {p.wantLabel}
                     </button>
                     <button type="button" className="btn btn-link btn-sm" disabled={busyKey === p.key} onClick={() => void act(p, 'done')}>
@@ -609,8 +618,131 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
               <Icon name="refresh" size={14} /> Novas sugestões
             </button>
           </div>
-        </>
+        </section>
       )}
-    </Modal>
+
+      {video && <Shelves />}
+    </div>
+  );
+}
+
+/** Capa grande (2:3); sem capa ou com erro, a inicial do título. */
+function Poster({ src, title }: { src?: string | null; title: string }) {
+  const [failed, setFailed] = useState<string | null>(null);
+  if (src && failed !== src) return <img className="poster" src={src} alt="" loading="lazy" onError={() => setFailed(src)} />;
+  return (
+    <span className="poster poster-fallback" aria-hidden="true">
+      {title.trim().charAt(0).toUpperCase() || '?'}
+    </span>
+  );
+}
+
+/** Prateleiras do servidor: lançamentos, ação e ficção científica nos seus streamings. */
+function Shelves() {
+  const q = useQuery({ queryKey: ['tonight-shelves'], queryFn: api.tonightShelves, staleTime: 10 * 60_000 });
+  if (q.isPending) {
+    return (
+      <div className="shelves" aria-hidden="true">
+        {[0, 1].map((i) => (
+          <div key={i} className="shelf">
+            <div className="shelf-head">
+              <span className="skeleton skeleton-title" />
+            </div>
+            <div className="shelf-rail">
+              {[0, 1, 2, 3, 4, 5].map((j) => (
+                <span key={j} className="shelf-card skeleton skeleton-poster" />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (!q.data?.shelves.length) return null;
+  return (
+    <div className="shelves">
+      {q.data.shelves.map((s) => (
+        <Shelf key={s.key} shelf={s} />
+      ))}
+    </div>
+  );
+}
+
+function Shelf({ shelf }: { shelf: TonightShelvesResponse['shelves'][number] }) {
+  const rail = useRef<HTMLUListElement>(null);
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [added, setAdded] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState<string | null>(null);
+  const scroll = (dir: 1 | -1) => rail.current?.scrollBy({ left: dir * rail.current.clientWidth * 0.85, behavior: 'smooth' });
+
+  async function want(it: TitleSearchResult) {
+    const key = `${it.mediaType}:${it.tmdbId}`;
+    setBusy(key);
+    try {
+      await api.importTitles({ items: [{ tmdbId: it.tmdbId, mediaType: it.mediaType }] });
+      setAdded((a) => new Set(a).add(key));
+      toast.show(`"${it.title}" na Minha Área.`);
+      await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] !== 'tonight-shelves' });
+    } catch {
+      toast.show(`Não deu para incluir "${it.title}" agora.`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <section className="shelf" aria-labelledby={`shelf-${shelf.key}`}>
+      <div className="shelf-head">
+        <h2 id={`shelf-${shelf.key}`}>{shelf.label}</h2>
+        <div className="shelf-nav">
+          <button type="button" className="icon-btn" aria-label={`Voltar em ${shelf.label}`} onClick={() => scroll(-1)}>
+            <Icon name="left" size={16} />
+          </button>
+          <button type="button" className="icon-btn" aria-label={`Avançar em ${shelf.label}`} onClick={() => scroll(1)}>
+            <Icon name="right" size={16} />
+          </button>
+        </div>
+      </div>
+      <ul className="shelf-rail" ref={rail} aria-label={shelf.label}>
+        {shelf.items.map((it) => {
+          const key = `${it.mediaType}:${it.tmdbId}`;
+          const mine = added.has(key) || (it.inLibrary && (it.inLibrary.status === 'to_watch' || it.inLibrary.status === 'watching'));
+          return (
+            <li key={key} className="shelf-card">
+              <div className="shelf-cover">
+                <WorkLink href={tmdbPageUrl(it.mediaType, it.tmdbId)} label={`Ver ${it.title} no TMDB`} className="shelf-poster">
+                  <Poster src={it.posterUrl} title={it.title} />
+                  {it.generalRating != null && (it.generalVotes ?? 0) >= 50 && (
+                    <span className="poster-rating">
+                      <Icon name="star" size={11} /> {it.generalRating.toFixed(1).replace('.', ',')}
+                    </span>
+                  )}
+                  {mine && <span className="poster-badge">Na sua lista</span>}
+                </WorkLink>
+                {!mine && (
+                  <button
+                    type="button"
+                    className="shelf-add"
+                    aria-label={`Quero assistir: ${it.title}`}
+                    title="Quero assistir"
+                    disabled={busy === key}
+                    onClick={() => void want(it)}
+                  >
+                    <Icon name="plus" size={16} />
+                  </button>
+                )}
+              </div>
+              <div className="shelf-info">
+                <span className="shelf-title" title={it.title}>
+                  {it.title}
+                </span>
+                <span className="muted small">{[kindLabel(it.kind), it.year].filter(Boolean).join(' · ')}</span>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }

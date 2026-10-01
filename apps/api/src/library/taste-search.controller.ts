@@ -5,6 +5,7 @@ import {
   type SummaryDraft,
   type Title,
   type TonightDefaults,
+  TonightShelvesResponse,
   type TonightRequest,
   TonightRequestSchema,
   type TonightResponse,
@@ -170,6 +171,12 @@ export class TonightController {
   @Get('defaults')
   defaults(@CurrentAuth() auth: AccessClaims): Promise<TonightDefaults> {
     return this.tonight.defaults(auth.userId);
+  }
+
+  /** prateleiras da tela (lançamentos, ação, ficção científica) nos seus streamings */
+  @Get('shelves')
+  shelves(@CurrentAuth() auth: AccessClaims): Promise<TonightShelvesResponse> {
+    return this.tonight.shelves(auth.userId);
   }
 
   @Post()

@@ -15,6 +15,7 @@ import {
   SummaryDraftSchema,
   TonightResponseSchema,
   TonightDefaultsSchema,
+  TonightShelvesResponseSchema,
   AiUsageReportSchema,
   type TonightRequest,
   type TonightWatchedRequest,
@@ -281,6 +282,7 @@ export const api = {
   tonight: (body: TonightRequest) => request(TonightResponseSchema, '/tonight', 'POST', body),
   /** gêneros na ordem do seu gosto e o tipo que você mais vê */
   tonightDefaults: () => request(TonightDefaultsSchema, '/tonight/defaults'),
+  tonightShelves: () => request(TonightShelvesResponseSchema, '/tonight/shelves'),
   tonightWatched: (body: TonightWatchedRequest) => request(TitleSchema, '/tonight/watched', 'POST', body),
   addFavorite: (body: CreateFavoriteRequest) => request(FavoriteSchema, '/profile/favorites', 'POST', body),
   deleteFavorite: (id: string) => request(NoContent, `/profile/favorites/${id}`, 'DELETE'),

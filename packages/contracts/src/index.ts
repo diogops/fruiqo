@@ -1538,6 +1538,24 @@ export const TonightDefaultsSchema = z.object({
 });
 export type TonightDefaults = z.infer<typeof TonightDefaultsSchema>;
 
+/**
+ * D-25: prateleiras do "O que assistir hoje?" (Lançamentos, Ação, Ficção científica), nos seus
+ * streamings, sem o que você já assistiu/abandonou. Montadas no servidor a partir do TMDB (RF-30).
+ */
+export const TONIGHT_SHELF_KEYS = ['new', 'action', 'scifi'] as const;
+export const TonightShelvesResponseSchema = z.object({
+  /** streamings usados no filtro (vazio = em qualquer lugar no Brasil) */
+  services: z.array(z.string()),
+  shelves: z.array(
+    z.object({
+      key: z.enum(TONIGHT_SHELF_KEYS),
+      label: z.string(),
+      items: z.array(TitleSearchResultSchema),
+    }),
+  ),
+});
+export type TonightShelvesResponse = z.infer<typeof TonightShelvesResponseSchema>;
+
 /** Uso de IA (tokens e custo estimado pelo preço do modelo), últimos 30 dias, para o Perfil. */
 export const AiUsageReportSchema = z.object({
   since: z.string(),

@@ -1,10 +1,10 @@
 import type { TonightDefaults, TonightResponse } from '@fruiqo/contracts';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { __setAccessToken } from '../api/client';
 import { makeTitle, mockApi, renderWithProviders } from '../test/helpers';
-import { TonightPanel } from './Tonight';
+import { TonightPage } from './Tonight';
 
 afterEach(() => __setAccessToken(null));
 
@@ -46,7 +46,7 @@ describe('"O que assistir hoje?" (D-25)', () => {
   it('abre com a sua cara: tipo do hábito, gêneros na ordem do gosto, streamings do Perfil', async () => {
     __setAccessToken('tok');
     mockApi({ 'GET /tonight/defaults': defaults });
-    renderWithProviders(<TonightPanel onClose={vi.fn()} />);
+    renderWithProviders(<TonightPage />);
     const kind = await screen.findByRole('combobox', { name: 'O que você quer' });
     await waitFor(() => expect(kind).toHaveProperty('value', 'movie'));
     // o foco começa no campo de texto
@@ -81,7 +81,7 @@ describe('"O que assistir hoje?" (D-25)', () => {
       'POST /library/import': { created: [makeTitle({ title: 'Zodíaco' })], skipped: [] },
     });
     const user = userEvent.setup();
-    renderWithProviders(<TonightPanel onClose={vi.fn()} />);
+    renderWithProviders(<TonightPage />);
 
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'O que você quer' })).toHaveProperty('value', 'movie'));
     await user.selectOptions(screen.getByRole('combobox', { name: 'Gênero' }), 'thriller');
@@ -125,7 +125,7 @@ describe('"O que assistir hoje?" (D-25)', () => {
       'PATCH /profile/taste': { genres: [], subgenres: [], overrides: { pinned: [], excluded: [] }, totals: { signals: 0, watched: 0, rated: 0 } },
     });
     const user = userEvent.setup();
-    renderWithProviders(<TonightPanel onClose={vi.fn()} />);
+    renderWithProviders(<TonightPage />);
     const advanced = await screen.findByRole('button', { name: 'Filtros: onde procurar e perfil desta busca' });
     expect(advanced.getAttribute('aria-expanded')).toBe('false');
     await user.click(advanced);
@@ -172,7 +172,7 @@ describe('"O que assistir hoje?" (D-25)', () => {
       'POST /tonight/watched': makeTitle({ title: 'Zodíaco', status: 'watched' }),
     });
     const user = userEvent.setup();
-    renderWithProviders(<TonightPanel onClose={vi.fn()} />);
+    renderWithProviders(<TonightPage />);
     await user.click(await screen.findByRole('button', { name: /Sugerir/ }));
     const list = await screen.findByRole('list', { name: 'Sugestões para hoje' });
 
@@ -199,7 +199,7 @@ describe('"O que assistir hoje?" (D-25)', () => {
     ];
     const { calls } = mockApi({ 'GET /tonight/defaults': defaults, 'POST /tonight': () => ({ body: responses[round++] }) });
     const user = userEvent.setup();
-    renderWithProviders(<TonightPanel onClose={vi.fn()} />);
+    renderWithProviders(<TonightPage />);
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'O que você quer' })).toHaveProperty('value', 'movie'));
     // sem busca feita, trocar o gênero não busca
     await user.selectOptions(screen.getByRole('combobox', { name: 'Gênero' }), 'drama');
@@ -241,7 +241,7 @@ describe('"O que assistir hoje?" (D-25)', () => {
     ];
     const { calls } = mockApi({ 'GET /tonight/defaults': defaults, 'POST /tonight': () => ({ body: responses[round++] }) });
     const user = userEvent.setup();
-    renderWithProviders(<TonightPanel onClose={vi.fn()} />);
+    renderWithProviders(<TonightPage />);
     const seen = await screen.findByRole('checkbox', { name: 'Incluir já vistos?' });
     expect(seen).toHaveProperty('checked', false);
     await user.click(screen.getByRole('button', { name: /Sugerir/ }));
@@ -280,7 +280,7 @@ describe('"O que assistir hoje?" (D-25)', () => {
     ];
     mockApi({ 'GET /tonight/defaults': { ...defaults, services: defaults.services.map((x) => ({ ...x, selected: false })) }, 'POST /tonight': () => ({ body: responses[round++] }) });
     const user = userEvent.setup();
-    renderWithProviders(<TonightPanel onClose={vi.fn()} />);
+    renderWithProviders(<TonightPage />);
     await user.click(await screen.findByRole('button', { name: /Sugerir/ }));
     expect(await screen.findByText(/IA não permitida/)).toBeTruthy();
     expect(screen.getByText(/Cadastre seus streamings/)).toBeTruthy();
@@ -291,4 +291,42 @@ describe('"O que assistir hoje?" (D-25)', () => {
     expect(within(alert).getByRole('link', { name: '188' })).toBeTruthy();
     expect(screen.queryByRole('list', { name: 'Sugestões para hoje' })).toBeNull();
   });
+
+  it('prateleiras: lançamentos, ação e ficção científica; "+" põe na Minha Área; o que já é seu vem marcado', async () => {
+    __setAccessToken('tok');
+    const shelfItem = (tmdbId: number, title: string, mine = false) => ({
+      tmdbId,
+      mediaType: 'movie' as const,
+      kind: 'movie' as const,
+      title,
+      year: 2026,
+      cast: [],
+      inLibrary: mine ? { id: '00000000-0000-4000-8000-000000000999', rank: 1, decision: 'cataloged' as const, status: 'to_watch' as const } : null,
+      matchedBy: 'browse' as const,
+      generalRating: 7.8,
+      generalVotes: 900,
+    });
+    const { calls } = mockApi({
+      'GET /tonight/defaults': defaults,
+      'GET /tonight/shelves': {
+        services: ['Netflix'],
+        shelves: [
+          { key: 'new', label: 'Lançamentos', items: [shelfItem(11, 'Estreia Nova'), shelfItem(12, 'Já Na Lista', true)] },
+          { key: 'action', label: 'Ação', items: [shelfItem(21, 'Explosão')] },
+        ],
+      },
+      'POST /library/import': { created: [makeTitle({ title: 'Estreia Nova' })], skipped: [] },
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<TonightPage />);
+    const novos = await screen.findByRole('list', { name: 'Lançamentos' });
+    expect(within(novos).getByText('Estreia Nova')).toBeTruthy();
+    expect(within(novos).getByText('Na sua lista')).toBeTruthy();
+    expect(within(novos).queryByRole('button', { name: 'Quero assistir: Já Na Lista' })).toBeNull();
+    expect(screen.getByRole('list', { name: 'Ação' })).toBeTruthy();
+    await user.click(within(novos).getByRole('button', { name: 'Quero assistir: Estreia Nova' }));
+    await waitFor(() => expect(calls.find((c) => c.path === '/library/import')?.body).toEqual({ items: [{ tmdbId: 11, mediaType: 'movie' }] }));
+    await waitFor(() => expect(within(novos).queryByRole('button', { name: 'Quero assistir: Estreia Nova' })).toBeNull());
+  });
 });
+
