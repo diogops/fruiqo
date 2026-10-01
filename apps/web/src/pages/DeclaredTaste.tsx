@@ -27,6 +27,10 @@ export function DeclaredTasteSection() {
   const [saving, setSaving] = useState(false);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  // D-25: resumo semi-automático (sugerido pelas escolhas ou melhorado pela IA); só vale depois de salvo
+  const [drafting, setDrafting] = useState<'suggest' | 'improve' | null>(null);
+  const [previous, setPrevious] = useState<string | null>(null);
+  const [draftNote, setDraftNote] = useState<string | null>(null);
 
   useEffect(() => {
     if (declared.data && !dirty) setSummary(declared.data.summary ?? '');
@@ -49,6 +53,37 @@ export function DeclaredTasteSection() {
       setError(err);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function draft(which: 'suggest' | 'improve') {
+    setDrafting(which);
+    setError(null);
+    setDraftNote(null);
+    try {
+      const res = which === 'suggest' ? await api.summarySuggestion() : await api.improveSummary(summary.trim());
+      if (which === 'improve' && !res.aiUsed) {
+        setDraftNote(
+          res.unavailable === 'consent'
+            ? 'Para melhorar com IA, permita o uso da IA abaixo, em Privacidade.'
+            : res.unavailable === 'disabled'
+              ? 'A IA está desligada no servidor.'
+              : 'A IA não conseguiu agora; tente de novo.',
+        );
+        return;
+      }
+      if (!res.summary.trim()) {
+        setDraftNote('Ainda não há escolhas suficientes: marque favoritos ou níveis de gênero e tente de novo.');
+        return;
+      }
+      setPrevious(summary);
+      setSummary(res.summary);
+      setDirty(true);
+      setDraftNote(which === 'suggest' ? 'Sugerido pelas suas escolhas. Revise e salve.' : 'Melhorado pela IA. Revise e salve.');
+    } catch (err) {
+      setError(err);
+    } finally {
+      setDrafting(null);
     }
   }
 
@@ -109,6 +144,32 @@ export function DeclaredTasteSection() {
             }}
             aria-describedby="taste-summary-count"
           />
+          <div className="summary-tools">
+            <button type="button" className="btn" disabled={drafting !== null} onClick={() => void draft('suggest')}>
+              {drafting === 'suggest' ? 'Montando…' : 'Sugerir pelo meu perfil'}
+            </button>
+            <button type="button" className="btn" disabled={drafting !== null || summary.trim().length < 10} onClick={() => void draft('improve')}>
+              <Icon name="sparkles" size={14} /> {drafting === 'improve' ? 'Melhorando…' : 'Melhorar com IA'}
+            </button>
+            {previous !== null && (
+              <button
+                type="button"
+                className="btn btn-link"
+                onClick={() => {
+                  setSummary(previous);
+                  setPrevious(null);
+                  setDraftNote(null);
+                }}
+              >
+                Desfazer
+              </button>
+            )}
+          </div>
+          {draftNote && (
+            <p className="muted small" role="status">
+              {draftNote}
+            </p>
+          )}
           <div className="row between">
             <span id="taste-summary-count" className={summary.length >= MAX_TASTE_SUMMARY_CHARS ? 'small warn' : 'muted small'}>
               {summary.length}/{MAX_TASTE_SUMMARY_CHARS}

@@ -12,6 +12,9 @@ import { LibraryService } from '../../src/library/library.service.js';
 import { ReviewService } from '../../src/library/review.service.js';
 import { SearchService } from '../../src/library/search.service.js';
 import type { AiTitleFinder } from '../../src/library/ai-title-finder.js';
+import type { TasteAi, TasteBrief } from '../../src/library/taste-ai.js';
+import { TonightService } from '../../src/library/tonight.service.js';
+import { CatalogService } from '../../src/library/catalog.service.js';
 import type { TitleGuesser } from '../../src/library/title-guesser.js';
 import { HeuristicExtractor } from '../../src/pipeline/extractors/heuristic.js';
 import { FIXTURES_DIR, PipelineGateway } from '../../src/pipeline/gateway.js';
@@ -321,6 +324,126 @@ describe('RF-46: busca e importação', () => {
     expect(res.body).toEqual({ aiUsed: false, unavailable: 'disabled', items: [], notFound: [] });
     await post(user, '/search/ai', { mode: 'describe', text: 'x'.repeat(1001) }).expect(400);
     await post(user, '/search/ai', { mode: 'ocr', text: 'x'.repeat(1001) }).expect(200);
+  });
+
+  it('D-25: "assistir hoje" (humor, tipo, gênero, streaming) e resumo sugerido/melhorado; tira assistidos, favoritos e já mostrados', async () => {
+    const user = await newUser();
+    const movies: Record<number, { title: string; original?: string; date: string; providers?: string[] }> = {
+      11: { title: 'Fresh', date: '2022-03-04', providers: ['Disney Plus'] },
+      12: { title: 'A Mão do Diabo', original: 'Frailty', date: '2001-04-12', providers: ['Netflix'] },
+      13: { title: 'Prisioneiros', date: '2013-09-20', providers: ['Netflix'] },
+      14: { title: 'Ilha do Medo', date: '2010-02-19', providers: ['Netflix'] },
+      15: { title: 'Zodíaco', date: '2007-03-02' },
+      16: { title: 'Só na Locadora', date: '2016-01-01', providers: ['Globoplay'] },
+    };
+    const byName = new Map<string, number>();
+    for (const [id, m] of Object.entries(movies)) {
+      byName.set(m.title, Number(id));
+      if (m.original) byName.set(m.original, Number(id));
+    }
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url);
+      let body: unknown = { results: [] };
+      const hit = (id: number) => ({ id, media_type: 'movie', title: movies[id]!.title, original_title: movies[id]!.original ?? movies[id]!.title, release_date: movies[id]!.date, popularity: 10 });
+      if (url.pathname.endsWith('/search/multi')) {
+        const id = byName.get(url.searchParams.get('query') ?? '');
+        if (id) body = { results: [hit(id)] };
+      }
+      const one = /\/movie\/(\d+)$/.exec(url.pathname);
+      if (one && movies[Number(one[1])]) {
+        const m = movies[Number(one[1])]!;
+        body = {
+          ...hit(Number(one[1])),
+          'watch/providers': { results: { BR: { flatrate: (m.providers ?? []).map((provider_name, i) => ({ provider_name, provider_id: i + 1 })) } } },
+        };
+      }
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const calls: { brief: TasteBrief; kind?: string }[] = [];
+    const ai: TasteAi = {
+      improveSummary: async (text) => ({ ok: true, value: `Melhorado: ${text}` }),
+      tonight: async (brief, _userId, kind) => {
+        calls.push({ brief, ...(kind ? { kind } : {}) });
+        if (kind === 'music') return { ok: true, value: { picks: [{ title: 'Construção', kind: 'music_track', creator: 'Chico Buarque', reason: 'MPB densa' }], request: 'pedido' } };
+        const titles = ['Fresh', 'Frailty', 'Prisioneiros', 'Ilha do Medo', 'Zodíaco', 'Só na Locadora', 'Inexistente'];
+        return { ok: true, value: { picks: titles.map((title) => ({ title, kind: 'movie' as const, reason: `por que ${title}` })), request: 'pedido otimizado' } };
+      },
+    };
+    const tmdb = new TmdbResolver('k'.repeat(32), fetchImpl);
+    const search = new SearchService(db, ctx.app.get(ReviewService), ctx.app.get(LibraryService), tmdb, null);
+    const tonight = new TonightService(db, search, ctx.app.get(LibraryService), ctx.app.get(CatalogService), ai, tmdb);
+
+    // sem consentimento: sem IA (a busca local roda, mas aqui o /discover não traz nada)
+    expect(await tonight.tonight(user.userId, {})).toEqual({ aiUsed: false, unavailable: 'consent', services: [], items: [] });
+    await setUserSettings(db, user.userId, { aiConsent: true });
+    expect((await tonight.tonight(user.userId, {})).unavailable).toBe('no_profile');
+
+    // RNF-07: humor com risco não chama a IA e traz o CVV
+    const risky = await tonight.tonight(user.userId, { mood: 'não aguento mais, quero sumir e me matar' });
+    expect(risky.items).toEqual([]);
+    expect(risky.risk?.cvvPhone).toBeTruthy();
+    expect(calls).toEqual([]);
+
+    // perfil: resumo, níveis, favorito (Ilha do Medo), assistido com 5 estrelas (Zodíaco), Netflix assinada
+    await put(user, '/profile/summary', { summary: 'Gosto de suspense que mexe com a cabeça.' }).expect(200);
+    await ctx.http().patch('/profile/taste').set(...auth(user)).send({ levels: [{ key: 'thriller', level: 'love' }, { key: 'horror', level: 'hate' }] }).expect(200);
+    await post(user, '/profile/favorites', { title: 'Ilha do Medo', kind: 'movie', year: 2010, tmdbId: 14, mediaType: 'movie', rating: 5 }).expect(201);
+    const zodiac = await tonight.markWatched(user.userId, { tmdbId: 15, mediaType: 'movie' });
+    await patch(user, `/library/${zodiac.id}`, { rating: 5 }).expect(200);
+
+    const suggestion = await tonight.suggestSummary(user.userId);
+    expect(suggestion.aiUsed).toBe(false);
+    expect(suggestion.summary).toContain('Adoro suspense');
+    expect(suggestion.summary).toContain('Não gosto de terror');
+    expect(suggestion.summary).toContain('Ilha do Medo (2010)');
+    expect(suggestion.summary).toContain('Zodíaco (2007)');
+    expect(await tonight.improveSummary(user.userId, 'adoro suspense')).toEqual({ summary: 'Melhorado: adoro suspense', aiUsed: true });
+
+    // sem streaming cadastrado: não filtra por serviço; tira assistidos (Zodíaco), favorito (Ilha do Medo)
+    const open = await tonight.tonight(user.userId, { mood: 'quero algo tenso', genre: 'thriller' });
+    expect(open.services).toEqual([]);
+    expect(open.request).toBe('pedido otimizado');
+    expect(open.items.map((i) => i.title)).toEqual(['Fresh', 'A Mão do Diabo', 'Prisioneiros', 'Só na Locadora']);
+    expect(calls[0]!.brief).toMatchObject({ mood: 'quero algo tenso', genre: 'Suspense/Thriller', loves: ['Suspense/Thriller'], hates: ['Terror'] });
+    expect(calls[0]!.brief.loved).toEqual([{ title: 'Zodíaco', year: 2007, rating: 5 }]);
+
+    // com Netflix: só o que está na Netflix; "novas sugestões" sem repetir, e a IA é avisada pelo nome
+    await put(user, '/profile/subscriptions', { providers: ['netflix'] }).expect(200);
+    const first = await tonight.tonight(user.userId, {});
+    expect(first.services).toEqual(['Netflix']);
+    expect(first.items.map((i) => [i.title, i.availableOn, i.aiReason])).toEqual([
+      ['A Mão do Diabo', ['Netflix'], 'por que Frailty'],
+      ['Prisioneiros', ['Netflix'], 'por que Prisioneiros'],
+    ]);
+    const again = await tonight.tonight(user.userId, { exclude: ['movie:12'] });
+    expect(again.items.map((i) => i.title)).toEqual(['Prisioneiros']);
+    expect(calls.at(-1)!.brief.avoid).toEqual(['A Mão do Diabo (2001)']);
+
+    // "já assisti" grava como assistido e o título não volta
+    const watched = await tonight.markWatched(user.userId, { tmdbId: 13, mediaType: 'movie' });
+    expect(watched.status).toBe('watched');
+    expect((await tonight.tonight(user.userId, {})).items.map((i) => i.title)).toEqual(['A Mão do Diabo']);
+
+    // música: sugestão da IA sem conferência; "já ouvi" entra na lista e não volta
+    const music = await tonight.tonight(user.userId, { kind: 'music', genre: 'MPB' });
+    expect(calls.at(-1)).toMatchObject({ kind: 'music', brief: { genre: 'MPB' } });
+    expect(music.music).toEqual([{ key: 'music:construcao-chico-buarque', title: 'Construção', artist: 'Chico Buarque', kind: 'music_track', aiReason: 'MPB densa' }]);
+    expect(music.services).toEqual([]);
+    const heard = await tonight.markWatched(user.userId, { music: { title: 'Construção', artist: 'Chico Buarque', kind: 'music_track' } });
+    expect(heard).toMatchObject({ title: 'Construção', status: 'watched' });
+    expect((await tonight.tonight(user.userId, { kind: 'music', exclude: ['music:construcao-chico-buarque'] })).music).toEqual([]);
+
+    // HTTP: contrato; no ambiente de teste a IA está desligada
+    expect((await post(user, '/tonight', {}).expect(200)).body).toMatchObject({ aiUsed: false, unavailable: 'disabled', services: ['Netflix'] });
+    expect((await get(user, '/profile/summary/suggestion').expect(200)).body.summary).toContain('Ilha do Medo');
+    expect((await post(user, '/profile/summary/improve', { text: 'adoro suspense psicológico' }).expect(200)).body).toEqual({
+      summary: 'adoro suspense psicológico',
+      aiUsed: false,
+      unavailable: 'disabled',
+    });
+    await post(user, '/tonight', { exclude: ['nope'] }).expect(400);
+    await post(user, '/tonight', { kind: 'podcast' }).expect(400);
+    await post(user, '/tonight/watched', { tmdbId: -1, mediaType: 'movie' }).expect(400);
   });
 
   it('D-23: "melhor" e lançamentos viram /discover ao vivo (serviço no Brasil, pessoa, minissérie, datas)', async () => {

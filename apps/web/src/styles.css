@@ -476,8 +476,9 @@ textarea { width: 100%; }
 .catalog-table .col-check { width: 44px; }
 .catalog-table .col-kind { width: 70px; }
 .catalog-table .col-genres { width: 182px; }
-.catalog-table .col-status { width: 132px; }
-.catalog-table .col-rating { width: 92px; }
+.catalog-table .col-status { width: 148px; }
+/* nota + "auto x · TMDB y": cabe sem invadir a Origem */
+.catalog-table .col-rating { width: 124px; }
 .catalog-table .col-origin { width: 128px; }
 .catalog-table th, .catalog-table td { padding-left: 0.6rem; padding-right: 0.6rem; }
 .catalog-table .title-cell { min-width: 0; }
@@ -801,6 +802,14 @@ html.has-docked-bulkbar .toasts { bottom: calc(5.75rem + env(safe-area-inset-bot
 .chip.sub-pref { cursor: pointer; display: inline-flex; gap: 0.25rem; align-items: center; }
 .chip.sub-like { color: var(--accent); border-color: rgb(34 211 238 / 0.45); background: rgb(34 211 238 / 0.12); }
 .chip.sub-dislike { opacity: 0.75; text-decoration: line-through; }
+.tonight-btn { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+.tonight-form .chips { margin-bottom: 0.25rem; }
+.tonight-row { display: flex; gap: 0.5rem; }
+.tonight-note { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin: 0.5rem 0; }
+.tonight-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.4rem; }
+.tonight-request pre { white-space: pre-wrap; font: inherit; color: var(--muted, inherit); margin: 0.4rem 0 0; }
+.risk-card { border-color: rgb(248 113 113 / 0.5); padding: 0.9rem 1rem; margin: 0.75rem 0; }
+.summary-tools { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .describe-form { display: grid; gap: 0.5rem; }
 .describe-form textarea { resize: vertical; min-height: 5.5rem; }
 .form .row.describe-actions, .row.describe-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
@@ -1017,7 +1026,8 @@ details[open] > summary { margin-bottom: 0.6rem; }
 .search-ai { white-space: nowrap; display: inline-flex; align-items: center; gap: 0.3rem; }
 
 /* D-23: notas automática/geral, "Quero assistir" no Catálogo, status + onde assistindo */
-.other-scores { display: flex; gap: 0.5rem; font-size: 0.75rem; white-space: nowrap; margin-top: 0.15rem; }
+.other-scores { display: flex; flex-wrap: wrap; column-gap: 0.5rem; row-gap: 0; font-size: 0.75rem; white-space: nowrap; margin-top: 0.15rem; }
+.catalog-table td.rating-cell { overflow: hidden; }
 .want-btn { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0; min-height: 0; font-weight: 600; }
 .status-control { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin: 0.5rem 0; }
 .status-control input { flex: 1 1 160px; max-width: 240px; }

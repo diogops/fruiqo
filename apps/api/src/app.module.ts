@@ -41,9 +41,11 @@ import { PriorityDraftService } from './library/priority-draft.service.js';
 import { ProfileService } from './library/profile.service.js';
 import { ReviewService } from './library/review.service.js';
 import { SearchService } from './library/search.service.js';
-import { DeclaredProfileController, LibraryExtrasController, SearchController } from './library/taste-search.controller.js';
+import { DeclaredProfileController, LibraryExtrasController, SearchController, TonightController } from './library/taste-search.controller.js';
 import { createTitleGuesser, TITLE_GUESSER } from './library/title-guesser.js';
 import { AI_TITLE_FINDER, createAiTitleFinder } from './library/ai-title-finder.js';
+import { createTasteAi, TASTE_AI } from './library/taste-ai.js';
+import { TonightService } from './library/tonight.service.js';
 import { createOpenLibraryCatalog, OPENLIBRARY_CATALOG } from './library/openlibrary-catalog.js';
 import { createTmdbCatalog, TMDB_CATALOG } from './library/tmdb-catalog.js';
 import { LibraryService } from './library/library.service.js';
@@ -128,6 +130,7 @@ export class AppModule {
         ProfileController,
         DeclaredProfileController,
         SearchController,
+        TonightController,
         SandboxController,
       ],
       providers: [
@@ -146,6 +149,8 @@ export class AppModule {
         { provide: OPENLIBRARY_CATALOG, useFactory: () => createOpenLibraryCatalog(env) },
         { provide: TITLE_GUESSER, useFactory: () => createTitleGuesser(env) },
         { provide: AI_TITLE_FINDER, useFactory: () => createAiTitleFinder(env) },
+        { provide: TASTE_AI, useFactory: () => createTasteAi(env) },
+        TonightService,
         { provide: MOOD_INTERPRETER, useFactory: () => createMoodInterpreter(env) },
         SandboxService,
         { provide: APP_GUARD, useClass: ThrottlerGuard },

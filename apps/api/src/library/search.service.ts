@@ -217,6 +217,12 @@ export class SearchService {
     };
   }
 
+  /** Títulos do TMDB → resultados de busca (o que já é seu, nota automática, elenco), na ordem dada. */
+  async toResults(userId: string, hits: TmdbHit[], matchedBy: TitleSearchResult['matchedBy'], limit = MAX_RESULTS): Promise<TitleSearchResult[]> {
+    const tmdb = this.requireTmdb();
+    return this.mediaResults(tmdb, userId, hits.map((hit) => ({ hit, matchedBy })), 'relevance', await this.libraryIndex(userId), limit);
+  }
+
   /** Filmes/séries para a resposta: o que já é seu, nota automática pelo seu gosto e elenco principal. */
   private async mediaResults(
     tmdb: TmdbResolver,
@@ -467,32 +473,49 @@ export class SearchService {
     if (req.mode === 'ocr' && !this.finder.ocrAllowed) return none('ocr_not_allowed');
     if (!this.searchLimiter.take(userId)) throw tooMany();
     if (!(await userAllowsAi(this.db, userId))) return none('consent');
-    const tmdb = this.requireTmdb();
+    // sem TMDB não há como conferir: falha antes de gastar a IA
+    this.requireTmdb();
     const res = await this.finder.find(req.mode, llmSafeInput(req.text), userId, req.kind);
     if (!res.ok) return none(res.reason);
 
-    const checked = await mapLimit(res.titles, 4, async (g) => {
+    const found = await this.confirmGuesses(userId, res.titles, {
+      matchedBy: req.mode === 'describe' ? 'description' : 'title',
+      ...(req.kind ? { kind: req.kind } : {}),
+    });
+    return { aiUsed: true, items: found.items, notFound: found.notFound };
+  }
+
+  /**
+   * Palpites da IA (título/tipo/ano) → obras confirmadas no TMDB, na ordem dos palpites, com o que
+   * já é seu e o motivo da IA. Livro e palpite sem obra parecida voltam em `notFound`.
+   */
+  async confirmGuesses(
+    userId: string,
+    guesses: { title: string; kind: 'movie' | 'series' | 'book'; year?: number; reason?: string }[],
+    opts: { matchedBy: TitleSearchResult['matchedBy']; kind?: 'movie' | 'series'; limit?: number },
+  ): Promise<{ items: (TitleSearchResult & { aiReason?: string })[]; notFound: AiFindTitlesResponse['notFound'] }> {
+    const tmdb = this.requireTmdb();
+    const checked = await mapLimit(guesses, 4, async (g) => {
       if (g.kind === 'book') return { g, hit: null };
       const mediaType = g.kind === 'series' ? ('tv' as const) : ('movie' as const);
       const multi = await tmdb.searchMulti(g.title).catch(() => null);
       const best = multi?.titles
-        .filter((hit) => !req.kind || hit.mediaType === (req.kind === 'series' ? 'tv' : 'movie'))
+        .filter((hit) => !opts.kind || hit.mediaType === (opts.kind === 'series' ? 'tv' : 'movie'))
         .map((hit) => ({ hit, score: matchScore({ title: g.title, ...(g.year ? { year: g.year } : {}), mediaType }, hit) }))
         .sort((a, b) => b.score - a.score || b.hit.popularity - a.hit.popularity)[0];
       return { g, hit: best && best.score >= AI_MATCH_MIN ? best.hit : null };
     });
     const reasonOf = new Map<string, string>();
     for (const { g, hit } of checked) if (hit && g.reason && !reasonOf.has(`${hit.mediaType}:${hit.tmdbId}`)) reasonOf.set(`${hit.mediaType}:${hit.tmdbId}`, g.reason);
-    const hits = checked.flatMap(({ hit }) => (hit ? [{ hit, matchedBy: req.mode === 'describe' ? ('description' as const) : ('title' as const) }] : []));
+    const hits = checked.flatMap(({ hit }) => (hit ? [{ hit, matchedBy: opts.matchedBy }] : []));
     let items: TitleSearchResult[] = [];
     try {
       // na ordem da IA (mais provável primeiro / ordem em que aparecem no print)
-      items = await this.mediaResults(tmdb, userId, hits, 'relevance', await this.libraryIndex(userId), AI_MAX_RESULTS);
+      items = await this.mediaResults(tmdb, userId, hits, 'relevance', await this.libraryIndex(userId), opts.limit ?? AI_MAX_RESULTS);
     } catch {
       throw new ServiceUnavailableException('Busca indisponível agora; tente de novo');
     }
     return {
-      aiUsed: true,
       items: items.map((it) => {
         const aiReason = reasonOf.get(`${it.mediaType}:${it.tmdbId}`);
         return aiReason ? { ...it, aiReason } : it;
@@ -626,6 +649,25 @@ export class SearchService {
     if (genres.length > 0) lists.push(await this.byGenre(tmdb, { ...interp, genres }));
     for (const k of interp.keywords.slice(0, 2)) lists.push((await tmdb.searchMulti(k)).titles);
     return { hits: interleave(lists), books: [], aiUsed: false };
+  }
+
+  /** D-25: palpites de livro da IA → obras da Open Library, com o que já é seu e o motivo da IA. */
+  async confirmBookGuesses(
+    userId: string,
+    guesses: { title: string; creator?: string; reason?: string }[],
+  ): Promise<(BookSearchResult & { aiReason?: string })[]> {
+    const books = this.requireBooks();
+    const found = await this.confirmBooks(
+      books,
+      guesses.map((g) => ({ title: g.title, kind: 'book' as const, ...(g.creator ? { author: g.creator } : {}) })),
+    );
+    const library = await this.libraryIndex(userId);
+    const results = bookResults(found, '', library);
+    // o motivo segue o palpite que achou a obra (mesma ordem)
+    return results.map((r, i) => {
+      const g = guesses.find((x) => similarity(x.title, found[i]!.title) >= 0.6 || (found[i]!.ptTitle ? similarity(x.title, found[i]!.ptTitle!) >= 0.6 : false));
+      return g?.reason ? { ...r, aiReason: g.reason } : r;
+    });
   }
 
   /** Palpite de livro da IA → obra da Open Library com título parecido (e autor, quando veio). */

@@ -55,6 +55,10 @@ const EnvSchema = z.object({
    * separar os títulos de verdade. Só em SC-PERSONAL e com o consentimento do usuário.
    */
   AI_OCR_TEXT_ALLOWED: bool,
+  /** D-25: modelo do "O que assistir hoje?" e do "melhorar resumo" (o mais capaz; a sugestão é o produto) */
+  AI_TONIGHT_MODEL: z.string().default('claude-fable-5-1'),
+  /** profundidade do raciocínio na sugestão (o raciocínio conta como saída: custo × qualidade); o passo de melhorar o pedido roda sempre em `low` */
+  AI_TONIGHT_EFFORT: z.enum(['low', 'medium', 'high']).default('low'),
   /** preço por milhão de tokens do AI_MODEL (padrão: Haiku 4.5, US$ 1 / US$ 5) */
   AI_PRICE_IN_PER_MTOK: z.coerce.number().min(0).default(1),
   AI_PRICE_OUT_PER_MTOK: z.coerce.number().min(0).default(5),

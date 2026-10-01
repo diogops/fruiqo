@@ -148,6 +148,33 @@ describe('perfil declarado (RF-43)', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Adicionar favoritos' })).toBeNull());
   });
 
+  it('resumo semi-automático: sugerir pelo perfil, melhorar com IA e desfazer; só salva quando clicar', async () => {
+    __setAccessToken('tok');
+    const { calls } = mockApi({
+      'GET /profile/declared': declared({ summary: 'adoro suspense' }),
+      'GET /profile/summary/suggestion': { summary: 'Adoro suspense/Thriller. Entre meus favoritos estão Zodíaco (2007).', aiUsed: false },
+      'POST /profile/summary/improve': (call) => ({ body: { summary: `Melhorado: ${(call.body as { text: string }).text}`, aiUsed: true } }),
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<DeclaredTasteSection />);
+    const box = await screen.findByRole('textbox', { name: 'Resumo do seu gosto' });
+    await waitFor(() => expect(box).toHaveProperty('value', 'adoro suspense'));
+
+    await user.click(screen.getByRole('button', { name: 'Sugerir pelo meu perfil' }));
+    await waitFor(() => expect(box).toHaveProperty('value', 'Adoro suspense/Thriller. Entre meus favoritos estão Zodíaco (2007).'));
+    expect(screen.getByText('Sugerido pelas suas escolhas. Revise e salve.')).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: /Melhorar com IA/ }));
+    await waitFor(() => expect((box as HTMLTextAreaElement).value.startsWith('Melhorado: Adoro suspense')).toBe(true));
+    expect(calls.find((c) => c.path === '/profile/summary/improve')?.body).toEqual({ text: 'Adoro suspense/Thriller. Entre meus favoritos estão Zodíaco (2007).' });
+
+    await user.click(screen.getByRole('button', { name: 'Desfazer' }));
+    expect(box).toHaveProperty('value', 'Adoro suspense/Thriller. Entre meus favoritos estão Zodíaco (2007).');
+    // nada foi salvo sem clicar em "Salvar resumo"
+    expect(calls.some((c) => c.method === 'PUT')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Salvar resumo' })).toHaveProperty('disabled', false);
+  });
+
   it('remove um favorito', async () => {
     __setAccessToken('tok');
     const { calls } = mockApi({

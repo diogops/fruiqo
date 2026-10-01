@@ -103,7 +103,7 @@ export function Catalog({ area = false }: { area?: boolean }) {
   const coarse = useMediaQuery('(pointer: coarse)');
   const rankWidth = coarse ? 212 : 168;
   const cols: CatalogColumns = { genres: wrapWidth >= 760, kind: wrapWidth >= 900, origin: wrapWidth >= 1080 };
-  const tableMinWidth = 44 + rankWidth + 220 + 132 + 92 + (cols.kind ? 70 : 0) + (cols.genres ? 182 : 0) + (cols.origin ? 128 : 0);
+  const tableMinWidth = 44 + rankWidth + 220 + 148 + 124 + (cols.kind ? 70 : 0) + (cols.genres ? 182 : 0) + (cols.origin ? 128 : 0);
   const activeFilters =
     (['kind', 'status', 'genre', 'listId', 'shareId'] as const).filter((k) => Boolean(filters[k])).length +
     (filters.sort && filters.sort !== 'score' ? 1 : 0);
@@ -1099,7 +1099,7 @@ function CatalogRow({
         </select>
         {t.status === 'watching' && <WatchOnField compact t={t} onSave={(watchOn) => onPatch({ watchOn })} />}
       </td>
-      <td>
+      <td className="rating-cell">
         <select
           className="rating-select"
           aria-label={`Nota de ${t.title}`}

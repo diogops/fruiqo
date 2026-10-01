@@ -1148,6 +1148,18 @@ export const MAX_TASTE_SUMMARY_CHARS = 2000;
 export const UpdateTasteSummaryRequestSchema = z.object({ summary: z.string().max(MAX_TASTE_SUMMARY_CHARS) }).strict();
 export type UpdateTasteSummaryRequest = z.infer<typeof UpdateTasteSummaryRequestSchema>;
 
+/** D-25: resumo sugerido (montado localmente, sem IA) ou melhorado pela IA; só vale depois de salvo */
+export const SummaryDraftSchema = z.object({
+  summary: z.string().max(MAX_TASTE_SUMMARY_CHARS),
+  /** a IA foi usada (só no "melhorar") */
+  aiUsed: z.boolean(),
+  unavailable: z.enum(['disabled', 'consent', 'quota', 'too_long', 'failed']).optional(),
+});
+export type SummaryDraft = z.infer<typeof SummaryDraftSchema>;
+export const ImproveSummaryRequestSchema = z.object({ text: z.string().trim().min(10).max(MAX_TASTE_SUMMARY_CHARS) }).strict();
+export type ImproveSummaryRequest = z.infer<typeof ImproveSummaryRequestSchema>;
+
+
 export const DeclaredAffinitySchema = z.object({
   key: z.string(),
   label: z.string(),
@@ -1401,6 +1413,77 @@ export const AiFindTitlesResponseSchema = z.object({
   ),
 });
 export type AiFindTitlesResponse = z.infer<typeof AiFindTitlesResponseSchema>;
+
+/**
+ * D-25: "O que assistir hoje?". A IA sugere pelo seu humor (opcional), resumo, níveis e nomes de
+ * favoritos/títulos que você amou; o TMDB confere; ficam só os que estão nos streamings que você
+ * assina (se cadastrou algum) e saem os que você já assistiu, abandonou ou já viu nesta rodada.
+ * Sem IA, a busca é só local (seus serviços + gêneros que você marcou).
+ */
+export const TONIGHT_MOOD_MAX_CHARS = 300;
+export const TonightRequestSchema = z
+  .object({
+    /** como você está hoje, nas suas palavras (passa pelo detector de risco antes de tudo) */
+    mood: z.string().trim().max(TONIGHT_MOOD_MAX_CHARS).optional(),
+    /** sugestões já mostradas nesta rodada ("movie:123", "book:OL1W", "music:nome"), para "novas sugestões" não repetirem */
+    exclude: z
+      .array(z.string().regex(/^((movie|tv):\d+|book:OL\d+W|music:[a-z0-9-]{1,80})$/))
+      .max(100)
+      .optional(),
+    /** o que você quer hoje; sem tipo = filmes e séries */
+    kind: z.enum(['movie', 'series', 'book', 'music']).optional(),
+    /** gênero escolhido (taxonomia para filme/série/livro; texto curto para música) */
+    genre: z.string().trim().min(1).max(40).optional(),
+  })
+  .strict();
+export type TonightRequest = z.infer<typeof TonightRequestSchema>;
+export const TonightResponseSchema = z.object({
+  aiUsed: z.boolean(),
+  /** por que a IA não foi usada (a busca local roda mesmo assim) */
+  unavailable: z.enum(['disabled', 'consent', 'quota', 'failed', 'no_profile']).optional(),
+  /** RNF-07: o humor indicou risco; sem sugestões, com o apoio do CVV */
+  risk: z.lazy(() => RiskSupportSchema).nullable().optional(),
+  /** o pedido que a IA montou do seu perfil/humor e usou na busca (transparência) */
+  request: z.string().max(2000).optional(),
+  /** serviços usados no filtro (vazio = você não cadastrou nenhum; nada foi filtrado por serviço) */
+  services: z.array(z.string()),
+  items: z.array(
+    TitleSearchResultSchema.extend({
+      aiReason: z.string().max(300).optional(),
+      /** seus serviços em que o título está na assinatura */
+      availableOn: z.array(z.string()),
+    }),
+  ),
+  /** pedido de livro: conferidos na Open Library */
+  books: z.array(z.lazy(() => BookSearchResultSchema.extend({ aiReason: z.string().max(300).optional() }))).optional(),
+  /** pedido de música: sugestões da IA, sem conferência em catálogo */
+  music: z
+    .array(
+      z.object({
+        key: z.string(),
+        title: z.string().max(200),
+        artist: z.string().max(200).optional(),
+        kind: z.enum(['music_track', 'music_album', 'artist']),
+        year: z.number().int().optional(),
+        aiReason: z.string().max(300).optional(),
+      }),
+    )
+    .optional(),
+});
+export type TonightResponse = z.infer<typeof TonightResponseSchema>;
+/** "Já assisti / já li / já ouvi": entra na sua lista como consumido e não volta nas sugestões */
+export const TonightWatchedRequestSchema = z.union([
+  z.object({ tmdbId: z.number().int().positive(), mediaType: z.enum(['movie', 'tv']) }).strict(),
+  z.object({ olWorkId: OlWorkIdSchema }).strict(),
+  z
+    .object({
+      music: z
+        .object({ title: z.string().trim().min(1).max(200), artist: z.string().trim().max(200).optional(), kind: z.enum(['music_track', 'music_album', 'artist']) })
+        .strict(),
+    })
+    .strict(),
+]);
+export type TonightWatchedRequest = z.infer<typeof TonightWatchedRequestSchema>;
 
 export const ImportTitlesRequestSchema = z
   .object({

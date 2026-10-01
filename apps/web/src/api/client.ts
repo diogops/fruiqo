@@ -12,6 +12,10 @@ import {
   CatalogSyncStatusSchema,
   ClassifyTitlesResponseSchema,
   AiFindTitlesResponseSchema,
+  SummaryDraftSchema,
+  TonightResponseSchema,
+  type TonightRequest,
+  type TonightWatchedRequest,
   type AiFindTitlesRequest,
   EnrichResponseSchema,
   ActivityResponseSchema,
@@ -266,6 +270,12 @@ export const api = {
   // ---------- RF-43: perfil declarado ----------
   declared: () => request(DeclaredTasteSchema, '/profile/declared'),
   updateSummary: (summary: string) => request(DeclaredTasteSchema, '/profile/summary', 'PUT', { summary }),
+  /** D-25: resumo montado das suas escolhas (local) e "melhorar com IA"; só valem depois de salvos */
+  summarySuggestion: () => request(SummaryDraftSchema, '/profile/summary/suggestion'),
+  improveSummary: (text: string) => request(SummaryDraftSchema, '/profile/summary/improve', 'POST', { text }),
+  /** D-25: "O que assistir hoje?" */
+  tonight: (body: TonightRequest) => request(TonightResponseSchema, '/tonight', 'POST', body),
+  tonightWatched: (body: TonightWatchedRequest) => request(TitleSchema, '/tonight/watched', 'POST', body),
   addFavorite: (body: CreateFavoriteRequest) => request(FavoriteSchema, '/profile/favorites', 'POST', body),
   deleteFavorite: (id: string) => request(NoContent, `/profile/favorites/${id}`, 'DELETE'),
 

@@ -1,5 +1,14 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import {
+  type ImproveSummaryRequest,
+  ImproveSummaryRequestSchema,
+  type SummaryDraft,
+  type Title,
+  type TonightRequest,
+  TonightRequestSchema,
+  type TonightResponse,
+  type TonightWatchedRequest,
+  TonightWatchedRequestSchema,
   type AiFindTitlesRequest,
   AiFindTitlesRequestSchema,
   type AiFindTitlesResponse,
@@ -33,11 +42,28 @@ import { ZodPipe } from '../common/zod-pipe.js';
 import { PriorityDraftService } from './priority-draft.service.js';
 import { ProfileService } from './profile.service.js';
 import { SearchService } from './search.service.js';
+import { TonightService } from './tonight.service.js';
 
 /** RF-43: perfil de gosto declarado (favoritos + resumo livre). */
 @Controller('profile')
 export class DeclaredProfileController {
-  constructor(private readonly profile: ProfileService) {}
+  constructor(
+    private readonly profile: ProfileService,
+    private readonly tonight: TonightService,
+  ) {}
+
+  /** D-25: resumo montado das suas escolhas (local, sem IA); só vale depois de salvo */
+  @Get('summary/suggestion')
+  suggestSummary(@CurrentAuth() auth: AccessClaims): Promise<SummaryDraft> {
+    return this.tonight.suggestSummary(auth.userId);
+  }
+
+  /** D-25: a IA reescreve o texto do resumo (com consentimento); só vale depois de salvo */
+  @Post('summary/improve')
+  @HttpCode(200)
+  improveSummary(@CurrentAuth() auth: AccessClaims, @Body(new ZodPipe(ImproveSummaryRequestSchema)) body: ImproveSummaryRequest): Promise<SummaryDraft> {
+    return this.tonight.improveSummary(auth.userId, body.text);
+  }
 
   @Get('declared')
   declared(@CurrentAuth() auth: AccessClaims): Promise<DeclaredTaste> {
@@ -131,5 +157,24 @@ export class SearchController {
   @HttpCode(200)
   ai(@CurrentAuth() auth: AccessClaims, @Body(new ZodPipe(AiFindTitlesRequestSchema)) body: AiFindTitlesRequest): Promise<AiFindTitlesResponse> {
     return this.search.aiFind(auth.userId, body);
+  }
+}
+
+/** D-25: "O que assistir hoje?" — 5 sugestões da IA pelo seu perfil, sem o que você já assistiu. */
+@Controller('tonight')
+export class TonightController {
+  constructor(private readonly tonight: TonightService) {}
+
+  @Post()
+  @HttpCode(200)
+  suggest(@CurrentAuth() auth: AccessClaims, @Body(new ZodPipe(TonightRequestSchema.optional())) body: TonightRequest | undefined): Promise<TonightResponse> {
+    return this.tonight.tonight(auth.userId, body ?? {});
+  }
+
+  /** "Já assisti": grava como assistido e não sugere de novo */
+  @Post('watched')
+  @HttpCode(200)
+  watched(@CurrentAuth() auth: AccessClaims, @Body(new ZodPipe(TonightWatchedRequestSchema)) body: TonightWatchedRequest): Promise<Title> {
+    return this.tonight.markWatched(auth.userId, body);
   }
 }
