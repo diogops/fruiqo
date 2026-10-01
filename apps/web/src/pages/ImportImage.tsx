@@ -1,7 +1,10 @@
 // Importar de imagem: print (escolher, arrastar ou Ctrl+V) → recorte → OCR no navegador → candidatos
-// editáveis com categoria → cadastro só do que o usuário confirmar. A imagem nunca sai do navegador:
+// editáveis com categoria → cadastro só do que o usuário confirmar. Com a IA liberada (D-24), o texto lido
+// (nunca a imagem) vai à IA, que separa só os títulos (sem atores, serviços, rótulos) e o TMDB confirma;
+// sem IA, as linhas viram candidatos pela heurística. A imagem nunca sai do navegador:
 // o que vai para a API é o texto confirmado, pelo fluxo de importação que já existe (RF-47; D-23: direto para a Minha Área, como Quero assistir).
 import 'react-image-crop/dist/ReactCrop.css';
+import { AI_OCR_MAX_CHARS, type AiFindTitlesResponse } from '@fruiqo/contracts';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useId, useRef, useState, type ClipboardEvent as ReactClipboardEvent } from 'react';
 import ReactCrop, { type Crop, type PixelCrop as ViewCrop } from 'react-image-crop';
@@ -10,6 +13,7 @@ import { api } from '../api/client';
 import { ErrorNote, Modal } from '../components/shared';
 import { useToast } from '../components/Toast';
 import { Icon } from '../components/ui';
+import { AI_UNAVAILABLE } from '../labels';
 import { type Candidate, type CandidateKind, extractCandidates, newCandidateId, normalizeSpaces } from '../ocr/candidates';
 import { OcrCanceledError, OcrEngine, type OcrProgress } from '../ocr/engine';
 import { disposeCanvas, IMAGE_TYPES, isImageFile, loadImage, type LoadedImage, type PixelCrop, releaseImage, renderForOcr } from '../ocr/image';
@@ -24,6 +28,30 @@ const OUTCOME_LABEL: Record<ItemResult['outcome'], string> = {
 };
 
 type Step = 'pick' | 'crop' | 'ocr' | 'review' | 'done';
+type AiNote = { used: true } | { used: false; reason: NonNullable<AiFindTitlesResponse['unavailable']> };
+
+/**
+ * D-24: títulos da IA como candidatos. Os confirmados no TMDB vêm com o nome e o ano de lá e a
+ * categoria certa; os não confirmados vêm marcados para conferir. As linhas lidas ficam recolhidas.
+ */
+export function aiCandidates(ai: AiFindTitlesResponse, lines: Candidate[], makeId: () => string = newCandidateId): Candidate[] {
+  const withYear = (title: string, year?: number) => (year ? `${title} (${year})` : title);
+  const seen = new Set<string>();
+  const found: Candidate[] = [];
+  for (const it of ai.items) {
+    const text = withYear(it.title, it.year);
+    if (seen.has(text.toLowerCase())) continue;
+    seen.add(text.toLowerCase());
+    found.push({ id: makeId(), text, kind: it.kind, kindFrom: 'tmdb', selected: true, visible: true, uncertain: false, source: 'ocr' });
+  }
+  for (const n of ai.notFound) {
+    const text = withYear(n.title, n.year);
+    if (seen.has(text.toLowerCase())) continue;
+    seen.add(text.toLowerCase());
+    found.push({ id: makeId(), text, kind: n.kind, selected: true, visible: true, uncertain: true, source: 'ocr' });
+  }
+  return [...found, ...lines.map((c) => ({ ...c, visible: false, selected: false }))];
+}
 
 /** Primeira imagem de uma lista de arquivos (colar/soltar pode trazer vários). */
 export function firstImage(files: Iterable<File> | null | undefined): File | null {
@@ -39,6 +67,9 @@ export function ImportImage({ initialFile, onClose }: { initialFile?: File | nul
   const [progress, setProgress] = useState<OcrProgress | null>(null);
   const [fullText, setFullText] = useState('');
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [aiNote, setAiNote] = useState<AiNote | null>(null);
+  const [aiReading, setAiReading] = useState(false);
+  const canceled = useRef(false);
   // D-23: o TMDB sugere a categoria (Filme/Série) de cada título sem categoria; uma consulta por texto
   const asked = useRef(new Set<string>());
   useEffect(() => {
@@ -137,6 +168,8 @@ export function ImportImage({ initialFile, onClose }: { initialFile?: File | nul
     const img = imageRef.current;
     if (!img) return;
     engine.current ??= new OcrEngine();
+    canceled.current = false;
+    setAiNote(null);
     setError(null);
     setProgress({ phase: 'loading', progress: 0 });
     setStep('ocr');
@@ -144,8 +177,28 @@ export function ImportImage({ initialFile, onClose }: { initialFile?: File | nul
     try {
       canvas = renderForOcr(img, pixelCrop);
       const result = await engine.current.recognize(canvas, setProgress);
-      const found = extractCandidates(result.lines);
-      setFullText(result.text.trim());
+      const lines = extractCandidates(result.lines);
+      const text = result.text.trim();
+      let found = lines;
+      if (text.length >= 2 && text.length <= AI_OCR_MAX_CHARS) {
+        setAiReading(true);
+        let note: AiNote;
+        try {
+          const ai = await api.aiFindTitles({ mode: 'ocr', text });
+          if (ai.aiUsed) found = aiCandidates(ai, lines);
+          note = ai.aiUsed ? { used: true } : { used: false, reason: ai.unavailable ?? 'failed' };
+        } catch {
+          note = { used: false, reason: 'failed' };
+        } finally {
+          setAiReading(false);
+        }
+        if (canceled.current) {
+          setStep('crop');
+          return;
+        }
+        setAiNote(note);
+      }
+      setFullText(text);
       setCandidates(found);
       if (found.length === 0) {
         setError(new Error(result.text.trim() ? 'Li o texto, mas nenhuma linha parece um título. Veja o texto completo ou adicione à mão.' : 'Não encontrei texto nessa área. Ajuste o recorte ou use outra imagem.'));
@@ -165,6 +218,7 @@ export function ImportImage({ initialFile, onClose }: { initialFile?: File | nul
   }
 
   function cancelOcr() {
+    canceled.current = true;
     engine.current?.cancel();
   }
 
@@ -341,7 +395,14 @@ export function ImportImage({ initialFile, onClose }: { initialFile?: File | nul
               {image.width}×{image.height}px
               {pixelCrop ? ` · recorte ${Math.round(pixelCrop.width)}×${Math.round(pixelCrop.height)}px` : ' · imagem inteira'}
             </p>
-            {step === 'ocr' && progress && (
+            {step === 'ocr' && aiReading && (
+              <div className="ocr-progress" role="status" aria-live="polite">
+                <span>
+                  <Icon name="sparkles" size={14} /> Separando os títulos com IA…
+                </span>
+              </div>
+            )}
+            {step === 'ocr' && progress && !aiReading && (
               <div className="ocr-progress" role="status" aria-live="polite">
                 <span>
                   {progress.phase === 'loading'
@@ -398,6 +459,25 @@ export function ImportImage({ initialFile, onClose }: { initialFile?: File | nul
 
         {step === 'review' && (
           <>
+            {aiNote?.used && (
+              <p className="small ocr-ai-note" role="status">
+                <span className="badge badge-ai">
+                  <Icon name="sparkles" size={12} /> títulos separados pela IA
+                </span>
+                <span className="muted">atores, serviços de streaming e rótulos ficaram de fora; as linhas lidas estão recolhidas abaixo.</span>
+              </p>
+            )}
+            {aiNote && !aiNote.used && (
+              <p className="muted small ocr-ai-note" role="note">
+                Sem IA: separei pelas linhas do texto. {AI_UNAVAILABLE[aiNote.reason]}
+                {aiNote.reason === 'consent' && (
+                  <>
+                    {' '}
+                    Permita em <Link to="/perfil">Perfil</Link>.
+                  </>
+                )}
+              </p>
+            )}
             <p className="muted small">
               Confira os títulos encontrados: corrija a grafia; a categoria vem sugerida pelo TMDB (troque se precisar). O que você cadastrar vai para a Minha Área como Quero assistir, onde
               confirma a obra certa antes de entrar na fila.

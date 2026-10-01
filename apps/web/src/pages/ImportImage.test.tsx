@@ -227,4 +227,55 @@ describe('D-23: categoria sugerida pelo TMDB', () => {
     expect((screen.getByLabelText('Categoria do título 3') as HTMLSelectElement).value).toBe('');
     expect(calls.filter((c) => c.path === '/search/classify')).toHaveLength(1);
   });
+
+  it('D-24: com IA, só os títulos do print viram candidatos (sem atores, serviços e rótulos); sem IA, a heurística', async () => {
+    const text = [
+      '[Fresh, Sorry to Bother You, Arlington Road, Frailty, Inside Man,',
+      'Sebastian Stan, Daisy Edgar-Jones, LaKeith Stanfield, Steven',
+      'Psychological Thriller, Plot Twist, Thriller, Netflix, Disney+,',
+      'HBO, Prime Video]',
+    ];
+    const lines = text.map((t) => ({ text: t, confidence: 90 }));
+    ocr.recognize.mockImplementation(() => ok(lines));
+    const { calls } = mockApi({
+      'POST /search/ai': {
+        aiUsed: true,
+        items: [
+          { tmdbId: 1, mediaType: 'movie', kind: 'movie', title: 'Fresh', year: 2022, cast: [], inLibrary: null, matchedBy: 'title' },
+          { tmdbId: 2, mediaType: 'movie', kind: 'movie', title: 'Desculpe Te Incomodar', year: 2018, cast: [], inLibrary: null, matchedBy: 'title' },
+          { tmdbId: 3, mediaType: 'movie', kind: 'movie', title: 'A Mão do Diabo', year: 2001, cast: [], inLibrary: null, matchedBy: 'title' },
+        ],
+        notFound: [{ title: 'Arlington Road', kind: 'movie' }],
+      },
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ImportImage onClose={vi.fn()} />);
+    const list = await openAndExtract(user);
+    // só o texto vai para a IA, nunca a imagem
+    expect(calls.find((c) => c.path === '/search/ai')?.body).toEqual({ mode: 'ocr', text: text.join('\n') });
+    expect(JSON.stringify(calls)).not.toContain('blob:');
+    const titles = within(list).getAllByRole('textbox', { name: /^Título/ }).map((i) => (i as HTMLInputElement).value);
+    expect(titles).toEqual(['Fresh (2022)', 'Desculpe Te Incomodar (2018)', 'A Mão do Diabo (2001)', 'Arlington Road']);
+    // categoria já vem do TMDB; o não confirmado também (o usuário confere)
+    expect(within(list).getByRole('combobox', { name: 'Categoria do título 1' })).toHaveProperty('value', 'movie');
+    expect(screen.getByText('títulos separados pela IA')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Cadastrar 4 título(s)' })).toBeTruthy();
+    // as linhas lidas continuam acessíveis, recolhidas
+    expect(within(screen.getByRole('list', { name: 'Outras linhas lidas' })).getAllByRole('button').length).toBeGreaterThan(0);
+  });
+
+  it('D-24: IA indisponível (sem consentimento) explica e segue com a heurística', async () => {
+    ocr.recognize.mockImplementation(() => ok());
+    mockApi({ 'POST /search/ai': { aiUsed: false, unavailable: 'consent', items: [], notFound: [] } });
+    const user = userEvent.setup();
+    renderWithProviders(<ImportImage onClose={vi.fn()} />);
+    const list = await openAndExtract(user);
+    expect(within(list).getAllByRole('textbox', { name: /^Título/ }).map((i) => (i as HTMLInputElement).value)).toEqual([
+      'Instinto Materno (2024)',
+      'Match Point (2006)',
+      'Mentira Incondicional (2020)',
+    ]);
+    expect(screen.getByText(/Sem IA: separei pelas linhas do texto/)).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Perfil' })).toBeTruthy();
+  });
 });

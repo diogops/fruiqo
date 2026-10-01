@@ -1,5 +1,8 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import {
+  type AiFindTitlesRequest,
+  AiFindTitlesRequestSchema,
+  type AiFindTitlesResponse,
   type ApplyPriorityDraftRequest,
   ApplyPriorityDraftRequestSchema,
   type ApplyPriorityDraftResponse,
@@ -121,5 +124,12 @@ export class SearchController {
   @HttpCode(200)
   classify(@CurrentAuth() auth: AccessClaims, @Body(new ZodPipe(ClassifyTitlesRequestSchema)) body: ClassifyTitlesRequest): Promise<ClassifyTitlesResponse> {
     return this.search.classify(auth.userId, body.titles);
+  }
+
+  /** D-24: a IA acha os títulos numa descrição livre ou no texto de um print; o TMDB confirma */
+  @Post('ai')
+  @HttpCode(200)
+  ai(@CurrentAuth() auth: AccessClaims, @Body(new ZodPipe(AiFindTitlesRequestSchema)) body: AiFindTitlesRequest): Promise<AiFindTitlesResponse> {
+    return this.search.aiFind(auth.userId, body);
   }
 }

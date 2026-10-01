@@ -50,6 +50,11 @@ const EnvSchema = z.object({
   AI_MODEL: z.string().default('claude-haiku-4-5'),
   AI_MAX_INPUT_CHARS: z.coerce.number().int().min(50).max(4000).default(1000),
   AI_DAILY_QUOTA: z.coerce.number().int().min(0).default(100),
+  /**
+   * D-24: o texto lido de um print (OCR no aparelho/navegador, nunca a imagem) pode ir à IA para
+   * separar os títulos de verdade. Só em SC-PERSONAL e com o consentimento do usuário.
+   */
+  AI_OCR_TEXT_ALLOWED: bool,
   /** preço por milhão de tokens do AI_MODEL (padrão: Haiku 4.5, US$ 1 / US$ 5) */
   AI_PRICE_IN_PER_MTOK: z.coerce.number().min(0).default(1),
   AI_PRICE_OUT_PER_MTOK: z.coerce.number().min(0).default(5),

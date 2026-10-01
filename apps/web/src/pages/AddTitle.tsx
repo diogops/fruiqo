@@ -1,15 +1,24 @@
 // RF-46: incluir título por busca inteligente. Campo único (nome, nome + ano, ator/diretor, gênero/década
 // ou descrição) → candidatos com pôster para marcar → Minha Área como Quero assistir (D-23, sem revisão).
-// A aba "Manual" cobre o que a busca não resolve (músicas, livros, títulos fora do TMDB).
-import { TMDB_ATTRIBUTION, tmdbPageUrl, type RecommendationKind, type TitleSearchResponse, type TitleStatus } from '@fruiqo/contracts';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState, type FormEvent } from 'react';
+// A aba "Descrever com IA" (D-24) acha o filme/série pelo que você lembra dele; a aba "Manual" cobre o
+// que a busca não resolve (músicas, livros, títulos fora do TMDB).
+import {
+  AI_DESCRIBE_MAX_CHARS,
+  TMDB_ATTRIBUTION,
+  tmdbPageUrl,
+  type RecommendationKind,
+  type TitleSearchResponse,
+  type TitleSearchResult,
+  type TitleStatus,
+} from '@fruiqo/contracts';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { api } from '../api/client';
 import { ErrorNote, Modal } from '../components/shared';
 import { useToast } from '../components/Toast';
 import { Icon, Thumb, WorkLink } from '../components/ui';
-import { kindLabel, KINDS, scoreText, SEARCH_SORT_LABEL, type SearchSort } from '../labels';
+import { AI_UNAVAILABLE, kindLabel, KINDS, scoreText, SEARCH_SORT_LABEL, type SearchSort } from '../labels';
 
 const SEARCH_DEBOUNCE_MS = 400;
 
@@ -51,11 +60,12 @@ export interface SearchPick {
   /** D-23: nota geral no TMDB (0..10) e automática (0..5, pelo seu gosto) */
   generalRating?: number;
   autoRating?: number;
+  /** D-24: por que a IA achou que é esse */
+  aiReason?: string;
 }
 
-export function searchPicks(data: TitleSearchResponse | undefined): SearchPick[] {
-  if (!data) return [];
-  const media: SearchPick[] = data.items.map((r) => ({
+export function mediaPick(r: TitleSearchResult & { aiReason?: string }): SearchPick {
+  return {
     key: `${r.mediaType}:${r.tmdbId}`,
     kind: r.kind,
     title: r.title,
@@ -69,7 +79,13 @@ export function searchPicks(data: TitleSearchResponse | undefined): SearchPick[]
     page: { url: tmdbPageUrl(r.mediaType, r.tmdbId), label: 'TMDB' },
     generalRating: r.generalRating,
     autoRating: r.autoRating,
-  }));
+    ...(r.aiReason ? { aiReason: r.aiReason } : {}),
+  };
+}
+
+export function searchPicks(data: TitleSearchResponse | undefined): SearchPick[] {
+  if (!data) return [];
+  const media = data.items.map(mediaPick);
   const books: SearchPick[] = (data.books ?? []).map((b) => ({
     key: `ol:${b.olWorkId}`,
     kind: 'book',
@@ -214,67 +230,7 @@ export function TitleSearch({
         </p>
       )}
 
-      <ul className="search-results" aria-label="Resultados da busca">
-        {results.map((r) => {
-          const key = r.key;
-          // D-23: já no Catálogo (ou abandonado) ainda pode ir para a Minha Área
-          const taken = r.inLibrary !== null && r.inLibrary.status !== 'catalog' && r.inLibrary.status !== 'dropped';
-          const checked = selected?.has(key) ?? false;
-          return (
-            <li key={key} className={checked ? 'search-card selected' : 'search-card'}>
-              <WorkLink href={r.page?.url} label={`Ver ${r.title} no ${r.page?.label}`} className="work-link-thumb">
-                <Thumb src={r.posterUrl} title={r.title} width={54} height={81} />
-              </WorkLink>
-              <div className="grow">
-                <WorkLink href={r.page?.url} label={`Ver ${r.title} no ${r.page?.label}`}>
-                  <strong>{r.title}</strong>
-                  {r.page && <Icon name="external" size={13} className="work-ext-icon" />}
-                </WorkLink>
-                <div className="muted small">
-                  {[
-                    kindLabel(r.kind),
-                    r.year,
-                    r.inLibrary?.rating != null ? `você ${scoreText(r.inLibrary.rating)}★` : null,
-                    r.autoRating != null ? `auto ${scoreText(r.autoRating)}` : null,
-                    r.generalRating != null ? `TMDB ${scoreText(r.generalRating)}` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                  {r.originalTitle && r.originalTitle !== r.title ? ` · ${r.originalTitle}` : ''}
-                </div>
-                {r.people.length > 0 && (
-                  <div className="small">
-                    {r.kind === 'book' ? 'de' : 'com'} {r.people.join(', ')}
-                  </div>
-                )}
-                {r.overview && <p className="small clamp-2">{r.overview}</p>}
-                {r.inLibrary && (
-                  <span className="badge">
-                    {taken
-                      ? `já está na Minha Área${r.inLibrary.rank ? ` (#${r.inLibrary.rank})` : ''}`
-                      : 'no seu catálogo'}
-                  </span>
-                )}
-              </div>
-              {mode === 'import' ? (
-                <label className="check search-check">
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    disabled={taken}
-                    onChange={() => onToggle?.(r)}
-                    aria-label={`Selecionar ${r.title}${r.year ? ` (${r.year})` : ''}`}
-                  />
-                </label>
-              ) : (
-                <button type="button" className="btn" onClick={() => onPick?.(r)}>
-                  Escolher
-                </button>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+      <PickResults results={results} mode={mode} selected={selected} onToggle={onToggle} onPick={onPick} />
       {hasMedia && <p className="attribution small">{TMDB_ATTRIBUTION}</p>}
       {hasBooks && (
         <p className="attribution small">
@@ -289,25 +245,218 @@ export function TitleSearch({
   );
 }
 
+/** Lista de resultados com pôster: marcar vários (`import`) ou escolher um (`pick`). */
+function PickResults({
+  results,
+  mode,
+  selected,
+  onToggle,
+  onPick,
+}: {
+  results: SearchPick[];
+  mode: 'import' | 'pick';
+  selected?: Set<string>;
+  onToggle?: (r: SearchPick) => void;
+  onPick?: (r: SearchPick) => void;
+}) {
+  return (
+    <ul className="search-results" aria-label="Resultados da busca">
+      {results.map((r) => {
+        const key = r.key;
+        // D-23: já no Catálogo (ou abandonado) ainda pode ir para a Minha Área
+        const taken = r.inLibrary !== null && r.inLibrary.status !== 'catalog' && r.inLibrary.status !== 'dropped';
+        const checked = selected?.has(key) ?? false;
+        return (
+          <li key={key} className={checked ? 'search-card selected' : 'search-card'}>
+            <WorkLink href={r.page?.url} label={`Ver ${r.title} no ${r.page?.label}`} className="work-link-thumb">
+              <Thumb src={r.posterUrl} title={r.title} width={54} height={81} />
+            </WorkLink>
+            <div className="grow">
+              <WorkLink href={r.page?.url} label={`Ver ${r.title} no ${r.page?.label}`}>
+                <strong>{r.title}</strong>
+                {r.page && <Icon name="external" size={13} className="work-ext-icon" />}
+              </WorkLink>
+              <div className="muted small">
+                {[
+                  kindLabel(r.kind),
+                  r.year,
+                  r.inLibrary?.rating != null ? `você ${scoreText(r.inLibrary.rating)}★` : null,
+                  r.autoRating != null ? `auto ${scoreText(r.autoRating)}` : null,
+                  r.generalRating != null ? `TMDB ${scoreText(r.generalRating)}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+                {r.originalTitle && r.originalTitle !== r.title ? ` · ${r.originalTitle}` : ''}
+              </div>
+              {r.people.length > 0 && (
+                <div className="small">
+                  {r.kind === 'book' ? 'de' : 'com'} {r.people.join(', ')}
+                </div>
+              )}
+              {r.aiReason && (
+                <p className="small ai-reason">
+                  <Icon name="sparkles" size={12} /> {r.aiReason}
+                </p>
+              )}
+              {r.overview && <p className="small clamp-2">{r.overview}</p>}
+              {r.inLibrary && (
+                <span className="badge">
+                  {taken
+                    ? `já está na Minha Área${r.inLibrary.rank ? ` (#${r.inLibrary.rank})` : ''}`
+                    : 'no seu catálogo'}
+                </span>
+              )}
+            </div>
+            {mode === 'import' ? (
+              <label className="check search-check">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={taken}
+                  onChange={() => onToggle?.(r)}
+                  aria-label={`Selecionar ${r.title}${r.year ? ` (${r.year})` : ''}`}
+                />
+              </label>
+            ) : (
+              <button type="button" className="btn" onClick={() => onPick?.(r)}>
+                Escolher
+              </button>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function AddTitle({ onClose }: { onClose: () => void }) {
-  const [tab, setTab] = useState<'search' | 'manual'>('search');
+  const [tab, setTab] = useState<'search' | 'describe' | 'manual'>('search');
   return (
     <Modal title="Adicionar título" onClose={onClose}>
       <div className="tabs" role="tablist" aria-label="Como adicionar">
         <button type="button" role="tab" aria-selected={tab === 'search'} className={tab === 'search' ? 'tab active' : 'tab'} onClick={() => setTab('search')}>
           <Icon name="search" size={14} /> Buscar
         </button>
+        <button type="button" role="tab" aria-selected={tab === 'describe'} className={tab === 'describe' ? 'tab active' : 'tab'} onClick={() => setTab('describe')}>
+          <Icon name="sparkles" size={14} /> Descrever com IA
+        </button>
         <button type="button" role="tab" aria-selected={tab === 'manual'} className={tab === 'manual' ? 'tab active' : 'tab'} onClick={() => setTab('manual')}>
           <Icon name="plus" size={14} /> Manual
         </button>
       </div>
-      {tab === 'search' ? <SearchImport onClose={onClose} /> : <ManualAdd onClose={onClose} />}
+      {tab === 'search' ? <SearchImport onClose={onClose} /> : tab === 'describe' ? <DescribeImport onClose={onClose} /> : <ManualAdd onClose={onClose} />}
     </Modal>
   );
 }
 
 /** Busca + "Quero assistir"/"Próximo a assistir". `inline`: embutida no Catálogo (sem fechar). */
 export function SearchImport({ onClose, inline = false }: { onClose?: () => void; inline?: boolean }) {
+  return (
+    <PickImport onClose={onClose} inline={inline}>
+      {(selected, toggle) => <TitleSearch mode="import" selected={selected} onToggle={toggle} autoFocus={!inline} />}
+    </PickImport>
+  );
+}
+
+/** D-24: descreva o filme/série com suas palavras; a IA sugere, o TMDB confirma e você marca. */
+function DescribeImport({ onClose }: { onClose: () => void }) {
+  return <PickImport onClose={onClose}>{(selected, toggle) => <DescribeSearch selected={selected} onToggle={toggle} />}</PickImport>;
+}
+
+export function DescribeSearch({ selected, onToggle }: { selected: Set<string>; onToggle: (r: SearchPick) => void }) {
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const [text, setText] = useState('');
+  const [kind, setKind] = useState<'' | 'movie' | 'series'>('');
+  const ask = useMutation({ mutationFn: () => api.aiFindTitles({ mode: 'describe', text: text.trim(), ...(kind ? { kind } : {}) }) });
+  const aiOn = Boolean(settings.data?.aiConsent && settings.data?.aiAvailable);
+  const data = ask.data;
+  const results = (data?.items ?? []).map(mediaPick);
+  const canAsk = aiOn && text.trim().length >= 2 && !ask.isPending;
+
+  function submit(e?: FormEvent) {
+    e?.preventDefault();
+    if (canAsk) ask.mutate();
+  }
+
+  return (
+    <div className="title-search">
+      <form className="describe-form" onSubmit={submit}>
+        <label>
+          O que você lembra ou ouviu falar
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit();
+            }}
+            maxLength={AI_DESCRIBE_MAX_CHARS}
+            rows={4}
+            autoFocus
+            placeholder="Ex.: um suspense em que um cara recebe ligações de alguém que está vigiando ele de longe; ouvi que tem um final surpreendente"
+          />
+        </label>
+        <div className="row describe-actions">
+          <label>
+            <span className="sr-only">Tipo</span>
+            <select value={kind} onChange={(e) => setKind(e.target.value as '' | 'movie' | 'series')} aria-label="Tipo">
+              <option value="">Filmes e séries</option>
+              <option value="movie">Só filmes</option>
+              <option value="series">Só séries</option>
+            </select>
+          </label>
+          <span className="muted small grow">
+            {text.length}/{AI_DESCRIBE_MAX_CHARS}
+          </span>
+          <button type="submit" className="btn btn-primary" disabled={!canAsk} aria-busy={ask.isPending}>
+            <Icon name="sparkles" size={14} /> {ask.isPending ? 'Perguntando…' : 'Perguntar à IA'}
+          </button>
+        </div>
+      </form>
+      {settings.data && !aiOn && (
+        <p className="muted small" role="note">
+          {settings.data.aiAvailable ? (
+            <>
+              Para descrever com IA, permita o uso da IA em <Link to="/perfil">Perfil</Link>. Só o texto que você digitar vai para a IA.
+            </>
+          ) : (
+            'A IA está desligada no servidor; use a aba Buscar.'
+          )}
+        </p>
+      )}
+      <ErrorNote error={ask.error} />
+      {data && !data.aiUsed && data.unavailable && <p className="muted small">{AI_UNAVAILABLE[data.unavailable]}</p>}
+      {data?.aiUsed && results.length === 0 && data.notFound.length === 0 && (
+        <p className="muted">A IA não reconheceu nenhum título. Tente dar mais detalhes (ator, época, cena marcante).</p>
+      )}
+      {data?.aiUsed && results.length > 0 && (
+        <p className="muted small" role="status">
+          <span className="badge badge-ai">
+            <Icon name="sparkles" size={12} /> sugerido pela IA
+          </span>{' '}
+          confira e marque o certo
+        </p>
+      )}
+      <PickResults results={results} mode="import" selected={selected} onToggle={onToggle} />
+      {data && data.notFound.length > 0 && (
+        <p className="muted small">
+          A IA também citou, mas não encontrei no TMDB: {data.notFound.map((n) => (n.year ? `${n.title} (${n.year})` : n.title)).join(', ')}. Use a aba Manual se for um deles.
+        </p>
+      )}
+      {results.length > 0 && <p className="attribution small">{TMDB_ATTRIBUTION}</p>}
+    </div>
+  );
+}
+
+/** Marcar títulos e mandar para a Minha Área ("Quero assistir"/"Próximo a assistir"), com lista opcional. */
+function PickImport({
+  onClose,
+  inline = false,
+  children,
+}: {
+  onClose?: () => void;
+  inline?: boolean;
+  children: (selected: Set<string>, toggle: (r: SearchPick) => void) => ReactNode;
+}) {
   const lists = useQuery({ queryKey: ['lists'], queryFn: api.lists });
   const qc = useQueryClient();
   const toast = useToast();
@@ -357,7 +506,7 @@ export function SearchImport({ onClose, inline = false }: { onClose?: () => void
 
   return (
     <div className="form">
-      <TitleSearch mode="import" selected={new Set(picked.keys())} onToggle={toggle} autoFocus={!inline} />
+      {children(new Set(picked.keys()), toggle)}
       <label>
         Lista (opcional)
         <select value={listId} onChange={(e) => setListId(e.target.value)}>

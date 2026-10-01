@@ -1,5 +1,5 @@
 // Rótulos pt-BR para valores do contrato (só apresentação; nada de regra de negócio aqui).
-import { RecommendationKindSchema, type PipelineStepName, type RecommendationKind, type TitleStatus } from '@fruiqo/contracts';
+import { type AiFindTitlesResponse, RecommendationKindSchema, type PipelineStepName, type RecommendationKind, type TitleStatus } from '@fruiqo/contracts';
 
 // Mapa por string (não Record<RecommendationKind>) para aceitar tipos novos do contrato sem quebrar:
 // quando o contrato ganhar `book`, o rótulo já existe; tipos desconhecidos caem no fallback.
@@ -116,3 +116,13 @@ export function formatUsd(v: number): string {
 export function percent(v: number): string {
   return `${Math.round(v * 100)}%`;
 }
+
+/** D-24: por que a IA não foi usada (descrição ou print) */
+export const AI_UNAVAILABLE: Record<NonNullable<AiFindTitlesResponse['unavailable']>, string> = {
+  disabled: 'A IA está desligada no servidor.',
+  consent: 'Você ainda não permitiu o uso da IA.',
+  ocr_not_allowed: 'A leitura de prints com IA não está liberada no servidor.',
+  quota: 'A cota de IA de hoje acabou. Tente amanhã ou use a busca.',
+  too_long: 'Texto longo demais para a IA.',
+  failed: 'A IA não respondeu agora. Tente de novo.',
+};

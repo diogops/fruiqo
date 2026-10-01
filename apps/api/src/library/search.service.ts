@@ -1,5 +1,7 @@
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, Optional, ServiceUnavailableException } from '@nestjs/common';
 import type {
+  AiFindTitlesRequest,
+  AiFindTitlesResponse,
   BookSearchResult,
   ImportTitlesRequest,
   ImportTitlesResponse,
@@ -26,6 +28,7 @@ import { ReviewService } from './review.service.js';
 import { type BrowseInterpretation, interpretBrowseQuery, SERVICES } from './browse-query.js';
 import { interpretSearchQuery, type SearchInterpretation, tmdbGenreIds } from './search-query.js';
 import { OPENLIBRARY_CATALOG } from './openlibrary-catalog.js';
+import { AI_TITLE_FINDER, type AiTitleFinder } from './ai-title-finder.js';
 import { TITLE_GUESSER, type TitleGuess, type TitleGuesser } from './title-guesser.js';
 import { TMDB_CATALOG } from './tmdb-catalog.js';
 import { columnsFromResolution } from './tmdb-enrichment.js';
@@ -44,6 +47,9 @@ const UPCOMING_DAYS = 180;
 const SHORT_MAX_MIN = 40;
 /** D-23: semelhança mínima de título para sugerir a categoria no import */
 const CLASSIFY_MIN_SIMILARITY = 0.75;
+/** D-24: semelhança mínima entre o palpite da IA e o TMDB para confirmar a obra */
+const AI_MATCH_MIN = 0.6;
+const AI_MAX_RESULTS = 30;
 /** gêneros sem equivalente em séries no TMDB: Mistério (9648), Crime (80), Sci-Fi & Fantasy (10765) */
 const TV_GENRE_PROXY: Partial<Record<string, number[]>> = { thriller: [9648, 80], horror: [9648, 10765] };
 const BROWSE_EXCLUDE_TV: { genre: string; ids: number[] }[] = [
@@ -100,6 +106,7 @@ export class SearchService {
     @Optional() @Inject(TMDB_CATALOG) private readonly tmdb: TmdbResolver | null,
     @Optional() @Inject(TITLE_GUESSER) private readonly guesser: TitleGuesser | null,
     @Optional() @Inject(OPENLIBRARY_CATALOG) private readonly books: OpenLibraryResolver | null = null,
+    @Optional() @Inject(AI_TITLE_FINDER) private readonly finder: AiTitleFinder | null = null,
   ) {}
 
   async search(
@@ -188,14 +195,7 @@ export class SearchService {
     // relevância (a filmografia na ordem de popularidade do TMDB)
     const sort: SearchSort = sortParam ?? (type === 'title' || type === 'person' ? 'relevance' : 'score');
     const library = await this.libraryIndex(userId);
-    const fitCtx = await withUser(this.db, userId, (tx) => loadFitContext(tx));
-    const scored = dedupeHits(hits).map((h) => {
-      const mine = library.byExternal.get(`${h.hit.mediaType}:${h.hit.tmdbId}`) ?? null;
-      return { ...h, mine, auto: autoRating(fitTitleOfHit(h.hit), fitCtx) };
-    });
-    const unique = orderSearchHits(scored, sort).slice(0, MAX_RESULTS);
-    const autoOf = new Map(unique.map((u) => [`${u.hit.mediaType}:${u.hit.tmdbId}`, u.auto]));
-    const casts = await mapLimit(unique.slice(0, CAST_FOR), 4, (h) => tmdb.topCast(h.hit.mediaType, h.hit.tmdbId).catch(() => [] as string[]));
+    const items = await this.mediaResults(tmdb, userId, hits, sort, library);
     // livros palpitados pela IA (já conferidos na busca de livros) vêm antes dos da busca por texto
     const searched = await booksPromise;
     const bookHits = searched || aiBooks.length > 0 ? dedupeBooks([...aiBooks, ...(searched ?? [])]) : null;
@@ -213,27 +213,47 @@ export class SearchService {
         sort,
         aiUsed,
       },
-      items: unique.map(({ hit, matchedBy }, i) => {
-        const kind = hit.mediaType === 'tv' ? ('series' as const) : ('movie' as const);
-        const mine =
-          library.byExternal.get(`${hit.mediaType}:${hit.tmdbId}`) ?? library.byKey.get(dedupKey({ kind, title: hit.title, creator: null }));
-        return {
-          tmdbId: hit.tmdbId,
-          mediaType: hit.mediaType,
-          kind,
-          title: hit.title,
-          ...(hit.originalTitle ? { originalTitle: hit.originalTitle } : {}),
-          ...(hit.year ? { year: hit.year } : {}),
-          ...(hit.posterUrl ? { posterUrl: hit.posterUrl } : {}),
-          ...(hit.overview ? { overview: shorten(hit.overview, 400) } : {}),
-          cast: casts[i] ?? [],
-          inLibrary: mine ?? null,
-          matchedBy,
-          ...(hit.voteAverage != null && hit.voteCount ? { generalRating: hit.voteAverage, generalVotes: hit.voteCount } : {}),
-          ...(autoOf.get(`${hit.mediaType}:${hit.tmdbId}`) != null ? { autoRating: autoOf.get(`${hit.mediaType}:${hit.tmdbId}`)! } : {}),
-        };
-      }),
+      items,
     };
+  }
+
+  /** Filmes/séries para a resposta: o que já é seu, nota automática pelo seu gosto e elenco principal. */
+  private async mediaResults(
+    tmdb: TmdbResolver,
+    userId: string,
+    hits: { hit: TmdbHit; matchedBy: TitleSearchResult['matchedBy'] }[],
+    sort: SearchSort,
+    library: Awaited<ReturnType<SearchService['libraryIndex']>>,
+    limit = MAX_RESULTS,
+  ): Promise<TitleSearchResult[]> {
+    const fitCtx = await withUser(this.db, userId, (tx) => loadFitContext(tx));
+    const scored = dedupeHits(hits).map((h) => {
+      const mine = library.byExternal.get(`${h.hit.mediaType}:${h.hit.tmdbId}`) ?? null;
+      return { ...h, mine, auto: autoRating(fitTitleOfHit(h.hit), fitCtx) };
+    });
+    const unique = orderSearchHits(scored, sort).slice(0, limit);
+    const autoOf = new Map(unique.map((u) => [`${u.hit.mediaType}:${u.hit.tmdbId}`, u.auto]));
+    const casts = await mapLimit(unique.slice(0, CAST_FOR), 4, (h) => tmdb.topCast(h.hit.mediaType, h.hit.tmdbId).catch(() => [] as string[]));
+    return unique.map(({ hit, matchedBy }, i) => {
+      const kind = hit.mediaType === 'tv' ? ('series' as const) : ('movie' as const);
+      const mine =
+        library.byExternal.get(`${hit.mediaType}:${hit.tmdbId}`) ?? library.byKey.get(dedupKey({ kind, title: hit.title, creator: null }));
+      return {
+        tmdbId: hit.tmdbId,
+        mediaType: hit.mediaType,
+        kind,
+        title: hit.title,
+        ...(hit.originalTitle ? { originalTitle: hit.originalTitle } : {}),
+        ...(hit.year ? { year: hit.year } : {}),
+        ...(hit.posterUrl ? { posterUrl: hit.posterUrl } : {}),
+        ...(hit.overview ? { overview: shorten(hit.overview, 400) } : {}),
+        cast: casts[i] ?? [],
+        inLibrary: mine ?? null,
+        matchedBy,
+        ...(hit.voteAverage != null && hit.voteCount ? { generalRating: hit.voteAverage, generalVotes: hit.voteCount } : {}),
+        ...(autoOf.get(`${hit.mediaType}:${hit.tmdbId}`) != null ? { autoRating: autoOf.get(`${hit.mediaType}:${hit.tmdbId}`)! } : {}),
+      };
+    });
   }
 
   /**
@@ -433,6 +453,52 @@ export class SearchService {
       }
     });
     return { items };
+  }
+
+  /**
+   * D-24: títulos achados pela IA numa descrição digitada (`describe`) ou no texto lido de um print
+   * (`ocr`). Cada palpite de filme/série é conferido no TMDB; o que não se confirma (livro, grafia
+   * diferente) volta em `notFound` para o usuário decidir. Sem IA (desligada, sem consentimento, print
+   * não liberado), `aiUsed: false` com o motivo, e quem chama segue sem IA.
+   */
+  async aiFind(userId: string, req: AiFindTitlesRequest): Promise<AiFindTitlesResponse> {
+    const none = (unavailable: NonNullable<AiFindTitlesResponse['unavailable']>): AiFindTitlesResponse => ({ aiUsed: false, unavailable, items: [], notFound: [] });
+    if (!this.finder) return none('disabled');
+    if (req.mode === 'ocr' && !this.finder.ocrAllowed) return none('ocr_not_allowed');
+    if (!this.searchLimiter.take(userId)) throw tooMany();
+    if (!(await userAllowsAi(this.db, userId))) return none('consent');
+    const tmdb = this.requireTmdb();
+    const res = await this.finder.find(req.mode, llmSafeInput(req.text), userId, req.kind);
+    if (!res.ok) return none(res.reason);
+
+    const checked = await mapLimit(res.titles, 4, async (g) => {
+      if (g.kind === 'book') return { g, hit: null };
+      const mediaType = g.kind === 'series' ? ('tv' as const) : ('movie' as const);
+      const multi = await tmdb.searchMulti(g.title).catch(() => null);
+      const best = multi?.titles
+        .filter((hit) => !req.kind || hit.mediaType === (req.kind === 'series' ? 'tv' : 'movie'))
+        .map((hit) => ({ hit, score: matchScore({ title: g.title, ...(g.year ? { year: g.year } : {}), mediaType }, hit) }))
+        .sort((a, b) => b.score - a.score || b.hit.popularity - a.hit.popularity)[0];
+      return { g, hit: best && best.score >= AI_MATCH_MIN ? best.hit : null };
+    });
+    const reasonOf = new Map<string, string>();
+    for (const { g, hit } of checked) if (hit && g.reason && !reasonOf.has(`${hit.mediaType}:${hit.tmdbId}`)) reasonOf.set(`${hit.mediaType}:${hit.tmdbId}`, g.reason);
+    const hits = checked.flatMap(({ hit }) => (hit ? [{ hit, matchedBy: req.mode === 'describe' ? ('description' as const) : ('title' as const) }] : []));
+    let items: TitleSearchResult[] = [];
+    try {
+      // na ordem da IA (mais provável primeiro / ordem em que aparecem no print)
+      items = await this.mediaResults(tmdb, userId, hits, 'relevance', await this.libraryIndex(userId), AI_MAX_RESULTS);
+    } catch {
+      throw new ServiceUnavailableException('Busca indisponível agora; tente de novo');
+    }
+    return {
+      aiUsed: true,
+      items: items.map((it) => {
+        const aiReason = reasonOf.get(`${it.mediaType}:${it.tmdbId}`);
+        return aiReason ? { ...it, aiReason } : it;
+      }),
+      notFound: checked.flatMap(({ g, hit }) => (hit ? [] : [{ title: g.title, kind: g.kind, ...(g.year ? { year: g.year } : {}) }])),
+    };
   }
 
   private async byBrowse(tmdb: TmdbResolver, b: BrowseInterpretation): Promise<{ hits: TmdbHit[]; person?: string } | null> {

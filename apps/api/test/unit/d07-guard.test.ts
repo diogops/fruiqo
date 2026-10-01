@@ -58,7 +58,7 @@ describe('guarda D-07: TMDB ativo × IA (C-15)', () => {
 
 describe('ARB-REQ-06: nada do TMDB/Spotify/Open Library (nem derivado, nem capa) entra em prompt de LLM', () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), '../../src');
-  const llmModules = ['library/mood-interpreter.ts', 'pipeline/extractors/anthropic.ts', 'library/title-guesser.ts'];
+  const llmModules = ['library/mood-interpreter.ts', 'pipeline/extractors/anthropic.ts', 'library/title-guesser.ts', 'library/ai-title-finder.ts'];
   // fontes de dados de terceiros ou do catálogo (gêneros/providers derivados do TMDB)
   const forbidden = [/resolvers\//, /\/db\//, /schema/, /library\.service/, /catalog/, /ranking/, /providers/, /enrichment/, /tmdb/i, /spotify/i, /openlibrary/i, /covers?/i, /books?/i, /user-settings/];
 

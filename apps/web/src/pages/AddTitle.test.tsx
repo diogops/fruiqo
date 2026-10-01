@@ -134,3 +134,51 @@ describe('adicionar título por busca (RF-46)', () => {
     expect(screen.getByRole('option', { name: 'Livro' })).toBeTruthy();
   });
 });
+
+describe('descrever com IA (D-24)', () => {
+  const settings = (aiConsent: boolean) => ({ rememberMood: false, aiConsent, aiConsentAt: null, aiAvailable: true, aiUnavailableReason: null, moodRetentionDays: 90 });
+
+  it('manda a descrição para /search/ai, mostra o motivo da IA e o que o TMDB não achou; importa os marcados', async () => {
+    __setAccessToken('tok');
+    const { calls } = mockApi({
+      'GET /profile/settings': settings(true),
+      'GET /lists': [],
+      'POST /search/ai': {
+        aiUsed: true,
+        items: [
+          { tmdbId: 137, mediaType: 'movie', kind: 'movie', title: 'Feitiço do Tempo', year: 1993, cast: ['Bill Murray'], inLibrary: null, matchedBy: 'description', aiReason: 'o repórter revive o mesmo dia' },
+        ],
+        notFound: [{ title: 'Filme Obscuro', kind: 'movie', year: 1999 }],
+      },
+      'POST /library/import': { created: [makeTitle({ title: 'Feitiço do Tempo' })], skipped: [] },
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<AddTitle onClose={vi.fn()} />);
+    await user.click(screen.getByRole('tab', { name: /Descrever com IA/ }));
+    const ask = await screen.findByRole('button', { name: /Perguntar à IA/ });
+    await waitFor(() => expect(ask).toHaveProperty('disabled', true)); // sem texto
+    await user.type(screen.getByRole('textbox', { name: /O que você lembra/ }), 'repórter do tempo preso no mesmo dia');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Tipo' }), 'movie');
+    await user.click(ask);
+
+    expect(await screen.findByText('o repórter revive o mesmo dia')).toBeTruthy();
+    expect(screen.getByText(/não encontrei no TMDB: Filme Obscuro \(1999\)/)).toBeTruthy();
+    expect(calls.find((c) => c.path === '/search/ai')?.body).toEqual({ mode: 'describe', text: 'repórter do tempo preso no mesmo dia', kind: 'movie' });
+
+    await user.click(screen.getByRole('checkbox', { name: 'Selecionar Feitiço do Tempo (1993)' }));
+    await user.click(screen.getByRole('button', { name: 'Quero assistir' }));
+    await waitFor(() => expect(calls.find((c) => c.path === '/library/import')?.body).toEqual({ items: [{ tmdbId: 137, mediaType: 'movie' }] }));
+  });
+
+  it('sem consentimento: explica e não chama a IA', async () => {
+    __setAccessToken('tok');
+    const { calls } = mockApi({ 'GET /profile/settings': settings(false), 'GET /lists': [] });
+    const user = userEvent.setup();
+    renderWithProviders(<AddTitle onClose={vi.fn()} />);
+    await user.click(screen.getByRole('tab', { name: /Descrever com IA/ }));
+    expect(await screen.findByText(/permita o uso da IA/)).toBeTruthy();
+    await user.type(screen.getByRole('textbox', { name: /O que você lembra/ }), 'algum filme');
+    expect(screen.getByRole('button', { name: /Perguntar à IA/ })).toHaveProperty('disabled', true);
+    expect(calls.some((c) => c.path === '/search/ai')).toBe(false);
+  });
+});

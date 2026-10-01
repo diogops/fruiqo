@@ -1339,6 +1339,46 @@ export const ClassifyTitlesResponseSchema = z.object({
 });
 export type ClassifyTitlesResponse = z.infer<typeof ClassifyTitlesResponseSchema>;
 
+/**
+ * D-24: títulos achados pela IA. `describe` = descrição livre digitada pelo usuário ("aquele filme
+ * em que..."); `ocr` = texto lido de um print (só o texto, a imagem nunca sai do aparelho). A resposta
+ * da IA é só um palpite: cada obra é conferida no TMDB antes de aparecer em `items`.
+ */
+export const AI_DESCRIBE_MAX_CHARS = 1000;
+export const AI_OCR_MAX_CHARS = 4000;
+export const AiFindTitlesRequestSchema = z
+  .object({
+    mode: z.enum(['describe', 'ocr']),
+    text: z.string().trim().min(2).max(AI_OCR_MAX_CHARS),
+    kind: z.enum(['movie', 'series']).optional(),
+  })
+  .strict()
+  .refine((v) => v.mode === 'ocr' || v.text.length <= AI_DESCRIBE_MAX_CHARS, {
+    message: `descrição com no máximo ${AI_DESCRIBE_MAX_CHARS} caracteres`,
+    path: ['text'],
+  });
+export type AiFindTitlesRequest = z.infer<typeof AiFindTitlesRequestSchema>;
+
+export const AiFindTitlesResponseSchema = z.object({
+  aiUsed: z.boolean(),
+  /**
+   * por que a IA não foi usada: desligada no servidor, sem consentimento, texto de print não
+   * liberado (D-24), cota do dia, texto grande demais ou falha/recusa do modelo
+   */
+  unavailable: z.enum(['disabled', 'consent', 'ocr_not_allowed', 'quota', 'too_long', 'failed']).optional(),
+  /** conferidos no TMDB; `aiReason` = por que a IA achou que é esse (só no modo `describe`) */
+  items: z.array(TitleSearchResultSchema.extend({ aiReason: z.string().max(300).optional() })),
+  /** palpites que o TMDB não confirmou (livro, grafia diferente, obra obscura): o usuário decide */
+  notFound: z.array(
+    z.object({
+      title: z.string().max(200),
+      kind: z.enum(['movie', 'series', 'book']),
+      year: z.number().int().optional(),
+    }),
+  ),
+});
+export type AiFindTitlesResponse = z.infer<typeof AiFindTitlesResponseSchema>;
+
 export const ImportTitlesRequestSchema = z
   .object({
     items: z.array(z.object({ tmdbId: z.number().int(), mediaType: z.enum(['movie', 'tv']) }).strict()).max(50).default([]),

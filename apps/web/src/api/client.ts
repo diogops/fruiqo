@@ -11,6 +11,8 @@ import {
   DELETE_ACCOUNT_CONFIRMATION,
   CatalogSyncStatusSchema,
   ClassifyTitlesResponseSchema,
+  AiFindTitlesResponseSchema,
+  type AiFindTitlesRequest,
   EnrichResponseSchema,
   ActivityResponseSchema,
   ApplyPriorityDraftResponseSchema,
@@ -288,6 +290,8 @@ export const api = {
   importTitles: (body: ImportTitlesRequest) => request(ImportTitlesResponseSchema, '/library/import', 'POST', body),
   /** D-23: categoria (Filme/Série) sugerida pelo TMDB para títulos lidos num import */
   classifyTitles: (titles: string[]) => request(ClassifyTitlesResponseSchema, '/search/classify', 'POST', { titles }),
+  /** D-24: a IA acha os títulos numa descrição livre ou no texto de um print; o TMDB confirma */
+  aiFindTitles: (body: AiFindTitlesRequest) => request(AiFindTitlesResponseSchema, '/search/ai', 'POST', body),
 
   // ---------- RF-47: importar .txt (entra como share e vai para a revisão) ----------
   createShare: (body: CreateShareRequest) => request(ShareSchema, '/shares', 'POST', body),

@@ -787,6 +787,11 @@ html.has-docked-bulkbar .toasts { bottom: calc(5.75rem + env(safe-area-inset-bot
 .title-search { display: flex; flex-direction: column; gap: 0.6rem; }
 .search-row { flex-wrap: nowrap; }
 .search-row select { max-width: 11rem; }
+.describe-form { display: grid; gap: 0.5rem; }
+.describe-form textarea { resize: vertical; min-height: 5.5rem; }
+.form .row.describe-actions, .row.describe-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.ai-reason { margin: 0.2rem 0 0; color: var(--accent); display: flex; gap: 0.3rem; align-items: baseline; }
+.ocr-ai-note { margin: 0; display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
 .search-interpreted { margin: 0; display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center; }
 .search-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; max-height: min(52vh, 520px); overflow: auto; }
 .search-card { display: flex; gap: 0.8rem; align-items: flex-start; padding: 0.65rem 0.75rem; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }

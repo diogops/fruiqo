@@ -11,6 +11,7 @@ import { seedDemo } from '../../src/library/demo-seed.js';
 import { LibraryService } from '../../src/library/library.service.js';
 import { ReviewService } from '../../src/library/review.service.js';
 import { SearchService } from '../../src/library/search.service.js';
+import type { AiTitleFinder } from '../../src/library/ai-title-finder.js';
 import type { TitleGuesser } from '../../src/library/title-guesser.js';
 import { HeuristicExtractor } from '../../src/pipeline/extractors/heuristic.js';
 import { FIXTURES_DIR, PipelineGateway } from '../../src/pipeline/gateway.js';
@@ -262,6 +263,64 @@ describe('RF-46: busca e importação', () => {
     const forced = await search.search(user.userId, 'Filme recente de faroeste', undefined, true);
     expect(forced.interpreted).toMatchObject({ type: 'description', aiUsed: true });
     expect(seen.at(-1)).toBe('Filme recente de faroeste');
+  });
+
+  it('D-24: IA acha títulos numa descrição ou no texto de um print; o TMDB confirma, o resto vai para notFound', async () => {
+    const user = await newUser();
+    const routes: Record<string, unknown> = {
+      'Fresh': { results: [{ id: 11, media_type: 'movie', title: 'Fresh', release_date: '2022-03-04', popularity: 20 }] },
+      'Frailty': { results: [{ id: 12, media_type: 'movie', title: 'A Mão do Diabo', original_title: 'Frailty', release_date: '2001-04-12', popularity: 9 }] },
+      'Relógio Infinito': { results: [{ id: 4, media_type: 'movie', title: 'Relógio Infinito', release_date: '1993-01-01', popularity: 5 }] },
+    };
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url);
+      const body = url.pathname.endsWith('/search/multi') ? (routes[url.searchParams.get('query') ?? ''] ?? { results: [] }) : { results: [] };
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const seen: { mode: string; text: string }[] = [];
+    const finder = (ocrAllowed: boolean): AiTitleFinder => ({
+      ocrAllowed,
+      find: async (mode, input) => {
+        seen.push({ mode, text: input.userText });
+        return mode === 'ocr'
+          ? { ok: true, titles: [{ title: 'Fresh', kind: 'movie' }, { title: 'Frailty', kind: 'movie' }, { title: 'Filme Que Não Existe', kind: 'movie' }, { title: 'Um Livro', kind: 'book' }] }
+          : { ok: true, titles: [{ title: 'Relógio Infinito', kind: 'movie', year: 1993, reason: 'preso no mesmo dia' }] };
+      },
+    });
+    const make = (f: AiTitleFinder | null) =>
+      new SearchService(db, ctx.app.get(ReviewService), ctx.app.get(LibraryService), new TmdbResolver('k'.repeat(32), fetchImpl), null, null, f);
+    const ocrText = '[Fresh, Frailty, Sebastian Stan, Netflix, Thriller]';
+
+    expect(await make(null).aiFind(user.userId, { mode: 'describe', text: 'filme do relojoeiro' })).toEqual({ aiUsed: false, unavailable: 'disabled', items: [], notFound: [] });
+    expect((await make(finder(false)).aiFind(user.userId, { mode: 'ocr', text: ocrText })).unavailable).toBe('ocr_not_allowed');
+    expect((await make(finder(true)).aiFind(user.userId, { mode: 'describe', text: 'filme do relojoeiro' })).unavailable).toBe('consent');
+    expect(seen).toEqual([]);
+
+    await setUserSettings(db, user.userId, { aiConsent: true });
+    const described = await make(finder(true)).aiFind(user.userId, { mode: 'describe', text: 'filme do relojoeiro' });
+    expect(described.aiUsed).toBe(true);
+    expect(described.items.map((i) => [i.title, i.matchedBy, i.aiReason])).toEqual([['Relógio Infinito', 'description', 'preso no mesmo dia']]);
+
+    const ocr = await make(finder(true)).aiFind(user.userId, { mode: 'ocr', text: ocrText });
+    expect(ocr.items.map((i) => [i.title, i.matchedBy])).toEqual([
+      ['Fresh', 'title'],
+      ['A Mão do Diabo', 'title'],
+    ]);
+    expect(ocr.notFound).toEqual([
+      { title: 'Filme Que Não Existe', kind: 'movie' },
+      { title: 'Um Livro', kind: 'book' },
+    ]);
+    // ARB-REQ-06: o LLM recebeu só o texto
+    expect(seen).toEqual([
+      { mode: 'describe', text: 'filme do relojoeiro' },
+      { mode: 'ocr', text: ocrText },
+    ]);
+
+    // HTTP: contrato validado; no ambiente de teste a IA está desligada
+    const res = await post(user, '/search/ai', { mode: 'describe', text: 'filme do relojoeiro' }).expect(200);
+    expect(res.body).toEqual({ aiUsed: false, unavailable: 'disabled', items: [], notFound: [] });
+    await post(user, '/search/ai', { mode: 'describe', text: 'x'.repeat(1001) }).expect(400);
+    await post(user, '/search/ai', { mode: 'ocr', text: 'x'.repeat(1001) }).expect(200);
   });
 
   it('D-23: "melhor" e lançamentos viram /discover ao vivo (serviço no Brasil, pessoa, minissérie, datas)', async () => {
