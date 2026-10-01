@@ -1229,6 +1229,7 @@ img.poster.loaded { opacity: 1; }
   .tonight-card .tonight-actions { gap: 0.1rem; }
   .tonight-card .tonight-actions .btn { min-height: 34px; padding: 0.2rem 0.45rem; font-size: 0.8rem; }
   .tonight-card .tonight-actions .btn-primary { padding-inline: 0.6rem; }
+  .tonight-card .tonight-actions .act-label { display: none; }
   .shelf-nav { display: none; }
   .shelf-rail { grid-auto-columns: 29%; gap: 0.6rem; }
   .shelf-add { width: 30px; height: 30px; right: 4px; bottom: 4px; }

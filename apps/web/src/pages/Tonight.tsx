@@ -605,7 +605,7 @@ export function TonightPage() {
                       <Icon name="check" size={13} /> {p.doneLabel}
                     </button>
                     <button type="button" className="btn btn-link btn-sm muted" disabled={busyKey === p.key} onClick={() => skip(p)} aria-label={`Hoje não: ${p.title}`}>
-                      <Icon name="x" size={13} /> Hoje não
+                      <Icon name="x" size={13} /> <span className="act-label">Hoje não</span>
                     </button>
                   </div>
                 </div>
