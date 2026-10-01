@@ -26,8 +26,14 @@ export const users = pgTable(
     failedLogins: integer('failed_logins').notNull().default(0),
     lockedUntil: timestamp('locked_until', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /** login com Google: o `sub` da conta Google vinculada (nunca o token) */
+    googleSub: text('google_sub'),
+    /** nome de exibição (sugerido pelo Google no 1º login; o usuário pode mudar) */
+    displayName: text('display_name'),
+    /** false = conta criada pelo Google, sem senha definida (reautenticação pelo Google) */
+    hasPassword: boolean('has_password').notNull().default(true),
   },
-  (t) => [uniqueIndex('users_email_key').on(t.email)],
+  (t) => [uniqueIndex('users_email_key').on(t.email), uniqueIndex('users_google_sub_key').on(t.googleSub)],
 );
 
 export const sessions = pgTable(

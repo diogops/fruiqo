@@ -72,6 +72,8 @@ const EnvSchema = z.object({
    * D-26 aceita (docs/phase0/openai-api-tos.md); interpretar o pedido e o resumo seguem na Anthropic.
    */
   AI_TONIGHT_TITLES_PROVIDER: z.enum(['anthropic', 'openai']).default('anthropic'),
+  /** login com Google: Client ID (tipo Web) do Google Cloud; vazio = botão desligado */
+  GOOGLE_CLIENT_ID: optionalSecret,
   AI_TONIGHT_OPENAI_MODEL: z.string().default('gpt-6.1-sol'),
   OPENAI_API_KEY: optionalSecret,
   /** profundidade do raciocínio na sugestão (o raciocínio conta como saída: custo × qualidade); o passo de melhorar o pedido roda sempre em `low` */

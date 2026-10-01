@@ -52,6 +52,9 @@ import {
   WEB_CLIENT_HEADER,
   WEB_CLIENT_VALUE,
   WebSessionResponseSchema,
+  GoogleWebSessionResponseSchema,
+  AuthProvidersResponseSchema,
+  type AuthProvidersResponse,
   type ApplyPriorityDraftRequest,
   type ApproveReviewRequest,
   type BulkRequest,
@@ -202,9 +205,29 @@ export async function logout(): Promise<void> {
  * Exclusão definitiva da conta (LGPD; App Store 5.1.1(v)). Renova a sessão antes e chama
  * uma vez só: aqui um 401 significa senha errada, e não pode derrubar a sessão.
  */
-export async function deleteAccount(password: string): Promise<void> {
+/** Login com Google: a API confere o ID token, abre a sessão (cookie) e devolve o e-mail da conta. */
+export async function loginWithGoogle(credential: string): Promise<string> {
+  const res = await send('/auth/google', 'POST', { credential, deviceName: 'Navegador (web)' }, false);
+  if (!res.ok) throw await toError(res);
+  const body = GoogleWebSessionResponseSchema.parse(await res.json());
+  accessToken = body.accessToken;
+  return body.email;
+}
+
+/** Provedores de login ligados (sem resposta, nenhum). */
+export async function authProviders(): Promise<AuthProvidersResponse> {
+  try {
+    const res = await send('/auth/providers', 'GET', undefined, false);
+    return res.ok ? AuthProvidersResponseSchema.parse(await res.json()) : { google: null };
+  } catch {
+    return { google: null };
+  }
+}
+
+/** `proof`: a senha atual ou, em conta criada pelo Google, uma nova confirmação do Google. */
+export async function deleteAccount(proof: { password: string } | { googleCredential: string }): Promise<void> {
   await refreshSession();
-  const res = await send('/account', 'DELETE', { password, confirm: DELETE_ACCOUNT_CONFIRMATION }, true);
+  const res = await send('/account', 'DELETE', { ...proof, confirm: DELETE_ACCOUNT_CONFIRMATION }, true);
   if (!res.ok) throw await toError(res);
   accessToken = null;
 }

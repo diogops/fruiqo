@@ -16,6 +16,7 @@ import { AccountController } from './auth/account.controller.js';
 import { AuthController } from './auth/auth.controller.js';
 import { AuthGuard, Public } from './auth/auth.guard.js';
 import { AuthService } from './auth/auth.service.js';
+import { GOOGLE_VERIFIER, googleVerifier } from './auth/google.js';
 import { TokenService } from './auth/tokens.js';
 import { HttpExceptionFilter } from './common/http-exception.filter.js';
 import { pinoParams } from './common/logger.js';
@@ -137,6 +138,8 @@ export class AppModule {
       ],
       providers: [
         AuthService,
+        // login com Google: só com GOOGLE_CLIENT_ID (sem ele, as rotas respondem "desligado")
+        { provide: GOOGLE_VERIFIER, useFactory: () => (env.GOOGLE_CLIENT_ID ? googleVerifier(env.GOOGLE_CLIENT_ID) : null) },
         SharesService,
         LibraryService,
         CatalogService,

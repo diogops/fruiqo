@@ -22,11 +22,27 @@ export type LoginRequest = z.infer<typeof LoginRequestSchema>;
  * Exige reautenticação com a senha atual e confirmação digitada.
  */
 export const DELETE_ACCOUNT_CONFIRMATION = 'EXCLUIR';
-export const DeleteAccountRequestSchema = z.object({
-  password: z.string().min(1).max(128),
-  confirm: z.literal(DELETE_ACCOUNT_CONFIRMATION),
-});
+export const DeleteAccountRequestSchema = z
+  .object({
+    /** conta com senha: a senha atual */
+    password: z.string().min(1).max(128).optional(),
+    /** conta criada pelo Google (sem senha): uma nova confirmação do Google (ID token) */
+    googleCredential: z.string().min(100).max(4096).optional(),
+    confirm: z.literal(DELETE_ACCOUNT_CONFIRMATION),
+  })
+  .refine((v) => Boolean(v.password) !== Boolean(v.googleCredential), { message: 'informe a senha ou a confirmação do Google' });
 export type DeleteAccountRequest = z.infer<typeof DeleteAccountRequestSchema>;
+
+/** Login com Google (ID token do Google Identity Services). */
+export const GoogleLoginRequestSchema = z.object({
+  credential: z.string().min(100).max(4096),
+  deviceName: z.string().trim().min(1).max(64),
+});
+export type GoogleLoginRequest = z.infer<typeof GoogleLoginRequestSchema>;
+
+/** Provedores de login ligados no servidor (o web só mostra o botão do Google com o Client ID). */
+export const AuthProvidersResponseSchema = z.object({ google: z.object({ clientId: z.string() }).nullable() });
+export type AuthProvidersResponse = z.infer<typeof AuthProvidersResponseSchema>;
 
 export const RefreshRequestSchema = z.object({
   refreshToken: z.string().min(32).max(256),
@@ -737,6 +753,8 @@ export const WEB_REFRESH_COOKIE = 'fruiqo_rt';
 /** Resposta de login/registro/refresh do web: o refresh vai só no cookie, nunca no corpo. */
 export const WebSessionResponseSchema = TokenPairSchema.omit({ refreshToken: true });
 export type WebSessionResponse = z.infer<typeof WebSessionResponseSchema>;
+/** login com Google: a sessão e o e-mail da conta (o app não sabia o e-mail antes) */
+export const GoogleWebSessionResponseSchema = WebSessionResponseSchema.extend({ email: z.string() });
 
 // RF-24: adicionar título manualmente
 export const CreateTitleRequestSchema = z
@@ -1063,6 +1081,10 @@ export const UserSettingsSchema = z.object({
    * nem assinaturas) e o usuário não concluiu nem dispensou a definição. O web abre o Perfil.
    */
   onboarding: z.boolean().optional(),
+  /** nome de exibição (o Google sugere no primeiro login) */
+  displayName: z.string().nullable().optional(),
+  /** false = conta criada pelo Google, sem senha (excluir a conta confirma pelo Google) */
+  hasPassword: z.boolean().optional(),
 });
 export type UserSettings = z.infer<typeof UserSettingsSchema>;
 export const UpdateUserSettingsRequestSchema = z

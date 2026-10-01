@@ -1245,3 +1245,8 @@ img.poster.loaded { opacity: 1; }
 .welcome-steps { margin: 0 0 0.9rem; padding-left: 1.25rem; display: grid; gap: 0.35rem; }
 .welcome-steps a { font-weight: 600; }
 .welcome-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+
+/* login com Google: separador "ou" e o botão oficial centralizado */
+.auth-divider { display: flex; align-items: center; gap: 0.75rem; color: var(--muted); font-size: 0.85rem; margin: 0.25rem 0; }
+.auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.google-btn { display: flex; justify-content: center; min-height: 44px; }

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { deleteAccount as apiDeleteAccount, login as apiLogin, logout as apiLogout, onSessionLost, refreshSession, register as apiRegister } from '../api/client';
+import { deleteAccount as apiDeleteAccount, login as apiLogin, loginWithGoogle as apiLoginGoogle, logout as apiLogout, onSessionLost, refreshSession, register as apiRegister } from '../api/client';
 
 type AuthState = 'checking' | 'signed_out' | 'signed_in';
 
@@ -7,10 +7,12 @@ interface AuthValue {
   state: AuthState;
   email: string | null;
   signIn: (email: string, password: string) => Promise<void>;
+  /** login com Google (ID token do botão oficial) */
+  signInWithGoogle: (credential: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   /** exclusão definitiva da conta; em caso de sucesso volta para o login */
-  deleteAccount: (password: string) => Promise<void>;
+  deleteAccount: (proof: { password: string } | { googleCredential: string }) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthValue | null>(null);
@@ -54,6 +56,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState('signed_in');
   }, []);
 
+  const signInWithGoogle = useCallback(async (credential: string) => {
+    const e = await apiLoginGoogle(credential);
+    writeEmail(e);
+    setEmail(e);
+    setState('signed_in');
+  }, []);
+
   const signUp = useCallback(async (e: string, password: string) => {
     await apiRegister(e, password);
     const normalized = e.trim().toLowerCase();
@@ -69,16 +78,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState('signed_out');
   }, []);
 
-  const deleteAccount = useCallback(async (password: string) => {
-    await apiDeleteAccount(password);
+  const deleteAccount = useCallback(async (proof: { password: string } | { googleCredential: string }) => {
+    await apiDeleteAccount(proof);
     writeEmail(null);
     setEmail(null);
     setState('signed_out');
   }, []);
 
   const value = useMemo(
-    () => ({ state, email, signIn, signUp, signOut, deleteAccount }),
-    [state, email, signIn, signUp, signOut, deleteAccount],
+    () => ({ state, email, signIn, signInWithGoogle, signUp, signOut, deleteAccount }),
+    [state, email, signIn, signInWithGoogle, signUp, signOut, deleteAccount],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

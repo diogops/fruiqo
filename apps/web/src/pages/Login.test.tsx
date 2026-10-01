@@ -93,3 +93,55 @@ describe('passwordStrength', () => {
     expect(passwordStrength(STRONG).score).toBe(3);
   });
 });
+
+describe('Login com Google', () => {
+  afterEach(() => {
+    delete (window as { google?: unknown }).google;
+  });
+
+  it('sem Client ID no servidor: sem botão do Google', async () => {
+    setup({ 'GET /auth/providers': { google: null } });
+    await screen.findByLabelText('E-mail');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByRole('separator')).toBeNull();
+  });
+
+  it('com Client ID: mostra o botão oficial; a credencial do Google vai para a API e entra', async () => {
+    let callback: ((r: { credential?: string }) => void) | undefined;
+    const rendered: Record<string, unknown>[] = [];
+    (window as { google?: unknown }).google = {
+      accounts: {
+        id: {
+          initialize: (cfg: { client_id: string; callback: (r: { credential?: string }) => void }) => {
+            expect(cfg.client_id).toBe('cliente.apps.googleusercontent.com');
+            callback = cfg.callback;
+          },
+          renderButton: (_el: HTMLElement, opts: Record<string, unknown>) => rendered.push(opts),
+        },
+      },
+    };
+    const { calls } = setup({
+      'GET /auth/providers': { google: { clientId: 'cliente.apps.googleusercontent.com' } },
+      'POST /auth/google': { accessToken: 'tok', expiresIn: 900, email: 'pessoa@gmail.com' },
+    });
+    expect(await screen.findByRole('separator')).toBeTruthy();
+    await waitFor(() => expect(rendered[0]).toMatchObject({ text: 'continue_with', locale: 'pt-BR', shape: 'pill' }));
+    callback!({ credential: 'id-token-do-google' });
+    expect(await screen.findByText('logado')).toBeTruthy();
+    expect(calls.find((c) => c.path === '/auth/google')?.body).toEqual({ credential: 'id-token-do-google', deviceName: 'Navegador (web)' });
+  });
+
+  it('e-mail sem acesso (403): explica', async () => {
+    let callback: ((r: { credential?: string }) => void) | undefined;
+    (window as { google?: unknown }).google = { accounts: { id: { initialize: (cfg: { callback: typeof callback }) => (callback = cfg.callback), renderButton: () => {} } } };
+    setup({
+      'GET /auth/providers': { google: { clientId: 'c' } },
+      'POST /auth/google': () => ({ status: 403, body: { error: 'forbidden', message: 'E-mail não autorizado' } }),
+    });
+    await screen.findByRole('separator');
+    await waitFor(() => expect(callback).toBeTruthy());
+    callback!({ credential: 'x' });
+    expect(await screen.findByText('Este e-mail ainda não tem acesso ao Fruiqo.')).toBeTruthy();
+  });
+});
+

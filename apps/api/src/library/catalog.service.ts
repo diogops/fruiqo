@@ -45,6 +45,7 @@ import {
   userSettings,
   userSubscriptions,
   type RecommendationRow,
+  users,
 } from '../db/schema.js';
 import { dedupKey } from '../pipeline/dedup.js';
 import { LibraryService } from './library.service.js';
@@ -96,7 +97,8 @@ export class CatalogService {
   async getSettings(userId: string): Promise<UserSettings> {
     return withUser(this.db, userId, async (tx) => {
       const stored = await readSettings(tx);
-      return toSettingsView(stored, this.env, await needsOnboarding(tx, stored));
+      const [me] = await tx.select({ displayName: users.displayName, hasPassword: users.hasPassword }).from(users).where(eq(users.id, userId));
+      return { ...toSettingsView(stored, this.env, await needsOnboarding(tx, stored)), displayName: me?.displayName ?? null, hasPassword: me?.hasPassword ?? true };
     });
   }
 

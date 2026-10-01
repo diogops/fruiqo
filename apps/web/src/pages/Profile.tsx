@@ -105,7 +105,7 @@ export function Profile() {
       {settings.data?.onboarding && (
         <section className="welcome card" aria-labelledby="welcome-title">
           <h2 id="welcome-title">
-            <Icon name="sparkles" size={18} /> Boas-vindas ao Fruiqo!
+            <Icon name="sparkles" size={18} /> Boas-vindas ao Fruiqo{settings.data.displayName ? `, ${settings.data.displayName.split(' ')[0]}` : ''}!
           </h2>
           <p>Conte do que você gosta e as sugestões já começam com a sua cara. Leva um minuto, e dá para mudar quando quiser.</p>
           <ol className="welcome-steps">

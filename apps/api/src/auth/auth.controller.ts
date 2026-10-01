@@ -6,6 +6,8 @@ import {
   Get,
   HttpCode,
   Inject,
+  NotFoundException,
+  Optional,
   Param,
   ParseUUIDPipe,
   Post,
@@ -15,6 +17,9 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import {
+  type AuthProvidersResponse,
+  type GoogleLoginRequest,
+  GoogleLoginRequestSchema,
   type LoginRequest,
   LoginRequestSchema,
   RefreshRequestSchema,
@@ -27,6 +32,7 @@ import {
 import type { Request, Response } from 'express';
 import { ZodPipe } from '../common/zod-pipe.js';
 import { ENV, type Env } from '../config/env.js';
+import { GOOGLE_VERIFIER, type GoogleVerifier } from './google.js';
 import type { AccessClaims } from './tokens.js';
 import { CurrentAuth, Public } from './auth.guard.js';
 import { AuthService } from './auth.service.js';
@@ -48,6 +54,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     @Inject(ENV) private readonly env: Env,
+    @Optional() @Inject(GOOGLE_VERIFIER) private readonly googleVerifier: GoogleVerifier | null = null,
   ) {}
 
   @Public()
@@ -73,6 +80,32 @@ export class AuthController {
   ): Promise<TokenPair | WebSessionResponse> {
     const origin = isWebClient(req) ? assertWebOrigin(req, this.env) : undefined;
     return this.respond(await this.auth.login(body), res, origin);
+  }
+
+  /** Provedores de login ligados (o web só mostra o botão do Google com o Client ID). */
+  @Public()
+  @Get('providers')
+  providers(): AuthProvidersResponse {
+    return { google: this.env.GOOGLE_CLIENT_ID ? { clientId: this.env.GOOGLE_CLIENT_ID } : null };
+  }
+
+  /** Login com Google: o ID token é conferido aqui e nunca guardado. Web recebe o e-mail junto. */
+  @Public()
+  @Throttle(AUTH_THROTTLE)
+  @Post('google')
+  @HttpCode(200)
+  async google(
+    @Body(new ZodPipe(GoogleLoginRequestSchema)) body: GoogleLoginRequest,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<(TokenPair | WebSessionResponse) & { email: string }> {
+    if (!this.googleVerifier) throw new NotFoundException('Login com Google desligado');
+    const origin = isWebClient(req) ? assertWebOrigin(req, this.env) : undefined;
+    const id = await this.googleVerifier.verify(body.credential).catch(() => {
+      throw new UnauthorizedException('Login com Google inválido');
+    });
+    const { pair, email } = await this.auth.loginWithGoogle(id, body.deviceName);
+    return { ...this.respond(pair, res, origin), email };
   }
 
   /** Mobile: refresh no corpo. Web (RF-30): refresh no cookie + cabeçalho X-Fruiqo-Client + origem permitida. */

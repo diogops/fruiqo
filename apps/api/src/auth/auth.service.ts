@@ -15,6 +15,8 @@ import type { Queue } from 'bullmq';
 import { DB, type Db, type Tx, withUser } from '../db/client.js';
 import { SHARE_QUEUE_TOKEN, type ShareJob } from '../queue/queue.js';
 import { sessions, users } from '../db/schema.js';
+import { randomBytes } from 'node:crypto';
+import type { GoogleIdentity } from './google.js';
 import { getDummyHash, hashPassword, verifyPassword } from './password.js';
 import {
   formatRefreshToken,
@@ -107,6 +109,50 @@ export class AuthService {
     });
   }
 
+  /**
+   * Login com Google: acha a conta pelo `sub` (vínculo já feito) ou, na primeira vez, pelo e-mail
+   * verificado (e vincula). Sem conta: cria, com as mesmas regras do cadastro (registro aberto e
+   * e-mails permitidos), sem senha. O nome do Google vira o nome de exibição só se não houver um.
+   */
+  async loginWithGoogle(id: GoogleIdentity, deviceName: string): Promise<{ pair: TokenPair; email: string }> {
+    const found = (
+      await this.db.execute<{ id: string; google_sub: string | null; by_sub: boolean | null }>(sql`select * from auth_lookup_google(${id.sub}, ${id.email})`)
+    ).rows[0];
+    if (found) {
+      // o e-mail é o mesmo, mas a conta já está ligada a OUTRA conta Google: não troca o vínculo
+      if (!found.by_sub && found.google_sub && found.google_sub !== id.sub) throw new UnauthorizedException('Esta conta está ligada a outra conta Google');
+      const pair = await withUser(this.db, found.id, async (tx) => {
+        const [me] = await tx.select({ displayName: users.displayName }).from(users).where(eq(users.id, found.id));
+        await tx
+          .update(users)
+          .set({ googleSub: id.sub, failedLogins: 0, lockedUntil: null, ...(!me?.displayName && id.name ? { displayName: id.name } : {}) })
+          .where(eq(users.id, found.id));
+        return this.createSession(tx, found.id, deviceName);
+      });
+      const [row] = await withUser(this.db, found.id, (tx) => tx.select({ email: users.email }).from(users).where(eq(users.id, found.id)));
+      return { pair, email: row?.email ?? id.email };
+    }
+
+    if (!this.env.REGISTRATION_ENABLED) throw new ForbiddenException('Registro desabilitado');
+    const allowed = this.env.ALLOWED_EMAILS;
+    if (allowed.length > 0 && !allowed.includes(id.email)) throw new ForbiddenException('E-mail não autorizado');
+    const userId = randomUUID();
+    // conta sem senha: hash de um segredo aleatório que ninguém conhece (login por senha impossível)
+    const passwordHash = await hashPassword(randomBytes(32).toString('hex'));
+    try {
+      const pair = await withUser(this.db, userId, async (tx) => {
+        await tx.insert(users).values({ id: userId, email: id.email, passwordHash, hasPassword: false, googleSub: id.sub, ...(id.name ? { displayName: id.name } : {}) });
+        return this.createSession(tx, userId, deviceName);
+      });
+      return { pair, email: id.email };
+    } catch (err) {
+      if ((err as { cause?: { code?: string } }).cause?.code === '23505' || (err as { code?: string }).code === '23505') {
+        throw new ConflictException('Não foi possível criar a conta');
+      }
+      throw err;
+    }
+  }
+
   async refresh(refreshToken: string): Promise<TokenPair> {
     const parsed = parseRefreshToken(refreshToken);
     if (!parsed) throw new UnauthorizedException('Sessão inválida');
@@ -185,16 +231,21 @@ export class AuthService {
    * com `user_id` (FK ON DELETE CASCADE; as ações de integridade referencial não passam
    * pelo RLS). A própria linha em `users` sai pela policy `users_self` (app.user_id).
    */
-  async deleteAccount(userId: string, password: string): Promise<void> {
+  /** `proof`: a senha atual ou, em conta do Google, a identidade de uma nova confirmação do Google. */
+  async deleteAccount(userId: string, proof: { password: string } | { google: GoogleIdentity }): Promise<void> {
     await withUser(this.db, userId, async (tx) => {
       const [me] = await tx
-        .select({ passwordHash: users.passwordHash })
+        .select({ passwordHash: users.passwordHash, hasPassword: users.hasPassword, googleSub: users.googleSub })
         .from(users)
         .where(eq(users.id, userId))
         .for('update');
       if (!me) throw new UnauthorizedException('Sessão inválida');
-      const ok = await verifyPassword(me.passwordHash, password);
-      if (!ok) throw new UnauthorizedException('Senha incorreta');
+      if ('password' in proof) {
+        const ok = me.hasPassword && (await verifyPassword(me.passwordHash, proof.password));
+        if (!ok) throw new UnauthorizedException('Senha incorreta');
+      } else if (!me.googleSub || me.googleSub !== proof.google.sub) {
+        throw new UnauthorizedException('Confirme com a mesma conta Google');
+      }
       const deleted = await tx.delete(users).where(eq(users.id, userId)).returning({ id: users.id });
       if (deleted.length !== 1) throw new UnauthorizedException('Sessão inválida');
     });

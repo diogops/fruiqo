@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { ApiError } from '../api/client';
+import { ApiError, authProviders } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import { GoogleButton } from '../components/GoogleButton';
 import { BrandMark } from '../components/ui';
 
 // mural decorativo: "cartazes" em degradês grafite/azul (sem imagens de terceiros)
@@ -46,7 +47,29 @@ function describeError(err: unknown, mode: Mode): string {
 }
 
 export function Login() {
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, signInWithGoogle } = useAuth();
+  // login com Google: só aparece quando o servidor tem o Client ID
+  const [googleId, setGoogleId] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void authProviders().then((p) => alive && setGoogleId(p.google?.clientId ?? null));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function onGoogle(credential: string) {
+    setBusy(true);
+    setError('');
+    try {
+      await signInWithGoogle(credential);
+    } catch (err) {
+      setBusy(false);
+      if (err instanceof ApiError && err.status === 403) setError('Este e-mail ainda não tem acesso ao Fruiqo.');
+      else if (err instanceof ApiError && err.status === 401) setError('Não foi possível confirmar sua conta Google. Tente de novo.');
+      else setError('Não foi possível entrar com o Google agora.');
+    }
+  }
   const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -178,6 +201,14 @@ export function Login() {
           <button type="submit" className="btn btn-primary" disabled={busy}>
             {busy ? (signup ? 'Criando…' : 'Entrando…') : signup ? 'Criar conta' : 'Entrar'}
           </button>
+          {googleId && (
+            <>
+              <div className="auth-divider" role="separator">
+                <span>ou</span>
+              </div>
+              <GoogleButton clientId={googleId} text={signup ? 'signup_with' : 'continue_with'} onCredential={(c) => void onGoogle(c)} />
+            </>
+          )}
         </form>
       </div>
     </div>
