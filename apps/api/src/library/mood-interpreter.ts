@@ -14,6 +14,7 @@ import {
 } from '@fruiqo/taxonomy';
 import { z } from 'zod';
 import type { Env } from '../config/env.js';
+import { trackingClient } from '../ai-usage/usage.js';
 import { type LlmClient, PipelineGateway } from '../pipeline/gateway.js';
 
 /**
@@ -179,6 +180,6 @@ export function createMoodInterpreter(env: Env, gateway?: PipelineGateway): Mood
     maxInputChars: env.AI_MAX_INPUT_CHARS,
     dailyQuota: env.AI_DAILY_QUOTA,
     pricing: { inPerMTok: env.AI_PRICE_IN_PER_MTOK, outPerMTok: env.AI_PRICE_OUT_PER_MTOK },
-    client: gw.llmClient(() => new Anthropic({ maxRetries: 2, timeout: 30_000 }) as unknown as LlmClient),
+    client: trackingClient(gw.llmClient(() => new Anthropic({ maxRetries: 2, timeout: 30_000 }) as unknown as LlmClient)),
   });
 }

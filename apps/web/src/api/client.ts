@@ -15,6 +15,7 @@ import {
   SummaryDraftSchema,
   TonightResponseSchema,
   TonightDefaultsSchema,
+  AiUsageReportSchema,
   type TonightRequest,
   type TonightWatchedRequest,
   type AiFindTitlesRequest,
@@ -265,6 +266,8 @@ export const api = {
   // D-08: lembrar humor (SEC-CTRL-50) e consentimento de IA externa (SEC-CTRL-51)
   settings: () => request(UserSettingsSchema, '/profile/settings'),
   updateSettings: (body: UpdateUserSettingsRequest) => request(UserSettingsSchema, '/profile/settings', 'PATCH', body),
+  /** uso de IA dos últimos 30 dias (tokens e custo estimado) */
+  aiUsage: () => request(AiUsageReportSchema, '/profile/ai-usage'),
   moodHistory: () => request(MoodHistoryResponseSchema, '/profile/mood-history'),
   deleteMoodHistory: () => request(NoContent, '/profile/mood-history', 'DELETE'),
 

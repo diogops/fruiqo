@@ -28,6 +28,7 @@ import { ReviewService } from './review.service.js';
 import { type BrowseInterpretation, interpretBrowseQuery, SERVICES } from './browse-query.js';
 import { interpretSearchQuery, type SearchInterpretation, tmdbGenreIds } from './search-query.js';
 import { OPENLIBRARY_CATALOG } from './openlibrary-catalog.js';
+import { withAiUsage } from '../ai-usage/usage.js';
 import { AI_TITLE_FINDER, type AiTitleFinder } from './ai-title-finder.js';
 import { TITLE_GUESSER, type TitleGuess, type TitleGuesser } from './title-guesser.js';
 import { TMDB_CATALOG } from './tmdb-catalog.js';
@@ -507,7 +508,8 @@ export class SearchService {
     if (!(await userAllowsAi(this.db, userId))) return none('consent');
     // sem TMDB não há como conferir: falha antes de gastar a IA
     this.requireTmdb();
-    const res = await this.finder.find(req.mode, llmSafeInput(req.text), userId, req.kind);
+    const finder = this.finder;
+    const res = await withAiUsage(userId, req.mode === 'ocr' ? 'image_titles' : 'describe', () => finder.find(req.mode, llmSafeInput(req.text), userId, req.kind));
     if (!res.ok) return none(res.reason);
 
     const found = await this.confirmGuesses(userId, res.titles, {
@@ -666,7 +668,8 @@ export class SearchService {
     interp: SearchInterpretation,
   ): Promise<{ hits: TmdbHit[]; books: BookHit[]; aiUsed: boolean }> {
     if (this.guesser && (await userAllowsAi(this.db, userId))) {
-      const all = await this.guesser.guess(llmSafeInput(q), userId);
+      const guesser = this.guesser;
+      const all = await withAiUsage(userId, 'title_search', () => guesser.guess(llmSafeInput(q), userId));
       const bookGuesses = (all ?? []).filter((g) => g.kind === 'book' && interp.kind === undefined);
       const guesses = (all ?? []).filter((g) => g.kind !== 'book');
       if (all && all.length > 0) {

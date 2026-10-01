@@ -3,6 +3,7 @@ import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { AI_DESCRIBE_MAX_CHARS, AI_OCR_MAX_CHARS } from '@fruiqo/contracts';
 import { z } from 'zod';
 import type { Env } from '../config/env.js';
+import { trackingClient } from '../ai-usage/usage.js';
 import { type LlmClient, PipelineGateway } from '../pipeline/gateway.js';
 import type { LlmSafeInput } from './mood-interpreter.js';
 
@@ -139,6 +140,6 @@ export function createAiTitleFinder(env: Env, gateway?: PipelineGateway): AiTitl
     model: env.AI_MODEL,
     dailyQuota: env.AI_DAILY_QUOTA,
     ocrAllowed: env.AI_OCR_TEXT_ALLOWED,
-    client: gw.llmClient(() => new Anthropic({ maxRetries: 2, timeout: 45_000 }) as unknown as LlmClient),
+    client: trackingClient(gw.llmClient(() => new Anthropic({ maxRetries: 2, timeout: 45_000 }) as unknown as LlmClient)),
   });
 }

@@ -1538,6 +1538,19 @@ export const TonightDefaultsSchema = z.object({
 });
 export type TonightDefaults = z.infer<typeof TonightDefaultsSchema>;
 
+/** Uso de IA (tokens e custo estimado pelo preço do modelo), últimos 30 dias, para o Perfil. */
+export const AiUsageReportSchema = z.object({
+  since: z.string(),
+  total: z.object({ calls: z.number().int(), failures: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int(), costUsd: z.number() }),
+  /** por recurso ("tonight_plan", "mood"...), do mais caro para o mais barato */
+  features: z.array(
+    z.object({ feature: z.string(), calls: z.number().int(), failures: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int(), costUsd: z.number(), models: z.array(z.string()) }),
+  ),
+  /** por dia (AAAA-MM-DD, horário de Brasília), do mais recente para o mais antigo */
+  days: z.array(z.object({ date: z.string(), calls: z.number().int(), costUsd: z.number() })),
+});
+export type AiUsageReport = z.infer<typeof AiUsageReportSchema>;
+
 /** "Já assisti / já li / já ouvi": entra na sua lista como consumido e não volta nas sugestões */
 export const TonightWatchedRequestSchema = z.union([
   z.object({ tmdbId: z.number().int().positive(), mediaType: z.enum(['movie', 'tv']) }).strict(),

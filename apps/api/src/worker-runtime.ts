@@ -7,6 +7,8 @@ import type { Env } from './config/env.js';
 import { createDb } from './db/client.js';
 import Anthropic from '@anthropic-ai/sdk';
 import { AnthropicExtractor } from './pipeline/extractors/anthropic.js';
+import { setAiUsageSink, trackingClient } from './ai-usage/usage.js';
+import { dbAiUsageSink } from './ai-usage/usage-store.js';
 import { type LlmClient, PipelineGateway } from './pipeline/gateway.js';
 import { HeuristicExtractor } from './pipeline/extractors/heuristic.js';
 import { fetchOEmbed } from './pipeline/oembed.js';
@@ -69,9 +71,7 @@ export function buildProcessor(
         model: env.LLM_MODEL,
         maxInputChars: env.LLM_MAX_INPUT_CHARS,
         consumeQuota: (userId) => consumeDailyQuota(redis, 'llm', userId, env.LLM_DAILY_QUOTA),
-        client: gateway.llmClient(
-          () => new Anthropic({ maxRetries: 2, timeout: 60_000 }) as unknown as LlmClient,
-        ),
+        client: trackingClient(gateway.llmClient(() => new Anthropic({ maxRetries: 2, timeout: 60_000 }) as unknown as LlmClient)),
       })
     : undefined;
 
@@ -144,6 +144,8 @@ export async function refreshCatalogs(db: ReturnType<typeof createDb>['db'], enr
 export async function startWorker(env: Env): Promise<WorkerRuntime> {
   const logger = pino({ level: env.LOG_LEVEL, redact: { paths: REDACT_PATHS, censor: '[redacted]' } });
   const { db, pool } = createDb(env.DATABASE_URL);
+  // uso de IA (tokens/custo por chamada) vai para ai_usage, sob RLS
+  setAiUsageSink(dbAiUsageSink(db));
   const redis = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
   const processor = buildProcessor(env, logger, db, redis);
   const connection = redisConnection(env.REDIS_URL);

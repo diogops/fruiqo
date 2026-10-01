@@ -44,6 +44,7 @@ import { SearchService } from './library/search.service.js';
 import { DeclaredProfileController, LibraryExtrasController, SearchController, TonightController } from './library/taste-search.controller.js';
 import { createTitleGuesser, TITLE_GUESSER } from './library/title-guesser.js';
 import { AI_TITLE_FINDER, createAiTitleFinder } from './library/ai-title-finder.js';
+import { AiUsageController } from './ai-usage/ai-usage.controller.js';
 import { createTasteAi, TASTE_AI } from './library/taste-ai.js';
 import { TonightService } from './library/tonight.service.js';
 import { createOpenLibraryCatalog, OPENLIBRARY_CATALOG } from './library/openlibrary-catalog.js';
@@ -129,6 +130,7 @@ export class AppModule {
         ReviewController,
         ProfileController,
         DeclaredProfileController,
+        AiUsageController,
         SearchController,
         TonightController,
         SandboxController,

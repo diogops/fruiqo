@@ -8,6 +8,7 @@ import { formatDateTime } from '../labels';
 import { DeclaredTasteSection } from './DeclaredTaste';
 import { DeleteAccountSection } from './DeleteAccount';
 import { TasteEditor } from './TasteEditor';
+import { AiUsageSection } from './AiUsage';
 
 export function Profile() {
   const taste = useQuery({ queryKey: ['taste'], queryFn: api.taste });
@@ -159,6 +160,8 @@ export function Profile() {
           </label>
         </div>
       )}
+
+      <AiUsageSection />
 
       <h2>Histórico do "Como estou"</h2>
       <p className="muted small">O texto que você digitou nunca foi guardado; só a intenção interpretada, e só com "Lembrar meu humor" ligado.</p>

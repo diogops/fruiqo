@@ -4,6 +4,7 @@ import { MAX_TASTE_SUMMARY_CHARS } from '@fruiqo/contracts';
 import { GENRE_KEYS } from '@fruiqo/taxonomy';
 import { z } from 'zod';
 import type { Env } from '../config/env.js';
+import { trackingClient } from '../ai-usage/usage.js';
 import { type LlmClient, PipelineGateway } from '../pipeline/gateway.js';
 import { ATTRIBUTE_KEYS, sanitizePlan, type TonightPlan } from './tonight-plan.js';
 
@@ -356,6 +357,6 @@ export function createTasteAi(env: Env, gateway?: PipelineGateway): TasteAi | nu
     dailyQuota: env.AI_DAILY_QUOTA,
     ...(env.AI_TONIGHT_EFFORT ? { effort: env.AI_TONIGHT_EFFORT } : {}),
     // o modelo pensa antes de responder: pode levar mais de um minuto
-    client: gw.llmClient(() => new Anthropic({ maxRetries: 1, timeout: 180_000 }) as unknown as LlmClient),
+    client: trackingClient(gw.llmClient(() => new Anthropic({ maxRetries: 1, timeout: 180_000 }) as unknown as LlmClient)),
   });
 }

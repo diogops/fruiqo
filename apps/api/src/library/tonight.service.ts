@@ -21,6 +21,7 @@ import {
   withSelectedGenre,
 } from './tonight-video.js';
 import { ATTRIBUTES, EMPTY_PLAN, localPlan, planIsEmpty, planLabel, type TonightPlan } from './tonight-plan.js';
+import { withAiUsage } from '../ai-usage/usage.js';
 import { CatalogService } from './catalog.service.js';
 import { LibraryService } from './library.service.js';
 import { PROVIDER_LABEL, STREAMING_PROVIDERS } from './providers.js';
@@ -267,7 +268,8 @@ export class TonightService {
     if (!this.ai) return { summary: text, aiUsed: false, unavailable: 'disabled' };
     if (!this.limiter.take(userId)) throw tooMany();
     if (!(await userAllowsAi(this.db, userId))) return { summary: text, aiUsed: false, unavailable: 'consent' };
-    const res = await this.ai.improveSummary(text, userId);
+    const ai = this.ai;
+    const res = await withAiUsage(userId, 'summary_improve', () => ai.improveSummary(text, userId));
     return res.ok ? { summary: res.value, aiUsed: true } : { summary: text, aiUsed: false, unavailable: res.reason === 'too_long' ? 'too_long' : res.reason };
   }
 
@@ -366,7 +368,8 @@ export class TonightService {
     else if (!aiAllowed) unavailable = 'consent';
     else if (briefIsEmpty(brief)) unavailable = 'no_profile';
     else {
-      const res = await this.ai.tonight(brief, userId, kind);
+      const ai = this.ai;
+      const res = await withAiUsage(userId, 'tonight_titles', () => ai.tonight(brief, userId, kind));
       if (!res.ok) unavailable = res.reason === 'too_long' ? 'failed' : res.reason;
       else {
         aiUsed = true;
@@ -457,7 +460,9 @@ export class TonightService {
       let plan = ctx.mood ? localPlan(ctx.mood) : EMPTY_PLAN;
       let planByAi = false;
       if (ctx.mood && plan.unmapped.length > 0 && ctx.aiAllowed && this.ai) {
-        const res = await this.ai.planRequest(ctx.mood, userId);
+        const ai = this.ai;
+        const mood = ctx.mood;
+        const res = await withAiUsage(userId, 'tonight_plan', () => ai.planRequest(mood, userId));
         if (res.ok) {
           plan = res.value;
           planByAi = true;
@@ -574,10 +579,11 @@ export class TonightService {
       s.generated = true;
       const history = await this.seenSample(userId, [...plan.genresAll, ...plan.genresAny]);
       const brief: TasteBrief = { ...ctx.brief, seen: history.sample, seenCount: history.total, ...(ctx.mood ? { mood: ctx.mood } : {}) };
-      const res = await this.ai.tonight(brief, userId, req.kind === 'movie' || req.kind === 'series' ? req.kind : undefined, {
+      const ai = this.ai;
+      const res = await withAiUsage(userId, 'tonight_titles', () => ai.tonight(brief, userId, req.kind === 'movie' || req.kind === 'series' ? req.kind : undefined, {
         filtered: ctx.filterSubs.length > 0,
         max: AI_CANDIDATES,
-      });
+      }));
       if (res.ok) {
         aiUsed = true;
         const guesses = res.value.picks.flatMap((g) => (g.kind === 'movie' || g.kind === 'series' ? [{ title: g.title, kind: g.kind, ...(g.year ? { year: g.year } : {}) }] : []));

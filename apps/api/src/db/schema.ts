@@ -420,6 +420,28 @@ export function overrideScore(o: { mode: 'pin' | 'exclude' | 'level'; score: num
   return o.mode === 'pin' ? 1 : o.mode === 'exclude' ? -1 : Math.max(-1, Math.min(1, o.score ?? 0));
 }
 
+/**
+ * Uso de IA por chamada (tokens e custo estimado pelo preço do modelo), para o resumo "Uso de IA"
+ * do Perfil. Nunca guarda o texto enviado nem a resposta.
+ */
+export const aiUsage = pgTable(
+  'ai_usage',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    feature: text('feature').notNull(),
+    model: text('model').notNull(),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    costUsd: real('cost_usd').notNull().default(0),
+    ok: boolean('ok').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('ai_usage_user_created_idx').on(t.userId, t.createdAt)],
+);
+
 /** Preferência manual por subgênero (gosto / não gosto); entra no encaixe e na nota automática. */
 export const tasteSubgenrePrefs = pgTable(
   'taste_subgenre_prefs',

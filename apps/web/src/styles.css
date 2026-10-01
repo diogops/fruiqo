@@ -845,6 +845,9 @@ html.has-docked-bulkbar .toasts { bottom: calc(5.75rem + env(safe-area-inset-bot
 .tc-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tonight-card .tonight-actions { display: flex; flex-wrap: nowrap; gap: 0.25rem; align-items: center; margin-top: 0; }
 .btn.btn-sm { padding: 0.2rem 0.6rem; font-size: 0.82rem; min-height: 0; }
+.ai-usage-total { margin: 0.25rem 0 0.5rem; }
+.ai-usage-day-list { list-style: none; margin: 0.4rem 0 0; padding: 0; display: grid; gap: 0.2rem; max-width: 360px; }
+.ai-usage-day-list li { display: grid; grid-template-columns: 4rem 1fr auto; gap: 0.5rem; }
 .tonight-btn { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
 .tonight-form .chips { margin-bottom: 0.25rem; }
 .tonight-note { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin: 0.5rem 0; }

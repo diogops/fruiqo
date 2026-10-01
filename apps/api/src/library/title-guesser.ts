@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
 import type { Env } from '../config/env.js';
+import { trackingClient } from '../ai-usage/usage.js';
 import { type LlmClient, PipelineGateway } from '../pipeline/gateway.js';
 import type { LlmSafeInput } from './mood-interpreter.js';
 
@@ -93,6 +94,6 @@ export function createTitleGuesser(env: Env, gateway?: PipelineGateway): TitleGu
     model: env.AI_MODEL,
     maxInputChars: env.AI_MAX_INPUT_CHARS,
     dailyQuota: env.AI_DAILY_QUOTA,
-    client: gw.llmClient(() => new Anthropic({ maxRetries: 2, timeout: 30_000 }) as unknown as LlmClient),
+    client: trackingClient(gw.llmClient(() => new Anthropic({ maxRetries: 2, timeout: 30_000 }) as unknown as LlmClient)),
   });
 }

@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { LlmExtractionSchema, RecommendationKindSchema } from '@fruiqo/contracts';
 import { z } from 'zod';
+import { withAiUsage } from '../../ai-usage/usage.js';
 import type { LlmClient } from '../gateway.js';
 import type { ExtractedItem, ExtractionInput, Extractor } from './types.js';
 
@@ -80,7 +81,8 @@ export class AnthropicExtractor implements Extractor {
       throw new LlmUnavailableError('conteúdo acima do limite de caracteres');
     }
 
-    const response = (await this.client.messages.parse({
+    const response = (await withAiUsage(input.userId, 'share_extract', () =>
+      this.client.messages.parse({
       model: this.opts.model,
       max_tokens: 4000,
       system: SYSTEM,
@@ -91,7 +93,8 @@ export class AnthropicExtractor implements Extractor {
           content: `<shared_content>\n${payload}\n</shared_content>`,
         },
       ],
-    })) as ParsedResponse;
+      }),
+    )) as ParsedResponse;
 
     input.onUsage?.({
       inputTokens: response.usage?.input_tokens ?? 0,

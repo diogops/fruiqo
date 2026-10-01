@@ -33,6 +33,7 @@ import {
   matchesRule,
 } from '@fruiqo/taxonomy';
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { withAiUsage } from '../ai-usage/usage.js';
 import { libraryTextCondition } from './library-text.js';
 import { MIN_VOTES_FOR_GENERAL, recomputeAutoRatings } from './auto-rating.js';
 import { ENV, type Env } from '../config/env.js';
@@ -395,7 +396,7 @@ export class LibraryService {
       } else {
         // IA externa só com AI_MODE=anthropic (o próprio interpretador injetado) E consentimento individual
         const interpreter = riskDetected || !settings?.aiConsent ? new RulesInterpreter() : this.interpreter;
-        interpreted = await interpreter.interpret(llmSafeInput(req.text), userId);
+        interpreted = await withAiUsage(userId, 'mood', () => interpreter.interpret(llmSafeInput(req.text), userId));
         intent = interpreted.intent;
       }
       rankReq = { mode: 'mood', intent };

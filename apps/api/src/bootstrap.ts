@@ -1,4 +1,7 @@
 import 'reflect-metadata';
+import { setAiUsageSink } from './ai-usage/usage.js';
+import { dbAiUsageSink } from './ai-usage/usage-store.js';
+import { DB } from './db/client.js';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
@@ -13,6 +16,8 @@ export async function createApp(env: Env): Promise<NestExpressApplication> {
     bodyParser: false,
   });
   app.useLogger(app.get(Logger));
+  // uso de IA (tokens/custo por chamada) vai para ai_usage, sob RLS
+  setAiUsageSink(dbAiUsageSink(app.get(DB)));
   app.use(helmet());
   // RF-17/RF-30: navegador (preview do app e sistema web). Só as origens listadas. Credenciais
   // permitidas para o cookie de refresh do web (Path=/auth); o preview do app segue com bearer.
