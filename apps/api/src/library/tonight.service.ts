@@ -13,6 +13,7 @@ import {
   isAnime,
   planAccepts,
   compareCandidates,
+  franchiseKey,
   rate,
   reasonFor,
   type Source,
@@ -329,8 +330,8 @@ export class TonightService {
       !favoriteKeys.has(key) &&
       !titles.some((t) => t && favoriteTitles.has(normTitle(t))) &&
       !exclude.has(key);
-    const freshMedia = (it: { mediaType: string; tmdbId: number; title: string; originalTitle?: string; anime?: boolean; inLibrary: { status?: string } | null }) =>
-      (req.includeAnime || !it.anime) && fresh(`${it.mediaType}:${it.tmdbId}`, [it.title, it.originalTitle], it.inLibrary?.status);
+    const freshMedia = (it: { mediaType: string; tmdbId: number; title: string; originalTitle?: string; inLibrary: { status?: string } | null }) =>
+      fresh(`${it.mediaType}:${it.tmdbId}`, [it.title, it.originalTitle], it.inLibrary?.status);
 
     let unavailable: TonightResponse['unavailable'];
     let aiUsed = false;
@@ -473,8 +474,15 @@ export class TonightService {
     const medias: ('movie' | 'tv')[] = req.kind === 'movie' ? ['movie'] : req.kind === 'series' ? ['tv'] : ['movie', 'tv'];
     const providerIds = ctx.filterSubs.flatMap((k) => PROVIDER_TMDB_IDS[k] ?? []);
     const softGenres = ctx.liked ?? (await this.likedGenres(userId));
+    // "Incluir animes e animações?" desmarcado: nada de anime nem de animação (desenho), a não ser que
+    // o pedido seja de animação
+    const wantsAnimation = Boolean(req.includeAnime) || plan.genresAll.includes('animation') || plan.genresAny.includes('animation');
+    const retrievalPlan: TonightPlan = wantsAnimation ? plan : { ...plan, genresNone: [...new Set([...plan.genresNone, 'animation' as GenreKey])] };
     const usable = (c: Candidate) =>
-      !s.shown.has(`${c.item.mediaType}:${c.item.tmdbId}`) && ctx.freshMedia({ ...c.item, anime: c.anime }) && (req.includeAnime || !c.anime) && planAccepts(plan, c.genres);
+      !s.shown.has(`${c.item.mediaType}:${c.item.tmdbId}`) &&
+      ctx.freshMedia({ ...c.item, anime: c.anime }) &&
+      (wantsAnimation || (!c.anime && !c.genres.includes('animation'))) &&
+      planAccepts(plan, c.genres);
 
     // repõe o estoque de descobertas quando está baixo (páginas novas, com orçamento)
     let budget = PAGE_BUDGET;
@@ -490,7 +498,7 @@ export class TonightService {
           const page = (s.cursors[key] ?? 0) + 1;
           const themes = source === 'theme' ? plan.prefer.filter((a) => ATTRIBUTES[a].keywords.length > 0) : [];
           const q: DiscoverQuery = { media, source, page, themes };
-          const params = discoverParams(q, plan, { providerIds, keywordIds: s.keywordIds, softGenres });
+          const params = discoverParams(q, retrievalPlan, { providerIds, keywordIds: s.keywordIds, softGenres });
           if (!params) {
             s.cursors[key] = -1;
             continue;
@@ -518,7 +526,14 @@ export class TonightService {
     const picked: TonightItem[] = [];
     const serve = async () => {
       while (picked.length < TONIGHT_SIZE) {
-        const next = s.pending.filter(usable);
+        // um título por franquia no lote (os outros continuam no estoque para "Novas sugestões")
+        const franchises = new Set(picked.map((x) => franchiseKey(x.title)));
+        const next = s.pending.filter(usable).filter((c) => {
+          const f = franchiseKey(c.item.title);
+          if (franchises.has(f)) return false;
+          franchises.add(f);
+          return true;
+        });
         if (next.length === 0) return;
         // lista: mostra mesmo fora dos streamings (você já escolheu); descoberta: só nos streamings
         const head = next.slice(0, TONIGHT_SIZE - picked.length + 4);

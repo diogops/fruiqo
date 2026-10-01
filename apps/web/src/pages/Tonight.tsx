@@ -390,7 +390,7 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
         </div>
         {video && (
           <label className="check tonight-anime">
-            <input type="checkbox" checked={includeAnime} onChange={(e) => changeAnime(e.target.checked)} /> Incluir animes?
+            <input type="checkbox" checked={includeAnime} onChange={(e) => changeAnime(e.target.checked)} /> Incluir animes e animações?
           </label>
         )}
         <label className="check tonight-anime">

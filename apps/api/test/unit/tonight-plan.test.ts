@@ -1,7 +1,7 @@
 // D-25: o pedido vira plano (gêneros todos/algum/nenhum, atributos, década) e o servidor busca.
 import { describe, expect, it } from 'vitest';
 import { localPlan, planIsEmpty, planLabel, sanitizePlan } from '../../src/library/tonight-plan.js';
-import { adjustedQuality, compareCandidates, GENRE_LABEL, planAccepts, rate, reasonFor, withSelectedGenre } from '../../src/library/tonight-video.js';
+import { adjustedQuality, compareCandidates, franchiseKey, GENRE_LABEL, planAccepts, rate, reasonFor, withSelectedGenre } from '../../src/library/tonight-video.js';
 
 const label = (g: string) => GENRE_LABEL.get(g) ?? g;
 
@@ -31,6 +31,16 @@ describe('parser local do pedido', () => {
     expect(p).toEqual({ genresAll: [], genresAny: [], genresNone: ['scifi', 'horror'], prefer: ['thought_provoking'], avoid: [], unmapped: ['a'] });
     expect(withSelectedGenre(localPlan('algo leve'), 'comedy').genresAll).toEqual(['comedy']);
     expect(withSelectedGenre(localPlan('comédia'), 'comedy').genresAll).toEqual(['comedy']);
+  });
+});
+
+describe('franquia (um título por franquia em cada lote)', () => {
+  it('nome antes de ":", sem número de sequência', () => {
+    expect(franchiseKey('Planeta dos Macacos: A Origem')).toBe(franchiseKey('Planeta dos Macacos: O Confronto'));
+    expect(franchiseKey('Mad Max 2: A Caçada Continua')).toBe('mad max');
+    expect(franchiseKey('Mad Max')).toBe('mad max');
+    expect(franchiseKey('Duna: Parte 2')).toBe(franchiseKey('Duna'));
+    expect(franchiseKey('Matrix')).not.toBe(franchiseKey('A Origem'));
   });
 });
 

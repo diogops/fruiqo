@@ -159,6 +159,23 @@ export function discoverParams(
   };
 }
 
+/**
+ * Franquia aproximada pelo título: o nome antes de ":" / " - ", sem número de sequência no fim
+ * ("Planeta dos Macacos: O Confronto" e "...: A Origem" → "planeta dos macacos"; "Mad Max 2" → "mad max").
+ * Um título por franquia em cada lote; os outros ficam para "Novas sugestões".
+ */
+export function franchiseKey(title: string): string {
+  const head = title.split(/\s*[:–—]\s*|\s+-\s+/)[0] ?? title;
+  return head
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+(\d{1,2}|i{1,3}|iv|v|parte \d+)\s*$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** Plano + gênero escolhido na tela: o gênero do select entra como obrigatório se o texto não o cobriu. */
 export function withSelectedGenre(plan: TonightPlan, genre?: GenreKey): TonightPlan {
   if (!genre || plan.genresAll.includes(genre) || plan.genresAny.includes(genre) || plan.genresNone.includes(genre)) return plan;

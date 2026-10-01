@@ -149,7 +149,7 @@ export function requestText(b: TasteBrief, kind?: TonightKind): string {
   if (b.mood?.trim()) lines.push(`Pedido de hoje (prioridade máxima; toda sugestão tem que atender): ${b.mood.trim()}`);
   lines.push(`Hoje: ${KIND_PT[kind ?? 'video']}${b.genre?.trim() ? ` de ${b.genre.trim()}` : ''}`);
   if (b.services?.length) lines.push(`Onde vai assistir: ${b.services.join(', ')}`);
-  if (kind !== 'book' && kind !== 'music') lines.push(b.anime ? 'Pode incluir anime' : 'Sem anime (animação japonesa)');
+  if (kind !== 'book' && kind !== 'music') lines.push(b.anime ? 'Pode incluir anime e animação' : 'Sem anime nem animação (desenho)');
   if ((b.seenCount ?? 0) >= BIG_HISTORY)
     lines.push(`Já viu muita coisa (${b.seenCount} títulos): evite os mais famosos e óbvios; prefira obras ótimas e menos conhecidas`);
   list('Adora', b.loves);

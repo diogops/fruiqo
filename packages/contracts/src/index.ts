@@ -1438,7 +1438,7 @@ export const TonightRequestSchema = z
     kind: z.enum(['movie', 'series', 'book', 'music']).optional(),
     /** gênero escolhido (taxonomia para filme/série/livro; texto curto para música) */
     genre: z.string().trim().min(1).max(40).optional(),
-    /** filme/série: trazer animes também (padrão: não) */
+    /** filme/série: trazer animes e animações (desenhos) também (padrão: não, a não ser que o pedido seja de animação) */
     includeAnime: z.boolean().optional(),
     /** trazer também o que você já assistiu/abandonou (padrão: não) */
     includeSeen: z.boolean().optional(),

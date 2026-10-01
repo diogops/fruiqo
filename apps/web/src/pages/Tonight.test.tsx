@@ -216,8 +216,8 @@ describe('"O que assistir hoje?" (D-25)', () => {
     expect(posts[1]!.body).toMatchObject({ exclude: ['movie:1'] });
     expect((posts[1]!.body as { includeAnime?: boolean }).includeAnime).toBeUndefined();
 
-    // "Incluir animes?" vem desmarcado; marcar com busca na tela busca de novo, já com animes
-    const anime = screen.getByRole('checkbox', { name: 'Incluir animes?' });
+    // "Incluir animes e animações?" vem desmarcado; marcar com busca na tela busca de novo, já com eles
+    const anime = screen.getByRole('checkbox', { name: 'Incluir animes e animações?' });
     expect(anime).toHaveProperty('checked', false);
     await user.click(anime);
     await waitFor(() => expect(calls.filter((c) => c.path === '/tonight')).toHaveLength(3));

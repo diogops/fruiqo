@@ -9,7 +9,8 @@ export const ATTRIBUTES = {
   thought_provoking: {
     label: 'faz pensar',
     terms: ['inteligente', 'inteligentes', 'que faca pensar', 'que me faca pensar', 'faz pensar', 'reflexivo', 'reflexao', 'cerebral', 'filosofico', 'profundo', 'cabeca'],
-    keywords: ['philosophy', 'artificial intelligence', 'existentialism', 'moral dilemma', 'consciousness', 'dystopia'],
+    // sem "dystopia": muita ação pós-apocalíptica (Mad Max) entrava como "inteligente"
+    keywords: ['philosophy', 'artificial intelligence', 'existentialism', 'moral dilemma', 'consciousness'],
   },
   complex_plot: {
     label: 'trama complexa',

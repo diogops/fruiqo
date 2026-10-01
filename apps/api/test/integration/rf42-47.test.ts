@@ -342,6 +342,7 @@ describe('RF-46: busca e importação', () => {
       21: { title: 'Duna: Parte 2', date: '2024-02-28', providers: ['Netflix'], genres: [28, 878] },
       30: { title: 'Akira', date: '1988-07-16', providers: ['Netflix'], genres: [16, 28, 878], lang: 'ja' },
       40: { title: 'Ex Machina', date: '2015-01-21', providers: ['Netflix'], genres: [878, 28] },
+      41: { title: 'Batman Animado', date: '2012-09-25', providers: ['Netflix'], genres: [16, 28, 878], lang: 'en' },
     };
     const urls: URL[] = [];
     const hit = (id: number) => ({
@@ -374,7 +375,7 @@ describe('RF-46: busca e importação', () => {
         const pick = (ids: number[]) => ({ results: page === '1' ? ids.map(hit) : [] });
         if (genres === '28,878' && q.get('with_keywords')) body = pick([18, 40]);
         else if (genres === '28,878' && q.get('sort_by')?.startsWith('primary_release_date')) body = pick([21]);
-        else if (genres === '28,878') body = pick([17, 30, 15, 20]);
+        else if (genres === '28,878') body = pick([17, 30, 41, 15, 20]);
         else if (!genres && !q.get('with_keywords')) body = pick([11, 14]);
       } else {
         const one = /\/movie\/(\d+)$/.exec(url.pathname);
@@ -430,7 +431,7 @@ describe('RF-46: busca e importação', () => {
     expect(planCalls).toEqual([]);
     // 1º a Minha Área (Duna, mesmo fora dos streamings), depois descobertas: tema (palavra-chave), mais bem
     // avaliados, recentes — só na Netflix, sem anime, sem assistido/favorito, sem o que não atende ao pedido
-    expect(local.items.map((i) => i.title)).toEqual(['Duna', 'A Origem', 'Ex Machina', 'Duna: Parte 2', 'Matrix']);
+    expect(local.items.map((i) => i.title)).toEqual(['Duna', 'A Origem', 'Ex Machina', 'Matrix']);
     expect(local.items[0]).toMatchObject({ fromList: true, availableOn: ['Max'], aiReason: expect.stringMatching(/^Na sua lista · ação e ficção científica · nota 8,0 no TMDB/) });
     expect(local.items[1]).toMatchObject({ availableOn: ['Netflix'], aiReason: expect.stringMatching(/^Ação e ficção científica · tema: faz pensar · nota 8,0 no TMDB/) });
     // as palavras-chave vêm resolvidas pelo nome (sem inventar IDs) e os gêneros, todos ao mesmo tempo
@@ -438,11 +439,17 @@ describe('RF-46: busca e importação', () => {
     expect(themed.searchParams.get('with_keywords')).toBe('490|310');
     expect(themed.searchParams.get('with_genres')).toBe('28,878');
     expect(themed.searchParams.get('with_watch_providers')).toBe('8');
+    // sem "Incluir animes e animações": animação fica de fora já na busca (e no filtro, se vier)
+    expect(themed.searchParams.get('without_genres')).toBe('16');
+    expect(local.items.map((i) => i.title)).not.toContain('Batman Animado');
 
     // mesma sessão: "novas sugestões" não repetem; acabou o que há com estes filtros → esgotado (sem IA aqui)
     const more = await tonight.tonight(user.userId, { sessionId: s1, kind: 'movie', mood: 'um bom filme de ação, mas que seja scifi e inteligente' });
-    expect(more.items.map((i) => i.title)).toEqual([]);
-    expect(more.exhausted).toBe(true);
+    // um título por franquia no lote: "Duna: Parte 2" ficou para cá (junto com "Duna" não vinha)
+    expect(more.items.map((i) => i.title)).toEqual(['Duna: Parte 2']);
+    const last = await tonight.tonight(user.userId, { sessionId: s1, kind: 'movie', mood: 'um bom filme de ação, mas que seja scifi e inteligente' });
+    expect(last.items).toEqual([]);
+    expect(last.exhausted).toBe(true);
 
     // com IA: só interpreta o que o parser não entendeu (sem histórico, sem catálogo) e completa com nomes uma vez
     await setUserSettings(db, user.userId, { aiConsent: true });
@@ -460,7 +467,7 @@ describe('RF-46: busca e importação', () => {
 
     // "Incluir animes?" traz o Akira; "Só novidades" (sem a Minha Área) não traz Duna
     const anime = await tonight.tonight(user.userId, { sessionId: session(), kind: 'movie', mood: 'ação e scifi', includeAnime: true, includeQueue: false });
-    expect(anime.items.map((i) => i.title)).toContain('Akira');
+    expect(anime.items.map((i) => i.title)).toEqual(expect.arrayContaining(['Akira', 'Batman Animado']));
     expect(anime.items.map((i) => i.title)).not.toContain('Duna');
     // "Qualquer lugar": não filtra por streaming e mostra onde está
     const anywhere = await tonight.tonight(user.userId, { sessionId: session(), kind: 'movie', mood: 'ação e scifi', services: [] });
