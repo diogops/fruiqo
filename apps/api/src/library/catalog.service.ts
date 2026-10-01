@@ -20,6 +20,7 @@ import type {
   UpdateUserSettingsRequest,
   UserSettings,
 } from '@fruiqo/contracts';
+import { TASTE_LEVEL_SCORE, type TasteLevel } from '@fruiqo/contracts';
 import { GENRES, GENRE_KEYS, type GenreKey, interpretTasteStatement, SUBGENRES } from '@fruiqo/taxonomy';
 import { and, asc, desc, eq, gt, inArray, lt, or, sql } from 'drizzle-orm';
 import { ENV, type Env } from '../config/env.js';
@@ -36,9 +37,11 @@ import {
   reviewActions,
   shares,
   tasteFavorites,
+  overrideScore,
   tasteOverrides,
   tasteSignals,
   tasteStatements,
+  tasteSubgenrePrefs,
   userSettings,
   userSubscriptions,
   type RecommendationRow,
@@ -56,6 +59,14 @@ import { readSettings, toSettingsView } from './user-settings.js';
 
 const GENRE_SET = new Set<string>(GENRE_KEYS);
 const GENRE_LABEL = new Map(GENRES.map((g) => [g.key, g.label]));
+const SUBGENRE_SET = new Set<string>(SUBGENRES.map((s) => s.key));
+const LEVELS = Object.entries(TASTE_LEVEL_SCORE) as [TasteLevel, number][];
+
+/** Nível mais próximo de um override (pin = adoro, exclude = detesto). */
+function levelOf(o: { mode: 'pin' | 'exclude' | 'level'; score: number | null }): TasteLevel {
+  const v = overrideScore(o);
+  return LEVELS.reduce((best, cur) => (Math.abs(cur[1] - v) < Math.abs(best[1] - v) ? cur : best))[0];
+}
 const UNDO_TTL_MS = 10 * 60 * 1000;
 const ACTIVITY_PAGE = 30;
 const STATUS_ORDER = { catalog: -1, to_watch: 0, watching: 1, watched: 2, dropped: 2 } as const;
@@ -447,21 +458,39 @@ export class CatalogService {
   }
 
   async updateTaste(userId: string, input: UpdateTasteRequest): Promise<TasteProfile> {
-    const all = [...(input.exclude ?? []), ...(input.pin ?? []), ...(input.clear ?? [])];
+    const levels = input.levels ?? [];
+    const all = [...(input.exclude ?? []), ...(input.pin ?? []), ...(input.clear ?? []), ...levels.map((l) => l.key)];
     if (all.some((g) => !GENRE_SET.has(g))) throw new BadRequestException('Entrada inválida: genre');
+    if ((input.subgenres ?? []).some((s) => !SUBGENRE_SET.has(s.key))) throw new BadRequestException('Entrada inválida: subgenre');
     const pin = new Set(input.pin ?? []);
     if ((input.exclude ?? []).some((g) => pin.has(g))) throw new BadRequestException('Entrada inválida: gênero fixado e excluído');
     return withUser(this.db, userId, async (tx) => {
       if (input.clear?.length) await tx.delete(tasteOverrides).where(inArray(tasteOverrides.genre, input.clear));
+      // adoro = fixar e detesto = excluir (nunca sugerido); os níveis do meio guardam o valor
       const upserts = [
-        ...(input.exclude ?? []).map((genre) => ({ userId, genre, mode: 'exclude' as const })),
-        ...(input.pin ?? []).map((genre) => ({ userId, genre, mode: 'pin' as const })),
+        ...(input.exclude ?? []).map((genre) => ({ genre, mode: 'exclude' as const, score: null })),
+        ...(input.pin ?? []).map((genre) => ({ genre, mode: 'pin' as const, score: null })),
+        ...levels.map(({ key, level }) =>
+          level === 'love'
+            ? { genre: key, mode: 'pin' as const, score: null }
+            : level === 'hate'
+              ? { genre: key, mode: 'exclude' as const, score: null }
+              : { genre: key, mode: 'level' as const, score: TASTE_LEVEL_SCORE[level] },
+        ),
       ];
       for (const u of upserts) {
         await tx
           .insert(tasteOverrides)
-          .values(u)
-          .onConflictDoUpdate({ target: [tasteOverrides.userId, tasteOverrides.genre], set: { mode: u.mode, createdAt: new Date() } });
+          .values({ userId, ...u })
+          .onConflictDoUpdate({ target: [tasteOverrides.userId, tasteOverrides.genre], set: { mode: u.mode, score: u.score, createdAt: new Date() } });
+      }
+      for (const { key, pref } of input.subgenres ?? []) {
+        if (pref === null) await tx.delete(tasteSubgenrePrefs).where(eq(tasteSubgenrePrefs.subgenre, key));
+        else
+          await tx
+            .insert(tasteSubgenrePrefs)
+            .values({ userId, subgenre: key, pref })
+            .onConflictDoUpdate({ target: [tasteSubgenrePrefs.userId, tasteSubgenrePrefs.subgenre], set: { pref, createdAt: new Date() } });
       }
       return this.buildTaste(tx);
     });
@@ -525,7 +554,7 @@ export class CatalogService {
     const signalCount = new Map<string, number>();
     for (const r of usable) for (const g of genresOf.get(r.recommendationId!)!) signalCount.set(g, (signalCount.get(g) ?? 0) + 1);
     const overrides = await tx.select().from(tasteOverrides);
-    const overrideOf = new Map(overrides.map((o) => [o.genre, o.mode]));
+    const overrideOf = new Map(overrides.map((o) => [o.genre, o]));
 
     // RF-43: perfil declarado (favoritos + resumo) aparece ao lado dos sinais, sem apagá-los
     const [statement] = await tx.select().from(tasteStatements);
@@ -533,27 +562,32 @@ export class CatalogService {
 
     const genres: TasteEntry[] = GENRE_KEYS.filter((g) => signalCount.has(g) || overrideOf.has(g) || declared.has(g))
       .map((g) => {
-        const mode = overrideOf.get(g);
+        const o = overrideOf.get(g);
         const decl = declared.get(g)?.score;
         return {
           key: g,
           label: GENRE_LABEL.get(g) ?? g,
-          score: mode === 'pin' ? 1 : mode === 'exclude' ? -1 : (scores[g] ?? 0),
-          source: mode === 'pin' ? ('pinned' as const) : mode === 'exclude' ? ('excluded' as const) : ('signals' as const),
+          score: o ? overrideScore(o) : (scores[g] ?? 0),
+          source: !o ? ('signals' as const) : o.mode === 'pin' ? ('pinned' as const) : o.mode === 'exclude' ? ('excluded' as const) : ('manual' as const),
           signals: signalCount.get(g) ?? 0,
+          ...(o ? { level: levelOf(o), learnedScore: scores[g] ?? 0 } : {}),
           ...(decl !== undefined ? { declaredScore: decl } : {}),
         };
       })
       .sort((a, b) => b.score - a.score || a.label.localeCompare(b.label));
     const scoreOf = new Map(genres.map((g) => [g.key, g.score]));
-    // subgênero: média das afinidades dos gêneros que a regra dele cita (aproximação transparente)
-    const subgenres = SUBGENRES.map((s): { key: string; label: string; score: number } | null => {
+    const prefOf = new Map((await tx.select().from(tasteSubgenrePrefs)).map((p) => [p.subgenre, p.pref]));
+    // subgênero: média das afinidades dos gêneros que a regra dele cita (aproximação transparente);
+    // com preferência manual, aparece mesmo sem gênero aprendido
+    type Sub = TasteProfile['subgenres'][number];
+    const subgenres = SUBGENRES.map((s): Sub | null => {
       const keys = [...(s.rule.all ?? []), ...(s.rule.anyOf ?? []).flat()].filter((g) => scoreOf.has(g));
-      if (keys.length === 0) return null;
-      const score = keys.reduce((sum, g) => sum + scoreOf.get(g)!, 0) / keys.length;
-      return { key: s.key, label: s.label, score: Math.round(score * 1000) / 1000 };
+      const pref = prefOf.get(s.key);
+      if (keys.length === 0 && !pref) return null;
+      const score = keys.length > 0 ? keys.reduce((sum, g) => sum + scoreOf.get(g)!, 0) / keys.length : 0;
+      return { key: s.key, label: s.label, score: Math.round(score * 1000) / 1000, ...(pref ? { pref } : {}) };
     })
-      .filter((s): s is { key: string; label: string; score: number } => s !== null)
+      .filter((s): s is Sub => s !== null)
       .sort((a, b) => b.score - a.score);
 
     return {

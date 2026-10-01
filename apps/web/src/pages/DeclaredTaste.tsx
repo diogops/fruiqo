@@ -220,10 +220,9 @@ export function DeclaredTasteSection() {
       {adding && (
         <AddFavorite
           onClose={() => setAdding(false)}
-          onAdded={async (title) => {
-            setAdding(false);
+          onAdded={async (titles) => {
             await refresh();
-            toast.show(`"${title}" adicionado aos favoritos.`);
+            toast.show(titles.length === 1 ? `"${titles[0]}" adicionado aos favoritos.` : `${titles.length} favoritos adicionados.`);
           }}
         />
       )}
@@ -243,41 +242,78 @@ export function favoriteRequest(picked: SearchPick): Omit<CreateFavoriteRequest,
   return { title: picked.title, kind: picked.kind, ...(year !== undefined ? { year } : {}), ...picked.ref };
 }
 
-function AddFavorite({ onClose, onAdded }: { onClose: () => void; onAdded: (title: string) => Promise<void> }) {
-  const [picked, setPicked] = useState<SearchPick | null>(null);
+type FavoritePick = SearchPick | { key: string; title: string; manual: true };
+
+/**
+ * Vários favoritos de uma vez: marque na busca (as marcações ficam entre uma busca e outra, e o que
+ * a busca não acha entra digitado), depois dê a nota de cada um (opcional) e adicione todos.
+ */
+function AddFavorite({ onClose, onAdded }: { onClose: () => void; onAdded: (titles: string[]) => Promise<void> }) {
+  const [picked, setPicked] = useState<Map<string, FavoritePick>>(new Map());
+  const [step, setStep] = useState<'pick' | 'rate'>('pick');
   const [manual, setManual] = useState('');
-  const [rating, setRating] = useState(0);
+  const [ratings, setRatings] = useState<Record<string, number>>({});
   const [comment, setComment] = useState('');
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  const items = [...picked.values()];
+
+  function toggle(r: FavoritePick) {
+    setPicked((m) => {
+      const n = new Map(m);
+      if (n.has(r.key)) n.delete(r.key);
+      else n.set(r.key, r);
+      return n;
+    });
+  }
+
+  function addManual(e: FormEvent) {
+    e.preventDefault();
+    const title = manual.trim();
+    if (!title) return;
+    const key = `manual:${title.toLowerCase()}`;
+    if (!picked.has(key)) toggle({ key, title, manual: true });
+    setManual('');
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    const title = picked?.title ?? manual.trim();
-    if (!title) return;
+    if (items.length === 0) return;
     setBusy(true);
     setError(null);
-    try {
-      await api.addFavorite({
-        ...(picked ? favoriteRequest(picked) : { title }),
-        rating: rating || undefined,
-        comment: comment.trim() || undefined,
-      });
-      await onAdded(title);
-    } catch (err) {
-      setError(err);
-      setBusy(false);
+    const added: string[] = [];
+    // um por vez, na ordem em que foram marcados; o que falhar fica na lista para tentar de novo
+    for (const it of items) {
+      try {
+        await api.addFavorite({
+          ...('manual' in it ? { title: it.title } : favoriteRequest(it)),
+          rating: ratings[it.key] || undefined,
+          comment: items.length === 1 ? comment.trim() || undefined : undefined,
+        });
+        added.push(it.title);
+        setPicked((m) => {
+          const n = new Map(m);
+          n.delete(it.key);
+          return n;
+        });
+      } catch (err) {
+        setError(err);
+      }
     }
+    setBusy(false);
+    if (added.length > 0) await onAdded(added);
+    // tudo certo: fecha; se algo falhou, fica aberto só com o que falhou
+    if (added.length === items.length) onClose();
   }
 
   return (
-    <Modal title="Adicionar favorito" onClose={onClose}>
-      {!picked ? (
+    <Modal title="Adicionar favoritos" onClose={onClose}>
+      {step === 'pick' ? (
         <div className="form">
-          <TitleSearch mode="pick" onPick={setPicked} />
+          <TitleSearch mode="import" allowTaken selected={new Set(picked.keys())} onToggle={toggle} />
           <details>
             <summary>Não achou? Digite o título</summary>
-            <form className="row inline" onSubmit={submit}>
+            <form className="row inline" onSubmit={addManual}>
               <input
                 className="grow"
                 value={manual}
@@ -286,40 +322,73 @@ function AddFavorite({ onClose, onAdded }: { onClose: () => void; onAdded: (titl
                 placeholder="Título"
                 aria-label="Título do favorito"
               />
-              <button type="submit" className="btn" disabled={!manual.trim() || busy}>
-                Adicionar
+              <button type="submit" className="btn" disabled={!manual.trim()}>
+                Incluir na seleção
               </button>
             </form>
           </details>
-          <ErrorNote error={error} />
-        </div>
-      ) : (
-        <form className="form" onSubmit={submit}>
-          <div className="row picked">
-            <Thumb src={picked.posterUrl} title={picked.title} width={54} height={81} />
-            <div className="grow">
-              <strong>{picked.title}</strong>
-              <div className="muted small">{[kindLabel(picked.kind), picked.year].filter(Boolean).join(' · ')}</div>
-              <button type="button" className="btn btn-link" onClick={() => setPicked(null)}>
-                Trocar
-              </button>
+          {items.length > 0 && (
+            <div className="chips fav-picked" aria-label="Selecionados">
+              {items.map((it) => (
+                <span key={it.key} className="chip chip-on">
+                  {it.title}
+                  <button type="button" className="btn-icon chip-x" aria-label={`Tirar ${it.title} da seleção`} onClick={() => toggle(it)}>
+                    <Icon name="x" size={12} />
+                  </button>
+                </span>
+              ))}
             </div>
-          </div>
-          <fieldset>
-            <legend>Nota (opcional)</legend>
-            <StarRating value={rating || null} onChange={(v) => setRating(v ?? 0)} label="Nota" size={26} />
-          </fieldset>
-          <label>
-            Comentário (opcional)
-            <textarea rows={3} maxLength={500} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="O que mais te marcou?" />
-          </label>
-          <ErrorNote error={error} />
-          <div className="actions">
+          )}
+          <div className="actions sticky-actions">
+            <span className="muted small grow">{items.length} selecionado(s)</span>
             <button type="button" className="btn" onClick={onClose}>
               Cancelar
             </button>
-            <button type="submit" className="btn btn-primary" disabled={busy}>
-              Adicionar aos favoritos
+            <button type="button" className="btn btn-primary" disabled={items.length === 0} onClick={() => setStep('rate')}>
+              Continuar ({items.length})
+            </button>
+          </div>
+        </div>
+      ) : (
+        <form className="form" onSubmit={submit}>
+          <p className="muted small">Dê uma nota se quiser (opcional). A nota ajuda a entender o quanto você gosta de cada um.</p>
+          <ul className="fav-rate-list" aria-label="Favoritos a adicionar">
+            {items.map((it) => (
+              <li key={it.key} className="row picked">
+                {'manual' in it ? (
+                  <span className="thumb thumb-fallback" style={{ width: 40, height: 60 }} aria-hidden="true" />
+                ) : (
+                  <Thumb src={it.posterUrl} title={it.title} width={40} height={60} />
+                )}
+                <div className="grow">
+                  <strong>{it.title}</strong>
+                  {!('manual' in it) && <div className="muted small">{[kindLabel(it.kind), it.year].filter(Boolean).join(' · ')}</div>}
+                  <StarRating
+                    value={ratings[it.key] || null}
+                    onChange={(v) => setRatings((r) => ({ ...r, [it.key]: v ?? 0 }))}
+                    label={items.length === 1 ? 'Nota' : `Nota de ${it.title}`}
+                    size={22}
+                  />
+                </div>
+                <button type="button" className="btn btn-icon" aria-label={`Tirar ${it.title}`} onClick={() => toggle(it)}>
+                  <Icon name="x" size={16} />
+                </button>
+              </li>
+            ))}
+          </ul>
+          {items.length === 1 && (
+            <label>
+              Comentário (opcional)
+              <textarea rows={3} maxLength={500} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="O que mais te marcou?" />
+            </label>
+          )}
+          <ErrorNote error={error} />
+          <div className="actions">
+            <button type="button" className="btn" onClick={() => setStep('pick')}>
+              Voltar à busca
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={busy || items.length === 0} aria-busy={busy}>
+              {busy ? 'Adicionando…' : items.length === 1 ? 'Adicionar aos favoritos' : `Adicionar ${items.length} aos favoritos`}
             </button>
           </div>
         </form>

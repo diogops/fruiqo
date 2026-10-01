@@ -1,6 +1,6 @@
-import { GENRE_KEYS, type GenreKey, interpretTasteStatement } from '@fruiqo/taxonomy';
+import { GENRE_KEYS, type GenreKey, interpretTasteStatement, type SubgenreKey } from '@fruiqo/taxonomy';
 import type { Tx } from '../db/client.js';
-import { recommendations, tasteFavorites, tasteOverrides, tasteSignals, tasteStatements } from '../db/schema.js';
+import { overrideScore, recommendations, tasteFavorites, tasteOverrides, tasteSignals, tasteStatements, tasteSubgenrePrefs } from '../db/schema.js';
 import { declaredAffinity, type FitContext, notesByGenre } from './fit.js';
 import { tasteFromSignals } from './ranking.js';
 
@@ -27,13 +27,21 @@ export async function loadFitContext(tx: Tx): Promise<FitContext> {
       .map((r) => ({ signal: r.signal, value: r.value, genres: genresOf.get(r.recommendationId!)! })),
   );
   for (const o of await tx.select().from(tasteOverrides)) {
-    if (GENRE_SET.has(o.genre)) signals[o.genre as GenreKey] = o.mode === 'pin' ? 1 : -1;
+    if (GENRE_SET.has(o.genre)) signals[o.genre as GenreKey] = overrideScore(o);
+  }
+  // subgênero marcado à mão vale por cima do que o resumo declarado diz
+  const liked = new Set<SubgenreKey>(interp?.likedSubgenres ?? []);
+  const disliked = new Set<SubgenreKey>(interp?.dislikedSubgenres ?? []);
+  for (const p of await tx.select().from(tasteSubgenrePrefs)) {
+    const key = p.subgenre as SubgenreKey;
+    (p.pref === 'like' ? liked : disliked).add(key);
+    (p.pref === 'like' ? disliked : liked).delete(key);
   }
 
   return {
     declared: declaredAffinity(favorites, interp),
-    likedSubgenres: new Set(interp?.likedSubgenres ?? []),
-    dislikedSubgenres: new Set(interp?.dislikedSubgenres ?? []),
+    likedSubgenres: liked,
+    dislikedSubgenres: disliked,
     signals,
     notes: notesByGenre(cataloged),
     favorites: favorites.map((f) => ({ title: f.title, genres: f.genres, rating: f.rating, tmdbId: f.tmdbId, mediaType: f.mediaType })),

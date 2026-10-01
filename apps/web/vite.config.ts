@@ -13,5 +13,7 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
+    // fluxos longos no jsdom estouram os 5 s padrão quando a máquina roda as suítes em paralelo (pnpm test)
+    testTimeout: 15_000,
   },
 });

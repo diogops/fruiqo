@@ -787,6 +787,17 @@ html.has-docked-bulkbar .toasts { bottom: calc(5.75rem + env(safe-area-inset-bot
 .title-search { display: flex; flex-direction: column; gap: 0.6rem; }
 .search-row { flex-wrap: nowrap; }
 .search-row select { max-width: 11rem; }
+.fav-picked { margin: 0.25rem 0; }
+.fav-picked .chip { display: inline-flex; align-items: center; gap: 0.2rem; }
+.fav-rate-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; max-height: 55vh; overflow-y: auto; }
+.form .fav-rate-list .row.picked { display: flex; gap: 0.6rem; align-items: center; }
+.taste-table select { min-width: 8.5rem; }
+.taste-add { margin: 0.5rem 0 1rem; }
+.taste-add summary { cursor: pointer; color: var(--accent); font-size: 0.875rem; }
+.taste-add .row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; align-items: center; }
+.chip.sub-pref { cursor: pointer; display: inline-flex; gap: 0.25rem; align-items: center; }
+.chip.sub-like { color: var(--accent); border-color: rgb(34 211 238 / 0.45); background: rgb(34 211 238 / 0.12); }
+.chip.sub-dislike { opacity: 0.75; text-decoration: line-through; }
 .describe-form { display: grid; gap: 0.5rem; }
 .describe-form textarea { resize: vertical; min-height: 5.5rem; }
 .form .row.describe-actions, .row.describe-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }

@@ -110,12 +110,15 @@ export function TitleSearch({
   selected,
   onToggle,
   autoFocus = true,
+  allowTaken = false,
 }: {
   mode: 'import' | 'pick';
   onPick?: (r: SearchPick) => void;
   selected?: Set<string>;
   onToggle?: (r: SearchPick) => void;
   autoFocus?: boolean;
+  /** marcar mesmo o que já está na Minha Área (ex.: favoritos) */
+  allowTaken?: boolean;
 }) {
   const [text, setText] = useState('');
   const [kind, setKind] = useState<KindFilter>('');
@@ -230,7 +233,7 @@ export function TitleSearch({
         </p>
       )}
 
-      <PickResults results={results} mode={mode} selected={selected} onToggle={onToggle} onPick={onPick} />
+      <PickResults results={results} mode={mode} selected={selected} onToggle={onToggle} onPick={onPick} allowTaken={allowTaken} />
       {hasMedia && <p className="attribution small">{TMDB_ATTRIBUTION}</p>}
       {hasBooks && (
         <p className="attribution small">
@@ -252,12 +255,14 @@ function PickResults({
   selected,
   onToggle,
   onPick,
+  allowTaken = false,
 }: {
   results: SearchPick[];
   mode: 'import' | 'pick';
   selected?: Set<string>;
   onToggle?: (r: SearchPick) => void;
   onPick?: (r: SearchPick) => void;
+  allowTaken?: boolean;
 }) {
   return (
     <ul className="search-results" aria-label="Resultados da busca">
@@ -312,7 +317,7 @@ function PickResults({
                 <input
                   type="checkbox"
                   checked={checked}
-                  disabled={taken}
+                  disabled={taken && !allowTaken}
                   onChange={() => onToggle?.(r)}
                   aria-label={`Selecionar ${r.title}${r.year ? ` (${r.year})` : ''}`}
                 />

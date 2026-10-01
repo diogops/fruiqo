@@ -66,11 +66,12 @@ describe('perfil declarado (RF-43)', () => {
     renderWithProviders(<DeclaredTasteSection />);
     await screen.findByText('Nenhum favorito ainda.');
     await user.click(screen.getByRole('button', { name: /Adicionar favorito/ }));
-    const dialog = await screen.findByRole('dialog', { name: 'Adicionar favorito' });
+    const dialog = await screen.findByRole('dialog', { name: 'Adicionar favoritos' });
     const search = within(dialog).getByRole('searchbox');
     expect(document.activeElement).toBe(search);
     await user.type(search, 'zod');
-    await user.click(await within(dialog).findByRole('button', { name: 'Escolher' }));
+    await user.click(await within(dialog).findByRole('checkbox', { name: 'Selecionar Zodíaco (2007)' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Continuar (1)' }));
     // meia estrela pelo teclado: End = 5, três ← = 3,5
     within(dialog).getByRole('slider', { name: 'Nota' }).focus();
     await user.keyboard('{End}{ArrowLeft}{ArrowLeft}{ArrowLeft}');
@@ -87,6 +88,64 @@ describe('perfil declarado (RF-43)', () => {
       rating: 3.5,
       comment: 'Tenso do início ao fim',
     });
+  });
+
+  it('vários favoritos de uma vez: marca em buscas diferentes, inclui digitado, nota por título', async () => {
+    __setAccessToken('tok');
+    const hit = (tmdbId: number, title: string, year: number, inLibrary: unknown = null) => ({
+      tmdbId,
+      mediaType: 'movie',
+      kind: 'movie',
+      title,
+      year,
+      cast: [],
+      inLibrary,
+      matchedBy: 'title',
+    });
+    const { calls } = mockApi({
+      'GET /profile/declared': declared({ favorites: [] }),
+      'GET /search/titles': (call) => ({
+        body: {
+          query: 'q',
+          interpreted: { type: 'title', genres: [], aiUsed: false },
+          items: call.path.includes('twilight')
+            ? [hit(1, 'Além da Imaginação', 2002, { id: FAV, rank: 3, decision: 'cataloged', status: 'to_watch' })]
+            : [hit(2, 'Zodíaco', 2007)],
+        },
+      }),
+      'POST /profile/favorites': (call) => ({ body: { id: FAV, kind: 'movie', genres: [], createdAt: NOW, ...(call.body as object) } }),
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<DeclaredTasteSection />);
+    await screen.findByText('Nenhum favorito ainda.');
+    await user.click(screen.getByRole('button', { name: /Adicionar favorito/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Adicionar favoritos' });
+    const search = within(dialog).getByRole('searchbox');
+    await user.type(search, 'twilight');
+    // já na Minha Área ainda pode ser favorito
+    const twilight = await within(dialog).findByRole('checkbox', { name: 'Selecionar Além da Imaginação (2002)' });
+    expect(twilight).toHaveProperty('disabled', false);
+    await user.click(twilight);
+    await user.clear(search);
+    await user.type(search, 'zodiaco');
+    await user.click(await within(dialog).findByRole('checkbox', { name: 'Selecionar Zodíaco (2007)' }));
+    await user.click(within(dialog).getByText('Não achou? Digite o título'));
+    await user.type(within(dialog).getByRole('textbox', { name: 'Título do favorito' }), 'Filme Raro');
+    await user.click(within(dialog).getByRole('button', { name: 'Incluir na seleção' }));
+    expect(within(within(dialog).getByLabelText('Selecionados')).getAllByText(/./).length).toBeGreaterThanOrEqual(3);
+
+    await user.click(within(dialog).getByRole('button', { name: 'Continuar (3)' }));
+    within(dialog).getByRole('slider', { name: 'Nota de Zodíaco' }).focus();
+    await user.keyboard('{End}');
+    await user.click(within(dialog).getByRole('button', { name: 'Adicionar 3 aos favoritos' }));
+    await waitFor(() => expect(calls.filter((c) => c.path === '/profile/favorites')).toHaveLength(3));
+    expect(calls.filter((c) => c.path === '/profile/favorites').map((c) => c.body)).toEqual([
+      { title: 'Além da Imaginação', kind: 'movie', year: 2002, tmdbId: 1, mediaType: 'movie' },
+      { title: 'Zodíaco', kind: 'movie', year: 2007, tmdbId: 2, mediaType: 'movie', rating: 5 },
+      { title: 'Filme Raro' },
+    ]);
+    expect(await screen.findByText('3 favoritos adicionados.')).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Adicionar favoritos' })).toBeNull());
   });
 
   it('remove um favorito', async () => {

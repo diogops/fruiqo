@@ -964,13 +964,24 @@ export const ReviewBatchResponseSchema = z.object({
 export type ReviewBatchResponse = z.infer<typeof ReviewBatchResponseSchema>;
 
 // RF-29 / RNF-10: perfil de gosto transparente e editável
+/** nível que o usuário escolhe para um gênero; `love` = fixado (1) e `hate` = excluído, nunca sugerido (-1) */
+export const TasteLevelSchema = z.enum(['hate', 'dislike', 'neutral', 'like', 'love']);
+export type TasteLevel = z.infer<typeof TasteLevelSchema>;
+export const TASTE_LEVEL_SCORE: Record<TasteLevel, number> = { hate: -1, dislike: -0.5, neutral: 0, like: 0.5, love: 1 };
+export const TasteSubgenrePrefSchema = z.enum(['like', 'dislike']);
+export type TasteSubgenrePref = z.infer<typeof TasteSubgenrePrefSchema>;
+
 export const TasteEntrySchema = z.object({
   key: z.string(),
   label: z.string(),
   /** -1..1 (0 = neutro) */
   score: z.number(),
-  /** de onde vem o valor: sinais do usuário ou override manual */
-  source: z.enum(['signals', 'pinned', 'excluded']),
+  /** de onde vem o valor: sinais do usuário ou override manual (`manual` = nível intermediário) */
+  source: z.enum(['signals', 'pinned', 'excluded', 'manual']),
+  /** nível escolhido pelo usuário (só quando há override) */
+  level: TasteLevelSchema.optional(),
+  /** o que os sinais dizem, mesmo com override (para comparar) */
+  learnedScore: z.number().optional(),
   /** quantos sinais contribuíram */
   signals: z.number().int().min(0),
   /** RF-43: parte que vem do perfil declarado (favoritos + resumo), -1..1 */
@@ -980,7 +991,15 @@ export type TasteEntry = z.infer<typeof TasteEntrySchema>;
 
 export const TasteProfileSchema = z.object({
   genres: z.array(TasteEntrySchema),
-  subgenres: z.array(z.object({ key: z.string(), label: z.string(), score: z.number() })),
+  subgenres: z.array(
+    z.object({
+      key: z.string(),
+      label: z.string(),
+      score: z.number(),
+      /** preferência manual (gosto / não gosto) */
+      pref: TasteSubgenrePrefSchema.optional(),
+    }),
+  ),
   overrides: z.object({ pinned: z.array(z.string()), excluded: z.array(z.string()) }),
   totals: z.object({ signals: z.number().int().min(0), watched: z.number().int().min(0), rated: z.number().int().min(0) }),
 });
@@ -994,6 +1013,10 @@ export const UpdateTasteRequestSchema = z
     pin: z.array(z.string().max(32)).max(30).optional(),
     /** remove o override (volta a valer só o que os sinais dizem) */
     clear: z.array(z.string().max(32)).max(30).optional(),
+    /** nível escolhido para cada gênero (inclui gênero que ainda não aparece no perfil) */
+    levels: z.array(z.object({ key: z.string().max(32), level: TasteLevelSchema }).strict()).max(40).optional(),
+    /** subgênero: gosto / não gosto; null remove a preferência */
+    subgenres: z.array(z.object({ key: z.string().max(40), pref: TasteSubgenrePrefSchema.nullable() }).strict()).max(60).optional(),
   })
   .strict()
   .refine((v) => Object.keys(v).length > 0, { message: 'nada para alterar' });

@@ -7,8 +7,7 @@ import { useToast } from '../components/Toast';
 import { formatDateTime } from '../labels';
 import { DeclaredTasteSection } from './DeclaredTaste';
 import { DeleteAccountSection } from './DeleteAccount';
-
-const SOURCE_LABEL = { signals: 'pelo que você assistiu/avaliou', pinned: 'fixado por você', excluded: 'excluído por você' } as const;
+import { TasteEditor } from './TasteEditor';
 
 export function Profile() {
   const taste = useQuery({ queryKey: ['taste'], queryFn: api.taste });
@@ -84,8 +83,8 @@ export function Profile() {
         <h1>Perfil de gosto</h1>
       </div>
       <p className="muted">
-        Tudo o que o Fruiqo acha dos seus gostos está aqui, com a origem de cada valor. Nada fica escondido: fixe o que você
-        gosta ou exclua o que nunca quer ver sugerido.
+        Tudo o que o Fruiqo acha dos seus gostos está aqui, com a origem de cada valor. Nada fica escondido: ajuste o nível de
+        cada gênero, marque subgêneros e inclua o que ainda não aparece.
       </p>
       <ErrorNote error={taste.error ?? subs.error ?? mood.error ?? error} />
 
@@ -93,71 +92,7 @@ export function Profile() {
 
       <h2>O que aprendemos com você</h2>
 
-      {taste.data && (
-        <>
-          <p className="muted small">
-            {taste.data.totals.signals} sinais · {taste.data.totals.watched} assistidos · {taste.data.totals.rated} avaliados
-          </p>
-          <table className="table stack-table">
-            <thead>
-              <tr>
-                <th>Gênero</th>
-                <th>Afinidade</th>
-                <th>Origem</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {taste.data.genres.map((g) => (
-                <tr key={g.key}>
-                  <td className="stack-title">{g.label}</td>
-                  <td data-label="Afinidade">
-                    <div className="affinity" title={g.score.toFixed(2)}>
-                      <span
-                        className={g.score >= 0 ? 'pos' : 'neg'}
-                        style={{ width: `${Math.min(100, Math.abs(g.score) * 100)}%` }}
-                      />
-                    </div>
-                  </td>
-                  <td className="small" data-label="Origem">
-                    {SOURCE_LABEL[g.source]}
-                    {g.source === 'signals' && g.signals > 0 && <span className="muted"> ({g.signals})</span>}
-                  </td>
-                  <td className="actions stack-actions">
-                    {g.source !== 'pinned' && (
-                      <button type="button" className="btn btn-link" onClick={() => void updateTaste({ pin: [g.key] })}>
-                        Fixar
-                      </button>
-                    )}
-                    {g.source !== 'excluded' && (
-                      <button type="button" className="btn btn-link" onClick={() => void updateTaste({ exclude: [g.key] })}>
-                        Excluir
-                      </button>
-                    )}
-                    {g.source !== 'signals' && (
-                      <button type="button" className="btn btn-link" onClick={() => void updateTaste({ clear: [g.key] })}>
-                        Limpar
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {taste.data.subgenres.length > 0 && (
-            <>
-              <h2>Subgêneros</h2>
-              <div className="chips">
-                {taste.data.subgenres.map((s) => (
-                  <span key={s.key} className="chip" title={s.score.toFixed(2)}>
-                    {s.label}
-                  </span>
-                ))}
-              </div>
-            </>
-          )}
-        </>
-      )}
+      {taste.data && <TasteEditor taste={taste.data} onChange={updateTaste} />}
 
       <h2>Assinaturas</h2>
       <p className="muted small">

@@ -13,6 +13,7 @@ import {
   reviewActions,
   shares,
   tasteOverrides,
+  tasteSubgenrePrefs,
   userSubscriptions,
 } from '../../src/db/schema.js';
 import { seedDemo } from '../../src/library/demo-seed.js';
@@ -389,6 +390,49 @@ describe('perfil de gosto, assinaturas e humor (RF-29/38, RNF-06/10)', () => {
     await ctx.http().patch('/profile/taste').set('authorization', `Bearer ${user.accessToken}`).send({ exclude: ['nope'] }).expect(400);
   });
 
+  it('níveis por gênero (incluindo gênero novo) e gosto/não gosto por subgênero; limpar volta ao aprendido', async () => {
+    const { user } = await seededUser();
+    const patch = (body: object) => ctx.http().patch('/profile/taste').set('authorization', `Bearer ${user.accessToken}`).send(body);
+    type G = { key: string; score: number; source: string; level?: string; learnedScore?: number };
+    type S = { key: string; pref?: string };
+
+    const res = await patch({
+      levels: [
+        { key: 'drama', level: 'dislike' },
+        { key: 'animation', level: 'like' },
+        { key: 'horror', level: 'hate' },
+        { key: 'comedy', level: 'love' },
+      ],
+      subgenres: [
+        { key: 'feelgood', pref: 'like' },
+        { key: 'slasher', pref: 'dislike' },
+      ],
+    }).expect(200);
+    const genre = (k: string) => (res.body.genres as G[]).find((g) => g.key === k);
+    expect(genre('drama')).toMatchObject({ source: 'manual', level: 'dislike', score: -0.5 });
+    expect(genre('drama')!.learnedScore).toEqual(expect.any(Number));
+    expect(genre('animation')).toMatchObject({ source: 'manual', level: 'like', score: 0.5 });
+    expect(genre('horror')).toMatchObject({ source: 'excluded', level: 'hate', score: -1 });
+    expect(genre('comedy')).toMatchObject({ source: 'pinned', level: 'love', score: 1 });
+    expect(res.body.overrides).toEqual({ pinned: ['comedy'], excluded: ['horror'] });
+    const subs = res.body.subgenres as S[];
+    expect(subs.find((s) => s.key === 'feelgood')).toMatchObject({ pref: 'like' });
+    expect(subs.find((s) => s.key === 'slasher')).toMatchObject({ pref: 'dislike' });
+
+    const cleared = await patch({ clear: ['drama', 'animation'], subgenres: [{ key: 'feelgood', pref: null }] }).expect(200);
+    // sem override, o gênero volta ao aprendido (ou some, se não houver sinal dele)
+    for (const k of ['drama', 'animation']) {
+      const g = (cleared.body.genres as G[]).find((x) => x.key === k);
+      expect(g?.source ?? 'signals').toBe('signals');
+      expect(g?.level).toBeUndefined();
+    }
+    expect((cleared.body.subgenres as S[]).find((s) => s.key === 'feelgood')?.pref).toBeUndefined();
+
+    await patch({ levels: [{ key: 'nope', level: 'like' }] }).expect(400);
+    await patch({ subgenres: [{ key: 'nope', pref: 'like' }] }).expect(400);
+    await patch({ levels: [{ key: 'drama', level: 'muito' }] }).expect(400);
+  });
+
   it('assinaturas declaradas: salvar e validar', async () => {
     const user = await register(ctx.http);
     const put = await ctx
@@ -437,7 +481,7 @@ describe('sandbox (RF-19/22)', () => {
 });
 
 describe('RLS das tabelas novas', () => {
-  it('usuário B não enxerga dados de A em review_actions, taste_overrides, user_subscriptions e bulk_undo', async () => {
+  it('usuário B não enxerga dados de A em review_actions, taste_overrides, user_subscriptions e bulk_undo (e taste_subgenre_prefs)', async () => {
     const a = randomUUID();
     const b = randomUUID();
     const { users } = await import('../../src/db/schema.js');
@@ -447,6 +491,7 @@ describe('RLS das tabelas novas', () => {
     await withUser(db, a, async (tx) => {
       await tx.insert(reviewActions).values({ userId: a, action: 'approve', before: {}, after: {} });
       await tx.insert(tasteOverrides).values({ userId: a, genre: 'drama', mode: 'pin' });
+      await tx.insert(tasteSubgenrePrefs).values({ userId: a, subgenre: 'feelgood', pref: 'like' });
       await tx.insert(userSubscriptions).values({ userId: a, provider: 'netflix' });
       await tx.insert(bulkUndo).values({ userId: a, operation: 'delete', snapshot: {}, expiresAt: new Date(Date.now() + 60_000) });
     });
@@ -455,9 +500,14 @@ describe('RLS das tabelas novas', () => {
       (await tx.select().from(tasteOverrides)).length,
       (await tx.select().from(userSubscriptions)).length,
       (await tx.select().from(bulkUndo)).length,
+      (await tx.select().from(tasteSubgenrePrefs)).length,
     ]);
-    expect(seen).toEqual([0, 0, 0, 0]);
+    expect(seen).toEqual([0, 0, 0, 0, 0]);
     // B também não consegue gravar em nome de A
     await expect(withUser(db, b, (tx) => tx.insert(tasteOverrides).values({ userId: a, genre: 'horror', mode: 'exclude' }))).rejects.toThrow();
+    await expect(withUser(db, b, (tx) => tx.insert(tasteSubgenrePrefs).values({ userId: a, subgenre: 'slasher', pref: 'dislike' }))).rejects.toThrow();
+    // nível fora do intervalo ou sem valor é recusado pelo banco
+    await expect(withUser(db, a, (tx) => tx.insert(tasteOverrides).values({ userId: a, genre: 'war', mode: 'level', score: 2 }))).rejects.toThrow();
+    await expect(withUser(db, a, (tx) => tx.insert(tasteOverrides).values({ userId: a, genre: 'war', mode: 'level' }))).rejects.toThrow();
   });
 });

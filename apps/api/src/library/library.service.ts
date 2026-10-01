@@ -41,6 +41,7 @@ import {
   listItems,
   lists,
   tasteFavorites,
+  overrideScore,
   tasteOverrides,
   tasteStatements,
   recommendationFeedback,
@@ -504,7 +505,7 @@ export class LibraryService {
     for (const [g, d] of declared) taste[g] = Math.max(-1, Math.min(1, (taste[g] ?? 0) + 0.5 * d.score));
     for (const o of overrides) {
       if (!GENRE_SET.has(o.genre)) continue;
-      taste[o.genre as GenreKey] = o.mode === 'pin' ? 1 : -1;
+      taste[o.genre as GenreKey] = overrideScore(o);
     }
     const items: RankItem[] = titles
       .filter((t) => !t.genres.some((g) => excluded.has(g)))

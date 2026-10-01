@@ -397,7 +397,10 @@ export const reviewActions = pgTable(
   (t) => [index('review_actions_user_idx').on(t.userId, t.createdAt)],
 );
 
-/** RF-29/RNF-10: correções manuais do perfil de gosto (excluir ou fixar um gênero). */
+/**
+ * RF-29/RNF-10: correções manuais do perfil de gosto. `pin` = adoro (1), `exclude` = detesto (-1,
+ * nunca sugerido) e `level` = nível intermediário escolhido pelo usuário, em `score` (-1..1).
+ */
 export const tasteOverrides = pgTable(
   'taste_overrides',
   {
@@ -405,10 +408,30 @@ export const tasteOverrides = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     genre: text('genre').notNull(),
-    mode: text('mode', { enum: ['pin', 'exclude'] }).notNull(),
+    mode: text('mode', { enum: ['pin', 'exclude', 'level'] }).notNull(),
+    score: real('score'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.genre] })],
+);
+
+/** Afinidade de um override de gênero (-1..1). */
+export function overrideScore(o: { mode: 'pin' | 'exclude' | 'level'; score: number | null }): number {
+  return o.mode === 'pin' ? 1 : o.mode === 'exclude' ? -1 : Math.max(-1, Math.min(1, o.score ?? 0));
+}
+
+/** Preferência manual por subgênero (gosto / não gosto); entra no encaixe e na nota automática. */
+export const tasteSubgenrePrefs = pgTable(
+  'taste_subgenre_prefs',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    subgenre: text('subgenre').notNull(),
+    pref: text('pref', { enum: ['like', 'dislike'] }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.subgenre] })],
 );
 
 /** RF-38 (declaração): serviços que o usuário diz assinar. Nenhuma integração com as plataformas. */

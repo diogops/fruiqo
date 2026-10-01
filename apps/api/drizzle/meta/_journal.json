@@ -127,6 +127,13 @@
       "when": 1790752593153,
       "tag": "0017_catalog_sync",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790867110468,
+      "tag": "0018_taste_levels",
+      "breakpoints": true
     }
   ]
 }
