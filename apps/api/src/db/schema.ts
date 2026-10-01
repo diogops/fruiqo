@@ -465,6 +465,8 @@ export const userSettings = pgTable('user_settings', {
   rememberMood: boolean('remember_mood').notNull().default(false),
   aiConsent: boolean('ai_consent').notNull().default(false),
   aiConsentAt: timestamp('ai_consent_at', { withTimezone: true }),
+  /** primeiro acesso: quando o usuário concluiu (ou dispensou) a definição do perfil */
+  onboardedAt: timestamp('onboarded_at', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

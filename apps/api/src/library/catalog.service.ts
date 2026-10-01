@@ -52,7 +52,7 @@ import { declaredAffinity } from './fit.js';
 import { NEED_LABEL, tasteFromSignals } from './ranking.js';
 import { moveTitle, moveToEdge, type RankSnapshot, restoreQueue, snapshotQueue } from './rank-queue.js';
 import { STREAMING_PROVIDERS } from './providers.js';
-import { readSettings, toSettingsView } from './user-settings.js';
+import { needsOnboarding, readSettings, toSettingsView } from './user-settings.js';
 
 // Fase 2c (sistema web): catálogo em massa, correção/merge, fila de revisão, activity log e perfil.
 // Tudo passa por withUser (RLS); nenhum texto de terceiros ou de humor é logado.
@@ -94,7 +94,10 @@ export class CatalogService {
   // ---------- D-08: preferências de privacidade (SEC-CTRL-50/51) ----------
 
   async getSettings(userId: string): Promise<UserSettings> {
-    return withUser(this.db, userId, async (tx) => toSettingsView(await readSettings(tx), this.env));
+    return withUser(this.db, userId, async (tx) => {
+      const stored = await readSettings(tx);
+      return toSettingsView(stored, this.env, await needsOnboarding(tx, stored));
+    });
   }
 
   async updateSettings(userId: string, patch: UpdateUserSettingsRequest): Promise<UserSettings> {
@@ -105,15 +108,18 @@ export class CatalogService {
       // a data do aceite muda só quando o consentimento passa de false para true
       const aiConsentAt = aiConsent ? (current.aiConsent ? current.aiConsentAt : new Date()) : null;
       const now = new Date();
+      // primeiro acesso: marca uma vez (concluído ou dispensado) e não volta
+      const onboardedAt = current.onboardedAt ?? (patch.onboarded ? now : null);
       await tx
         .insert(userSettings)
-        .values({ userId, rememberMood, aiConsent, aiConsentAt, updatedAt: now })
-        .onConflictDoUpdate({ target: userSettings.userId, set: { rememberMood, aiConsent, aiConsentAt, updatedAt: now } });
+        .values({ userId, rememberMood, aiConsent, aiConsentAt, onboardedAt, updatedAt: now })
+        .onConflictDoUpdate({ target: userSettings.userId, set: { rememberMood, aiConsent, aiConsentAt, onboardedAt, updatedAt: now } });
       // desligar "lembrar meu humor" apaga as intenções já guardadas (o usuário não quer mais retê-las)
       if (patch.rememberMood === false && current.rememberMood) {
         await tx.update(recommendationRuns).set({ intent: null }).where(eq(recommendationRuns.mode, 'mood'));
       }
-      return toSettingsView({ rememberMood, aiConsent, aiConsentAt }, this.env);
+      const stored = { rememberMood, aiConsent, aiConsentAt, onboardedAt };
+      return toSettingsView(stored, this.env, await needsOnboarding(tx, stored));
     });
   }
 

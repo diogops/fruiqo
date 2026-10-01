@@ -1058,12 +1058,22 @@ export const UserSettingsSchema = z.object({
   /** motivo curto quando aiAvailable = false, para a UI explicar */
   aiUnavailableReason: z.enum(['disabled', 'tmdb_clearance_pending']).nullable(),
   moodRetentionDays: z.number().int().positive(),
+  /**
+   * Primeiro acesso: o perfil ainda está vazio (sem resumo, favoritos, níveis de gênero, subgêneros
+   * nem assinaturas) e o usuário não concluiu nem dispensou a definição. O web abre o Perfil.
+   */
+  onboarding: z.boolean().optional(),
 });
 export type UserSettings = z.infer<typeof UserSettingsSchema>;
 export const UpdateUserSettingsRequestSchema = z
-  .object({ rememberMood: z.boolean().optional(), aiConsent: z.boolean().optional() })
+  .object({
+    rememberMood: z.boolean().optional(),
+    aiConsent: z.boolean().optional(),
+    /** primeiro acesso concluído ou dispensado (não volta a abrir o Perfil sozinho) */
+    onboarded: z.literal(true).optional(),
+  })
   .strict()
-  .refine((v) => v.rememberMood !== undefined || v.aiConsent !== undefined, { message: 'nada para atualizar' });
+  .refine((v) => v.rememberMood !== undefined || v.aiConsent !== undefined || v.onboarded !== undefined, { message: 'nada para atualizar' });
 export type UpdateUserSettingsRequest = z.infer<typeof UpdateUserSettingsRequestSchema>;
 
 // RF-19/RF-22: sandbox (só com SANDBOX_ENABLED e fora de produção)

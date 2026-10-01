@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
+import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { SHOW_DEV_TOOLS } from '../devTools';
 import { useRouteAutofocus } from './autofocus';
@@ -31,6 +33,14 @@ export function Layout() {
   const { email, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  // primeiro acesso (perfil vazio, o servidor decide): abre o Perfil uma vez para definir o gosto
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings, staleTime: 60_000 });
+  const onboardingSent = useRef(false);
+  useEffect(() => {
+    if (!settings.data?.onboarding || onboardingSent.current || location.pathname === '/perfil') return;
+    onboardingSent.current = true;
+    navigate('/perfil?boas-vindas=1', { replace: true });
+  }, [settings.data?.onboarding, location.pathname, navigate]);
   const [q, setQ] = useState('');
   const onCatalog = location.pathname.startsWith('/catalogo');
 

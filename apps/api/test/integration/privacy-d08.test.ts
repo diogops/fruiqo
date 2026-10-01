@@ -34,6 +34,7 @@ async function newUser() {
     get: (path: string) => ctx.http().get(path).set('authorization', bearer),
     patch: (path: string, body: object) => ctx.http().patch(path).set('authorization', bearer).send(body),
     post: (path: string, body: object) => ctx.http().post(path).set('authorization', bearer).send(body),
+    put: (path: string, body: object) => ctx.http().put(path).set('authorization', bearer).send(body),
   };
 }
 
@@ -59,6 +60,21 @@ describe('preferências de privacidade (D-08)', () => {
     const res = (await me.get('/profile/settings').expect(200)).body;
     expect(res).toMatchObject({ rememberMood: false, aiConsent: false, aiConsentAt: null, aiAvailable: false, moodRetentionDays: 90 });
     expect(res.aiUnavailableReason).toBe('disabled');
+  });
+
+  it('primeiro acesso: perfil vazio pede onboarding; concluir encerra de vez; perfil preenchido nunca pede', async () => {
+    const novo = await newUser();
+    expect((await novo.get('/profile/settings').expect(200)).body.onboarding).toBe(true);
+    const done = (await novo.patch('/profile/settings', { onboarded: true }).expect(200)).body;
+    expect(done.onboarding).toBe(false);
+    // continua concluído mesmo mudando outras preferências
+    expect((await novo.patch('/profile/settings', { rememberMood: true }).expect(200)).body.onboarding).toBe(false);
+    await novo.patch('/profile/settings', { onboarded: false }).expect(400);
+
+    // quem já tem algo no perfil (aqui, assinaturas) não é levado ao Perfil
+    const antigo = await newUser();
+    await antigo.put('/profile/subscriptions', { providers: ['netflix'] }).expect(200);
+    expect((await antigo.get('/profile/settings').expect(200)).body.onboarding).toBe(false);
   });
 
   it('PATCH grava e a data do consentimento só muda quando passa a true', async () => {

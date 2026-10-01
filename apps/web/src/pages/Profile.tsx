@@ -1,6 +1,7 @@
 import { JUSTWATCH_ATTRIBUTION, TMDB_ATTRIBUTION } from '@fruiqo/contracts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { api } from '../api/client';
 import { ErrorNote } from '../components/shared';
 import { useToast } from '../components/Toast';
@@ -9,6 +10,7 @@ import { DeclaredTasteSection } from './DeclaredTaste';
 import { DeleteAccountSection } from './DeleteAccount';
 import { TasteEditor } from './TasteEditor';
 import { AiUsageSection } from './AiUsage';
+import { Icon } from '../components/ui';
 
 export function Profile() {
   const taste = useQuery({ queryKey: ['taste'], queryFn: api.taste });
@@ -19,6 +21,17 @@ export function Profile() {
   const toast = useToast();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [error, setError] = useState<unknown>(null);
+  const navigate = useNavigate();
+
+  /** Primeiro acesso concluído ("começar") ou dispensado ("agora não"): não abre sozinho de novo. */
+  async function finishOnboarding(go: boolean) {
+    try {
+      qc.setQueryData(['settings'], await api.updateSettings({ onboarded: true }));
+      if (go) navigate('/hoje');
+    } catch (err) {
+      setError(err);
+    }
+  }
 
   useEffect(() => {
     if (subs.data) setSelected(new Set(subs.data.selected));
@@ -69,7 +82,7 @@ export function Profile() {
     if (
       next &&
       !window.confirm(
-        'Permitir IA externa? O texto que você escrever no "Como estou" e nas buscas por descrição, e o texto lido dos prints que você importar (nunca a imagem), será enviado à Anthropic (provedora do Claude), com servidores fora do Brasil, só para interpretar o pedido e separar os títulos. Ele não é guardado nem usado para treinar modelos.',
+        'Permitir IA externa? O texto que você escrever no "Como estou" e nas buscas por descrição, e o texto lido dos prints que você importar (nunca a imagem), será enviado à Anthropic (provedora do Claude), com servidores fora do Brasil, só para interpretar o pedido e separar os títulos. No "O que assistir hoje?", o seu pedido, o perfil que você declarou e os nomes dos seus títulos também podem ir à OpenAI (fora do Brasil, guardados por até 30 dias para monitorar abuso) para sugerir títulos. Nada disso é usado para treinar modelos.',
       )
     )
       return;
@@ -89,13 +102,41 @@ export function Profile() {
       </p>
       <ErrorNote error={taste.error ?? subs.error ?? mood.error ?? error} />
 
+      {settings.data?.onboarding && (
+        <section className="welcome card" aria-labelledby="welcome-title">
+          <h2 id="welcome-title">
+            <Icon name="sparkles" size={18} /> Boas-vindas ao Fruiqo!
+          </h2>
+          <p>Conte do que você gosta e as sugestões já começam com a sua cara. Leva um minuto, e dá para mudar quando quiser.</p>
+          <ol className="welcome-steps">
+            <li>
+              <a href="#assinaturas">Marque os streamings que você assina</a> <span className="muted small">para sugerir só o que você pode ver</span>
+            </li>
+            <li>
+              <a href="#do-que-voce-gosta">Escreva do que gosta e marque alguns favoritos</a> <span className="muted small">filmes, séries ou livros</span>
+            </li>
+            <li>
+              <a href="#niveis">Ajuste os gêneros</a> <span className="muted small">adoro, gosto, neutro, não curto, detesto</span>
+            </li>
+          </ol>
+          <div className="row welcome-actions">
+            <button type="button" className="btn btn-primary" onClick={() => void finishOnboarding(true)}>
+              Pronto, quero sugestões
+            </button>
+            <button type="button" className="btn btn-link" onClick={() => void finishOnboarding(false)}>
+              Agora não
+            </button>
+          </div>
+        </section>
+      )}
+
       <DeclaredTasteSection />
 
-      <h2>O que aprendemos com você</h2>
+      <h2 id="niveis">O que aprendemos com você</h2>
 
       {taste.data && <TasteEditor taste={taste.data} onChange={updateTaste} />}
 
-      <h2>Assinaturas</h2>
+      <h2 id="assinaturas">Assinaturas</h2>
       <p className="muted small">
         Os serviços que você assina ajudam a priorizar o que está disponível pra você. Não há conexão com as plataformas.
       </p>
@@ -152,7 +193,7 @@ export function Profile() {
               {' '}
               ·{' '}
               {settings.data.aiAvailable
-                ? 'o texto (nunca a imagem) vai à Anthropic, fora do Brasil, só para interpretar o pedido'
+                ? 'o texto (nunca a imagem) vai à Anthropic, fora do Brasil, só para interpretar o pedido; no "O que assistir hoje?", o pedido e os nomes dos seus títulos também podem ir à OpenAI para sugerir títulos'
                 : settings.data.aiUnavailableReason === 'tmdb_clearance_pending'
                   ? 'IA indisponível no momento: desligada até a confirmação do TMDB (decisão D-07); sua escolha fica salva'
                   : 'IA indisponível no momento; sua escolha fica salva para quando ela for ligada'}

@@ -120,7 +120,7 @@ export function DeclaredTasteSection() {
 
   return (
     <div className="declared">
-      <h2>Do que você gosta</h2>
+      <h2 id="do-que-voce-gosta">Do que você gosta</h2>
       <p className="muted small">
         Conte com suas palavras e marque favoritos. Isso ajuda a ordenar a fila e o encaixe de novos títulos desde o primeiro
         dia, mesmo sem histórico.

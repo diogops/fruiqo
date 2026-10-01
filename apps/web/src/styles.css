@@ -1212,3 +1212,13 @@ select[data-from='tmdb'] { border-color: var(--accent, #4f8cff); }
   .shelf-nav { display: none; }
   .shelf-rail { grid-auto-columns: 38%; }
 }
+
+/* primeiro acesso: boas-vindas no Perfil */
+.welcome { margin: 1rem 0 1.5rem; padding: 1.1rem 1.25rem; border-radius: 18px; border: 1px solid var(--border-strong);
+  background: radial-gradient(500px 200px at 100% 0%, rgb(34 211 238 / 0.16), transparent 70%), var(--grad-surface); }
+.welcome h2 { margin: 0 0 0.35rem; display: flex; align-items: center; gap: 0.45rem; color: var(--text); }
+.welcome h2 svg { color: var(--accent); }
+.welcome p { margin: 0 0 0.6rem; color: var(--text-2); }
+.welcome-steps { margin: 0 0 0.9rem; padding-left: 1.25rem; display: grid; gap: 0.35rem; }
+.welcome-steps a { font-weight: 600; }
+.welcome-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
