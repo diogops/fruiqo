@@ -59,6 +59,9 @@ describe('"O que assistir hoje?" (D-25)', () => {
     // na ordem do gosto, em grupos; gênero só de livro fica de fora em filme
     expect([...genre.options].map((o) => o.value)).toEqual(['', 'thriller', 'drama', 'comedy', 'horror']);
     expect([...genre.querySelectorAll('optgroup')].map((g) => g.label)).toEqual(['Do que você mais gosta', 'Também gosta', 'Outros', 'Você evita']);
+    // "Onde" fica no painel do ícone de filtro, na primeira linha
+    expect(screen.queryByRole('group', { name: 'Onde procurar' })).toBeNull();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Filtros: onde procurar e perfil desta busca' }));
     const where = screen.getByRole('group', { name: 'Onde procurar' });
     expect(within(where).getByRole('button', { name: 'Netflix' }).getAttribute('aria-pressed')).toBe('true');
     expect(within(where).getByRole('button', { name: 'Globoplay' }).getAttribute('aria-pressed')).toBe('false');
@@ -82,6 +85,7 @@ describe('"O que assistir hoje?" (D-25)', () => {
 
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'O que você quer' })).toHaveProperty('value', 'movie'));
     await user.selectOptions(screen.getByRole('combobox', { name: 'Gênero' }), 'thriller');
+    await user.click(screen.getByRole('button', { name: 'Filtros: onde procurar e perfil desta busca' }));
     await user.click(screen.getByRole('button', { name: 'Globoplay' }));
     await user.type(screen.getByLabelText(/O que você quer assistir/), 'quero algo tenso');
     await user.click(screen.getByRole('button', { name: /Sugerir/ }));
@@ -116,7 +120,7 @@ describe('"O que assistir hoje?" (D-25)', () => {
     });
     const user = userEvent.setup();
     renderWithProviders(<TonightPanel onClose={vi.fn()} />);
-    const advanced = await screen.findByRole('button', { name: 'Avançado: mudar o perfil só nesta busca' });
+    const advanced = await screen.findByRole('button', { name: 'Filtros: onde procurar e perfil desta busca' });
     expect(advanced.getAttribute('aria-expanded')).toBe('false');
     await user.click(advanced);
     expect(advanced.getAttribute('aria-expanded')).toBe('true');
@@ -177,6 +181,32 @@ describe('"O que assistir hoje?" (D-25)', () => {
     const posts = calls.filter((c) => c.path === '/tonight');
     expect(posts).toHaveLength(2);
     expect(posts[1]!.body).toMatchObject({ exclude: ['movie:1', 'movie:2'] });
+  });
+
+  it('trocar o gênero com uma busca na tela limpa e busca de novo, já com o gênero novo', async () => {
+    __setAccessToken('tok');
+    let round = 0;
+    const responses: TonightResponse[] = [
+      { aiUsed: true, services: ['Netflix'], items: [item(1, 'Prisioneiros', 'a')] },
+      { aiUsed: true, services: ['Netflix'], items: [item(4, 'Se Beber, Não Case!', 'b')] },
+    ];
+    const { calls } = mockApi({ 'GET /tonight/defaults': defaults, 'POST /tonight': () => ({ body: responses[round++] }) });
+    const user = userEvent.setup();
+    renderWithProviders(<TonightPanel onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'O que você quer' })).toHaveProperty('value', 'movie'));
+    // sem busca feita, trocar o gênero não busca
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Gênero' }), 'drama');
+    expect(calls.some((c) => c.path === '/tonight')).toBe(false);
+    await user.click(screen.getByRole('button', { name: /Sugerir/ }));
+    expect(await screen.findByText('Prisioneiros')).toBeTruthy();
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Gênero' }), 'comedy');
+    expect(await screen.findByText('Se Beber, Não Case!')).toBeTruthy();
+    expect(screen.queryByText('Prisioneiros')).toBeNull();
+    const posts = calls.filter((c) => c.path === '/tonight');
+    expect(posts).toHaveLength(2);
+    expect(posts[1]!.body).toMatchObject({ genre: 'comedy' });
+    expect((posts[1]!.body as { exclude?: string[] }).exclude).toBeUndefined();
   });
 
   it('sem IA: explica, e sem streaming cadastrado convida a cadastrar; risco mostra o CVV', async () => {

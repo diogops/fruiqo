@@ -109,6 +109,9 @@ function picksOf(data: TonightResponse | undefined): Pick[] {
 export function TonightPanel({ onClose }: { onClose: () => void }) {
   // gêneros na ordem do seu gosto e o tipo que você mais vê (o servidor calcula)
   const defaults = useQuery({ queryKey: ['tonight-defaults'], queryFn: api.tonightDefaults, staleTime: 5 * 60_000 });
+  // a IA vai mesmo ser usada? (ligada no servidor e permitida por você)
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const aiOn = Boolean(settings.data?.aiAvailable && settings.data?.aiConsent);
   const qc = useQueryClient();
   const toast = useToast();
   const [kind, setKind] = useState<KindChoice>('');
@@ -179,12 +182,30 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
   const top = defaults.data?.top ?? [];
   const anyLabel = kind !== 'music' && top.length > 0 ? `Do seu gosto (${top.join(', ')})` : 'Qualquer gênero';
 
+  // trocou tipo ou gênero com uma busca na tela: limpa e busca de novo (já com a escolha nova)
+  const [restart, setRestart] = useState(0);
+  useEffect(() => {
+    if (restart > 0) ask.mutate([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restart]);
+
   function changeKind(k: KindChoice) {
     touched.current = true;
+    const searched = Boolean(ask.data);
     setKind(k);
     setGenre('');
     setShown([]);
     ask.reset();
+    if (searched) setRestart((n) => n + 1);
+  }
+
+  function changeGenre(g: string) {
+    setGenre(g);
+    if (ask.data) {
+      setShown([]);
+      ask.reset();
+      setRestart((n) => n + 1);
+    }
   }
 
   function toggleService(key: string | null) {
@@ -271,8 +292,8 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
         <button
           type="button"
           className={advOpen || advChanged ? 'icon-only active' : 'icon-only'}
-          aria-label="Avançado: mudar o perfil só nesta busca"
-          title="Avançado: mudar o perfil só nesta busca"
+          aria-label="Filtros: onde procurar e perfil desta busca"
+          title="Filtros: onde procurar e perfil desta busca"
           aria-expanded={advOpen}
           aria-controls="tonight-advanced"
           onClick={() => setAdvOpen((o) => !o)}
@@ -295,7 +316,7 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
           </label>
           <label className="grow">
             <span className="sr-only">Gênero</span>
-            <select value={genre} onChange={(e) => setGenre(e.target.value)} aria-label="Gênero">
+            <select value={genre} onChange={(e) => changeGenre(e.target.value)} aria-label="Gênero">
               <option value="">{anyLabel}</option>
               {kind === 'music'
                 ? MUSIC_GENRES.map((g) => (
@@ -315,31 +336,6 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
             </select>
           </label>
         </div>
-        {video && defaults.data && services && (
-          <details className="tonight-where">
-            <summary>
-              Onde:{' '}
-              <strong>
-                {services.size === 0
-                  ? 'qualquer lugar'
-                  : defaults.data.services
-                      .filter((x) => services.has(x.key))
-                      .map((x) => x.label)
-                      .join(', ')}
-              </strong>
-            </summary>
-          <div className="chips tonight-services" role="group" aria-label="Onde procurar">
-            <button type="button" className={services.size === 0 ? 'chip chip-on' : 'chip'} aria-pressed={services.size === 0} onClick={() => toggleService(null)}>
-              Qualquer lugar
-            </button>
-            {defaults.data.services.map((x) => (
-              <button key={x.key} type="button" className={services.has(x.key) ? 'chip chip-on' : 'chip'} aria-pressed={services.has(x.key)} onClick={() => toggleService(x.key)}>
-                {x.label}
-              </button>
-            ))}
-          </div>
-          </details>
-        )}
         <label>
           {kind === 'book' ? 'O que você quer ler?' : kind === 'music' ? 'O que você quer ouvir?' : 'O que você quer assistir?'} (opcional)
           <input
@@ -358,11 +354,24 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
           />
         </label>
         {adv && defaults.data && (
-          <section id="tonight-advanced" className="tonight-advanced" hidden={!advOpen} aria-label="Perfil só nesta busca">
+          <section id="tonight-advanced" className="tonight-advanced" hidden={!advOpen} aria-label="Filtros desta busca">
             <p className="small tonight-adv-title">
-              <strong>Perfil só nesta busca</strong>
-              {advChanged ? ' · alterado' : ''}
+              <strong>Filtros desta busca</strong>
+              {advChanged ? ' · perfil alterado' : ''}
             </p>
+            {video && services && (
+              <div className="chips tonight-services" role="group" aria-label="Onde procurar">
+                <span className="muted small">Onde:</span>
+                <button type="button" className={services.size === 0 ? 'chip chip-on' : 'chip'} aria-pressed={services.size === 0} onClick={() => toggleService(null)}>
+                  Qualquer lugar
+                </button>
+                {defaults.data.services.map((x) => (
+                  <button key={x.key} type="button" className={services.has(x.key) ? 'chip chip-on' : 'chip'} aria-pressed={services.has(x.key)} onClick={() => toggleService(x.key)}>
+                    {x.label}
+                  </button>
+                ))}
+              </div>
+            )}
             <label>
               Resumo do gosto
               <textarea
@@ -428,7 +437,14 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
       </form>
 
       <ErrorNote error={ask.error ?? actionError} />
-      {ask.isPending && <p className="muted small" role="status">A IA está escolhendo pelo seu perfil; pode levar alguns segundos.</p>}
+      {ask.isPending && (
+        <div className="tonight-loading" role="status" aria-live="polite">
+          <div className="tonight-loading-card">
+            <Icon name={aiOn ? 'sparkles' : 'search'} size={22} />
+            <span>{aiOn ? 'A IA está escolhendo pelo seu perfil; pode levar alguns segundos.' : 'Procurando…'}</span>
+          </div>
+        </div>
+      )}
 
       {data?.risk && (
         <div className="card risk-card" role="alert">
