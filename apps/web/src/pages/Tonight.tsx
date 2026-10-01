@@ -119,6 +119,9 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
   // "Avançado": o perfil só para esta busca, já preenchido com o salvo
   const [adv, setAdv] = useState<{ summary: string; genres: Record<string, Group>; subs: Record<string, SubPref> } | null>(null);
   const [advChanged, setAdvChanged] = useState(false);
+  const [advOpen, setAdvOpen] = useState(false);
+  // nesta rodada você aceitou alguma sugestão? (sem nenhuma, a lista vazia busca de novo sozinha)
+  const [wanted, setWanted] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   // tudo o que já apareceu nesta rodada: "novas sugestões" não repetem
   const [shown, setShown] = useState<string[]>([]);
@@ -164,6 +167,7 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
     },
     onSuccess: (data) => {
       setGone(new Set());
+      setWanted(false);
       setShown((s) => [...new Set([...s, ...picksOf(data).map((p) => p.key)])]);
     },
   });
@@ -231,11 +235,24 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
     ask.mutate([]);
   }
 
+  /** "Hoje não": sai desta busca (e das "novas sugestões" dela), sem gravar nada */
+  function skip(p: Pick) {
+    setGone((g) => new Set(g).add(p.key));
+  }
+
+  // tudo recusado (já assisti / hoje não) sem nenhum "quero": busca de novo sozinha, sem repetir
+  const offered = picksOf(data).length;
+  useEffect(() => {
+    if (offered > 0 && picks.length === 0 && !wanted && !ask.isPending && !data?.risk) ask.mutate(shown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picks.length]);
+
   async function act(p: Pick, which: 'want' | 'done') {
     setBusyKey(p.key);
     setActionError(null);
     try {
       await (which === 'want' ? p.want() : p.done());
+      if (which === 'want') setWanted(true);
       setGone((g) => new Set(g).add(p.key));
       await qc.invalidateQueries();
       toast.show(which === 'want' ? `"${p.title}" na Minha Área.` : `"${p.title}" marcado; não será sugerido de novo.`);
@@ -247,7 +264,23 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Modal title="O que assistir hoje?" onClose={onClose}>
+    <Modal
+      title="O que assistir hoje?"
+      onClose={onClose}
+      actions={
+        <button
+          type="button"
+          className={advOpen || advChanged ? 'icon-only active' : 'icon-only'}
+          aria-label="Avançado: mudar o perfil só nesta busca"
+          title="Avançado: mudar o perfil só nesta busca"
+          aria-expanded={advOpen}
+          aria-controls="tonight-advanced"
+          onClick={() => setAdvOpen((o) => !o)}
+        >
+          <Icon name="filter" size={18} />
+        </button>
+      }
+    >
       <form className="form tonight-form" onSubmit={submit}>
         <div className="row tonight-row">
           <label>
@@ -318,8 +351,11 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
           />
         </label>
         {adv && defaults.data && (
-          <details className="tonight-advanced">
-            <summary>Avançado: mudar o perfil só nesta busca{advChanged ? ' (alterado)' : ''}</summary>
+          <section id="tonight-advanced" className="tonight-advanced" hidden={!advOpen} aria-label="Perfil só nesta busca">
+            <p className="small tonight-adv-title">
+              <strong>Perfil só nesta busca</strong>
+              {advChanged ? ' · alterado' : ''}
+            </p>
             <label>
               Resumo do gosto
               <textarea
@@ -375,7 +411,7 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
               </button>
               <span className="muted small">Sem salvar, as mudanças valem só para esta busca.</span>
             </div>
-          </details>
+          </section>
         )}
         <div className="actions tonight-submit">
           <button type="submit" className="btn btn-primary" disabled={ask.isPending} aria-busy={ask.isPending}>
@@ -453,6 +489,9 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
                     </button>
                     <button type="button" className="btn btn-link" disabled={busyKey === p.key} onClick={() => void act(p, 'done')}>
                       <Icon name="check" size={14} /> {p.doneLabel}
+                    </button>
+                    <button type="button" className="btn btn-link muted" disabled={busyKey === p.key} onClick={() => skip(p)} aria-label={`Hoje não: ${p.title}`}>
+                      <Icon name="x" size={14} /> Hoje não
                     </button>
                   </div>
                 </div>

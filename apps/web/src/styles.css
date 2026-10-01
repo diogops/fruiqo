@@ -805,9 +805,14 @@ html.has-docked-bulkbar .toasts { bottom: calc(5.75rem + env(safe-area-inset-bot
 .tonight-row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .tonight-row > label:first-child { flex: 0 0 auto; }
 .tonight-services { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
-.tonight-advanced { border: 1px solid var(--border, rgb(148 163 184 / 0.25)); border-radius: 10px; padding: 0.5rem 0.75rem; }
-.tonight-advanced summary { cursor: pointer; font-size: 0.875rem; color: var(--accent); }
-.tonight-advanced[open] { display: grid; gap: 0.5rem; }
+.tonight-advanced { border: 1px solid var(--border, rgb(148 163 184 / 0.25)); border-radius: 10px; padding: 0.6rem 0.75rem; display: grid; gap: 0.5rem; }
+.tonight-advanced[hidden] { display: none; }
+.tonight-adv-title { margin: 0; }
+/* ação de cabeçalho só com ícone: o botão tem o tamanho do ícone */
+.modal-actions { margin-left: auto; display: flex; align-items: center; gap: 0.25rem; }
+.icon-only { border: none; background: none; color: var(--muted, inherit); padding: 0.25rem; line-height: 0; border-radius: 8px; cursor: pointer; width: auto; height: auto; }
+.icon-only:hover, .icon-only.active { color: var(--accent); }
+.icon-only:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .tonight-advanced .chips { gap: 0.3rem; }
 .chip.adv-love { color: var(--accent); border-color: rgb(34 211 238 / 0.55); background: rgb(34 211 238 / 0.16); font-weight: 700; }
 .chip.adv-like { color: var(--accent); border-color: rgb(34 211 238 / 0.35); background: rgb(34 211 238 / 0.08); }
@@ -824,6 +829,7 @@ html.has-docked-bulkbar .toasts { bottom: calc(5.75rem + env(safe-area-inset-bot
   .tonight-submit .btn, .tonight-more .btn { width: 100%; min-height: var(--touch, 44px); justify-content: center; font-size: 1rem; }
   .tonight-services .chip, .tonight-advanced .chip { min-height: 38px; }
   .tonight-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .tonight-actions > :nth-child(3) { grid-column: 1 / -1; }
   .tonight-actions .btn { min-height: var(--touch, 44px); justify-content: center; }
   .tonight-results .tonight-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
   .tonight-results .search-card { padding: 0.65rem; gap: 0.6rem; }

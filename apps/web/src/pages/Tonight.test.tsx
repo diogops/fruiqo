@@ -111,7 +111,10 @@ describe('"O que assistir hoje?" (D-25)', () => {
     });
     const user = userEvent.setup();
     renderWithProviders(<TonightPanel onClose={vi.fn()} />);
-    await user.click(await screen.findByText(/Avançado: mudar o perfil só nesta busca/));
+    const advanced = await screen.findByRole('button', { name: 'Avançado: mudar o perfil só nesta busca' });
+    expect(advanced.getAttribute('aria-expanded')).toBe('false');
+    await user.click(advanced);
+    expect(advanced.getAttribute('aria-expanded')).toBe('true');
     const resumo = screen.getByRole('textbox', { name: 'Resumo do gosto' });
     expect(resumo).toHaveProperty('value', 'Gosto de suspense.');
     await user.clear(resumo);
@@ -139,6 +142,36 @@ describe('"O que assistir hoje?" (D-25)', () => {
       clear: ['horror'],
       subgenres: [{ key: 'slasher', pref: 'like' }],
     });
+  });
+
+  it('"Hoje não" tira só desta busca; recusou todas (já assisti/hoje não) → busca de novo sozinha, sem repetir', async () => {
+    __setAccessToken('tok');
+    let round = 0;
+    const responses: TonightResponse[] = [
+      { aiUsed: true, services: ['Netflix'], items: [item(1, 'Prisioneiros', 'a'), item(2, 'Zodíaco', 'b')] },
+      { aiUsed: true, services: ['Netflix'], items: [item(3, 'Garota Exemplar', 'c')] },
+    ];
+    const { calls } = mockApi({
+      'GET /tonight/defaults': defaults,
+      'POST /tonight': () => ({ body: responses[round++] }),
+      'POST /tonight/watched': makeTitle({ title: 'Zodíaco', status: 'watched' }),
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<TonightPanel onClose={vi.fn()} />);
+    await user.click(await screen.findByRole('button', { name: /Sugerir/ }));
+    const list = await screen.findByRole('list', { name: 'Sugestões para hoje' });
+
+    await user.click(within(list).getByRole('button', { name: 'Hoje não: Prisioneiros' }));
+    // "hoje não" não grava nada
+    expect(calls.some((c) => c.path === '/tonight/watched')).toBe(false);
+    expect(within(list).queryByText('Prisioneiros')).toBeNull();
+
+    await user.click(within(list).getByRole('button', { name: /Já assisti/ }));
+    // a lista ficou vazia sem nenhum "quero": nova busca automática, sem repetir as duas
+    expect(await screen.findByText('Garota Exemplar')).toBeTruthy();
+    const posts = calls.filter((c) => c.path === '/tonight');
+    expect(posts).toHaveLength(2);
+    expect(posts[1]!.body).toMatchObject({ exclude: ['movie:1', 'movie:2'] });
   });
 
   it('sem IA: explica, e sem streaming cadastrado convida a cadastrar; risco mostra o CVV', async () => {

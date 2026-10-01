@@ -10,7 +10,7 @@ export function useTaxonomy() {
   return useQuery({ queryKey: ['taxonomy'], queryFn: api.taxonomy, staleTime: Infinity });
 }
 
-export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export function Modal({ title, onClose, children, actions }: { title: string; onClose: () => void; children: ReactNode; actions?: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   useFocusTrap(ref, true);
   useEffect(() => {
@@ -38,6 +38,7 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
       <div className="modal" role="dialog" aria-modal="true" aria-label={title} ref={ref}>
         <div className="modal-head">
           <h2>{title}</h2>
+          {actions && <div className="modal-actions">{actions}</div>}
           <button type="button" className="btn btn-icon modal-close" aria-label="Fechar" onClick={onClose}>
             ×
           </button>
