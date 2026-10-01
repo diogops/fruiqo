@@ -4,6 +4,7 @@ import {
   ImproveSummaryRequestSchema,
   type SummaryDraft,
   type Title,
+  type TonightDefaults,
   type TonightRequest,
   TonightRequestSchema,
   type TonightResponse,
@@ -164,6 +165,12 @@ export class SearchController {
 @Controller('tonight')
 export class TonightController {
   constructor(private readonly tonight: TonightService) {}
+
+  /** gêneros na ordem do seu gosto e o tipo que você mais vê */
+  @Get('defaults')
+  defaults(@CurrentAuth() auth: AccessClaims): Promise<TonightDefaults> {
+    return this.tonight.defaults(auth.userId);
+  }
 
   @Post()
   @HttpCode(200)

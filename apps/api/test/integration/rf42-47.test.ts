@@ -371,7 +371,10 @@ describe('RF-46: busca e importação', () => {
     };
     const tmdb = new TmdbResolver('k'.repeat(32), fetchImpl);
     const search = new SearchService(db, ctx.app.get(ReviewService), ctx.app.get(LibraryService), tmdb, null);
+    // o teste faz mais pedidos por minuto do que o limite padrão
+    process.env.TONIGHT_RATE_LIMIT_PER_MIN = '100';
     const tonight = new TonightService(db, search, ctx.app.get(LibraryService), ctx.app.get(CatalogService), ai, tmdb);
+    delete process.env.TONIGHT_RATE_LIMIT_PER_MIN;
 
     // sem consentimento: sem IA (a busca local roda, mas aqui o /discover não traz nada)
     expect(await tonight.tonight(user.userId, {})).toEqual({ aiUsed: false, unavailable: 'consent', services: [], items: [] });
@@ -415,6 +418,27 @@ describe('RF-46: busca e importação', () => {
       ['A Mão do Diabo', ['Netflix'], 'por que Frailty'],
       ['Prisioneiros', ['Netflix'], 'por que Prisioneiros'],
     ]);
+    // "em qualquer lugar" (nenhum serviço marcado na tela): não filtra, mas mostra onde está
+    const anywhere = await tonight.tonight(user.userId, { services: [] });
+    expect(anywhere.services).toEqual([]);
+    expect(anywhere.items.map((i) => [i.title, i.availableOn])).toEqual([
+      ['Fresh', ['Disney+']],
+      ['A Mão do Diabo', ['Netflix']],
+      ['Prisioneiros', ['Netflix']],
+      ['Só na Locadora', ['Globoplay']],
+    ]);
+    // só um serviço escolhido na tela (o Perfil tem a Netflix)
+    const globo = await tonight.tonight(user.userId, { services: ['globoplay'] });
+    expect(globo.services).toEqual(['Globoplay']);
+    expect(globo.items.map((i) => i.title)).toEqual(['Só na Locadora']);
+
+    // "Avançado": perfil só desta busca (não salva)
+    await tonight.tonight(user.userId, {
+      profile: { summary: 'Hoje só comédia boba.', genres: [{ key: 'comedy', group: 'love' }, { key: 'thriller', group: 'avoid' }], subgenres: [{ key: 'feelgood', pref: 'like' }] },
+    });
+    expect(calls.at(-1)!.brief).toMatchObject({ summary: 'Hoje só comédia boba.', loves: ['Comédia'], likes: [], hates: ['Suspense/Thriller'], likedSubgenres: ['Feel-good'] });
+    expect((await tonight.suggestSummary(user.userId)).summary).toContain('Adoro suspense');
+
     const again = await tonight.tonight(user.userId, { exclude: ['movie:12'] });
     expect(again.items.map((i) => i.title)).toEqual(['Prisioneiros']);
     expect(calls.at(-1)!.brief.avoid).toEqual(['A Mão do Diabo (2001)']);
@@ -432,6 +456,21 @@ describe('RF-46: busca e importação', () => {
     const heard = await tonight.markWatched(user.userId, { music: { title: 'Construção', artist: 'Chico Buarque', kind: 'music_track' } });
     expect(heard).toMatchObject({ title: 'Construção', status: 'watched' });
     expect((await tonight.tonight(user.userId, { kind: 'music', exclude: ['music:construcao-chico-buarque'] })).music).toEqual([]);
+
+    // o widget abre com a sua cara: gêneros na ordem do gosto (adora primeiro, evita por último) e o tipo que mais vê
+    // hábito: com mais um filme assistido, "filme" fica claro
+    await tonight.markWatched(user.userId, { tmdbId: 12, mediaType: 'movie' });
+    const defaults = await tonight.defaults(user.userId);
+    expect(defaults.genres[0]).toMatchObject({ key: 'thriller', group: 'love', forVideo: true });
+    expect(defaults.genres.at(-1)).toMatchObject({ key: 'horror', group: 'avoid' });
+    expect(defaults.top[0]).toBe('Suspense/Thriller');
+    expect(defaults.genres.find((g) => g.key === 'poetry')).toMatchObject({ forVideo: false });
+    expect(defaults.kind).toBe('movie');
+    expect(defaults.summary).toBe('Gosto de suspense que mexe com a cabeça.');
+    expect(defaults.services.find((x) => x.key === 'netflix')).toEqual({ key: 'netflix', label: 'Netflix', selected: true });
+    expect(defaults.services.find((x) => x.key === 'globoplay')?.selected).toBe(false);
+    expect(defaults.subgenres.length).toBeGreaterThan(0);
+    expect((await get(user, '/tonight/defaults').expect(200)).body.genres).toHaveLength(defaults.genres.length);
 
     // HTTP: contrato; no ambiente de teste a IA está desligada
     expect((await post(user, '/tonight', {}).expect(200)).body).toMatchObject({ aiUsed: false, unavailable: 'disabled', services: ['Netflix'] });

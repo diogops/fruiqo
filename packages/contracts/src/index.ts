@@ -1434,6 +1434,22 @@ export const TonightRequestSchema = z
     kind: z.enum(['movie', 'series', 'book', 'music']).optional(),
     /** gênero escolhido (taxonomia para filme/série/livro; texto curto para música) */
     genre: z.string().trim().min(1).max(40).optional(),
+    /**
+     * filme/série: em quais streamings procurar (chaves do Perfil, ex. "netflix"). Ausente = os que
+     * você marcou no Perfil; vazio = em qualquer lugar (sem filtro)
+     */
+    services: z.array(z.string().max(32)).max(20).optional(),
+    /**
+     * "Avançado": o perfil só para esta busca (não salva). Cada parte presente substitui a do Perfil.
+     */
+    profile: z
+      .object({
+        summary: z.string().max(MAX_TASTE_SUMMARY_CHARS).optional(),
+        genres: z.array(z.object({ key: z.string().max(32), group: z.enum(['love', 'like', 'neutral', 'avoid']) }).strict()).max(40).optional(),
+        subgenres: z.array(z.object({ key: z.string().max(40), pref: z.enum(['like', 'dislike']) }).strict()).max(60).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type TonightRequest = z.infer<typeof TonightRequestSchema>;
@@ -1450,7 +1466,7 @@ export const TonightResponseSchema = z.object({
   items: z.array(
     TitleSearchResultSchema.extend({
       aiReason: z.string().max(300).optional(),
-      /** seus serviços em que o título está na assinatura */
+      /** onde o título está na assinatura no Brasil (seus serviços; em "qualquer lugar", todos) */
       availableOn: z.array(z.string()),
     }),
   ),
@@ -1471,6 +1487,33 @@ export const TonightResponseSchema = z.object({
     .optional(),
 });
 export type TonightResponse = z.infer<typeof TonightResponseSchema>;
+/**
+ * D-25: o widget já abre "com a sua cara": tipo que você mais consome e gêneros na ordem do seu
+ * gosto (aprendido + o que você ajustou), agrupados. Calculado no servidor (RF-30).
+ */
+export const TonightDefaultsSchema = z.object({
+  /** o tipo que você mais vê; null = mistura (filmes e séries) */
+  kind: z.enum(['movie', 'series']).nullable(),
+  /** todos os gêneros, do que você mais gosta para o que evita */
+  genres: z.array(
+    z.object({
+      key: z.string(),
+      label: z.string(),
+      group: z.enum(['love', 'like', 'neutral', 'avoid']),
+      /** vale para filme/série (gêneros só de livro não) */
+      forVideo: z.boolean(),
+    }),
+  ),
+  /** os 3 de que você mais gosta (rótulos), para o "Do seu gosto" */
+  top: z.array(z.string()),
+  /** "Avançado": o perfil salvo, para editar só nesta busca */
+  summary: z.string().nullable(),
+  subgenres: z.array(z.object({ key: z.string(), label: z.string(), pref: z.enum(['like', 'dislike']).nullable() })),
+  /** streamings de vídeo; `selected` = marcados no Perfil (o filtro padrão) */
+  services: z.array(z.object({ key: z.string(), label: z.string(), selected: z.boolean() })),
+});
+export type TonightDefaults = z.infer<typeof TonightDefaultsSchema>;
+
 /** "Já assisti / já li / já ouvi": entra na sua lista como consumido e não volta nas sugestões */
 export const TonightWatchedRequestSchema = z.union([
   z.object({ tmdbId: z.number().int().positive(), mediaType: z.enum(['movie', 'tv']) }).strict(),

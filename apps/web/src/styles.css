@@ -802,9 +802,19 @@ html.has-docked-bulkbar .toasts { bottom: calc(5.75rem + env(safe-area-inset-bot
 .chip.sub-pref { cursor: pointer; display: inline-flex; gap: 0.25rem; align-items: center; }
 .chip.sub-like { color: var(--accent); border-color: rgb(34 211 238 / 0.45); background: rgb(34 211 238 / 0.12); }
 .chip.sub-dislike { opacity: 0.75; text-decoration: line-through; }
+.tonight-row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.tonight-row > label:first-child { flex: 0 0 auto; }
+.tonight-services { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+.tonight-advanced { border: 1px solid var(--border, rgb(148 163 184 / 0.25)); border-radius: 10px; padding: 0.5rem 0.75rem; }
+.tonight-advanced summary { cursor: pointer; font-size: 0.875rem; color: var(--accent); }
+.tonight-advanced[open] { display: grid; gap: 0.5rem; }
+.tonight-advanced .chips { gap: 0.3rem; }
+.chip.adv-love { color: var(--accent); border-color: rgb(34 211 238 / 0.55); background: rgb(34 211 238 / 0.16); font-weight: 700; }
+.chip.adv-like { color: var(--accent); border-color: rgb(34 211 238 / 0.35); background: rgb(34 211 238 / 0.08); }
+.chip.adv-avoid { opacity: 0.7; text-decoration: line-through; }
+.tonight-more { margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border, rgb(148 163 184 / 0.2)); }
 .tonight-btn { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
 .tonight-form .chips { margin-bottom: 0.25rem; }
-.tonight-row { display: flex; gap: 0.5rem; }
 .tonight-note { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin: 0.5rem 0; }
 .tonight-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.4rem; }
 .tonight-request pre { white-space: pre-wrap; font: inherit; color: var(--muted, inherit); margin: 0.4rem 0 0; }
