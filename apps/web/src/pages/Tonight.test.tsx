@@ -99,7 +99,8 @@ describe('"O que assistir hoje?" (D-25)', () => {
       sessionId: expect.stringMatching(/^[0-9a-f-]{36}$/),
     });
     expect(within(list).getByText(/suspense pesado/)).toBeTruthy();
-    expect(screen.getByText('Só o que está em: Netflix, Globoplay.')).toBeTruthy();
+    expect(screen.queryByText(/Só o que está em/)).toBeNull();
+    expect(screen.queryByText(/not endorsed/)).toBeNull();
 
     const first = within(list).getAllByRole('listitem')[0]!;
     await user.click(within(first).getByRole('button', { name: /Já assisti/ }));

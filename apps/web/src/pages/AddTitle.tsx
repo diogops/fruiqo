@@ -4,7 +4,6 @@
 // que a busca não resolve (músicas, livros, títulos fora do TMDB).
 import {
   AI_DESCRIBE_MAX_CHARS,
-  TMDB_ATTRIBUTION,
   tmdbPageUrl,
   type RecommendationKind,
   type TitleSearchResponse,
@@ -137,7 +136,6 @@ export function TitleSearch({
   const data = search.data;
   const interpreted = data?.interpreted;
   const results = searchPicks(data);
-  const hasMedia = (data?.items.length ?? 0) > 0;
   const hasBooks = (data?.books?.length ?? 0) > 0;
 
   return (
@@ -235,7 +233,6 @@ export function TitleSearch({
       )}
 
       <PickResults results={results} mode={mode} selected={selected} onToggle={onToggle} onPick={onPick} allowTaken={allowTaken} />
-      {hasMedia && <p className="attribution small">{TMDB_ATTRIBUTION}</p>}
       {hasBooks && (
         <p className="attribution small">
           Dados de livros:{' '}
@@ -448,7 +445,6 @@ export function DescribeSearch({ selected, onToggle }: { selected: Set<string>; 
           A IA também citou, mas não encontrei no TMDB: {data.notFound.map((n) => (n.year ? `${n.title} (${n.year})` : n.title)).join(', ')}. Use a aba Manual se for um deles.
         </p>
       )}
-      {results.length > 0 && <p className="attribution small">{TMDB_ATTRIBUTION}</p>}
     </div>
   );
 }

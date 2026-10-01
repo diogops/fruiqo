@@ -4,7 +4,6 @@
 // streamings. "Novas sugestões" não repete; "Já assisti" grava e não volta. Nada de regra aqui.
 import {
   MAX_TASTE_SUMMARY_CHARS,
-  TMDB_ATTRIBUTION,
   TONIGHT_MOOD_MAX_CHARS,
   tmdbPageUrl,
   type TasteLevel,
@@ -548,9 +547,7 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
               </>
             )}{' '}
             {(kind === '' || kind === 'movie' || kind === 'series') &&
-              (data.services.length > 0 ? (
-                `Só o que está em: ${data.services.join(', ')}.`
-              ) : defaults.data?.services.some((x) => x.selected) ? (
+              (data.services.length > 0 ? null : defaults.data?.services.some((x) => x.selected) ? (
                 'Em qualquer lugar.'
               ) : (
                 <>
@@ -612,7 +609,6 @@ export function TonightPanel({ onClose }: { onClose: () => void }) {
               <Icon name="refresh" size={14} /> Novas sugestões
             </button>
           </div>
-          {data.items.length > 0 && <p className="attribution small">{TMDB_ATTRIBUTION}</p>}
         </>
       )}
     </Modal>
