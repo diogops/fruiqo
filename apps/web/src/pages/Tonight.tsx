@@ -8,7 +8,6 @@ import {
   TONIGHT_MOOD_MAX_CHARS,
   tmdbPageUrl,
   type TasteLevel,
-  type TitleSearchResult,
   type TonightDefaults,
   type TonightRequest,
   type TonightResponse,
@@ -679,16 +678,58 @@ function Shelves() {
   );
 }
 
+type ShelfItem = TonightShelvesResponse['shelves'][number]['items'][number];
+
 function Shelf({ shelf }: { shelf: TonightShelvesResponse['shelves'][number] }) {
   const rail = useRef<HTMLUListElement>(null);
+  const sentinel = useRef<HTMLLIElement>(null);
   const qc = useQueryClient();
   const toast = useToast();
+  const [items, setItems] = useState<ShelfItem[]>(shelf.items);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(Boolean(shelf.hasMore));
+  const [loading, setLoading] = useState(false);
   const [added, setAdded] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
   const scroll = (dir: 1 | -1) => rail.current?.scrollBy({ left: dir * rail.current.clientWidth * 0.85, behavior: 'smooth' });
+  const keyOf = (it: ShelfItem) => `${it.mediaType}:${it.tmdbId}`;
 
-  async function want(it: TitleSearchResult) {
-    const key = `${it.mediaType}:${it.tmdbId}`;
+  // rolagem infinita: chegou perto do fim, busca a próxima página no servidor
+  const loadingRef = useRef(false);
+  async function loadMore() {
+    if (loadingRef.current || !hasMore) return;
+    loadingRef.current = true;
+    setLoading(true);
+    try {
+      const next = await api.tonightShelfPage(shelf.key, page + 1);
+      setItems((cur) => {
+        const seen = new Set(cur.map(keyOf));
+        return [...cur, ...next.items.filter((it) => !seen.has(keyOf(it)))];
+      });
+      setPage((n) => n + 1);
+      setHasMore(next.hasMore);
+    } catch {
+      setHasMore(false);
+    } finally {
+      loadingRef.current = false;
+      setLoading(false);
+    }
+  }
+  const loadMoreRef = useRef(loadMore);
+  loadMoreRef.current = loadMore;
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el || !hasMore || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && void loadMoreRef.current(), {
+      root: rail.current,
+      rootMargin: '0px 480px 0px 0px',
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasMore, items.length]);
+
+  async function want(it: ShelfItem) {
+    const key = keyOf(it);
     setBusy(key);
     try {
       await api.importTitles({ items: [{ tmdbId: it.tmdbId, mediaType: it.mediaType }] });
@@ -702,6 +743,22 @@ function Shelf({ shelf }: { shelf: TonightShelvesResponse['shelves'][number] }) 
     }
   }
 
+  /** "−": não mostrar mais (vale para as prateleiras e para a busca) */
+  async function hide(it: ShelfItem) {
+    const key = keyOf(it);
+    setBusy(key);
+    try {
+      await api.tonightHide({ tmdbId: it.tmdbId, mediaType: it.mediaType });
+      setItems((cur) => cur.filter((x) => keyOf(x) !== key));
+      toast.show(`"${it.title}" não aparece mais aqui.`);
+    } catch {
+      toast.show(`Não deu para ocultar "${it.title}" agora.`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (items.length === 0 && !hasMore) return null;
   return (
     <section className="shelf" aria-labelledby={`shelf-${shelf.key}`}>
       <div className="shelf-head">
@@ -715,9 +772,9 @@ function Shelf({ shelf }: { shelf: TonightShelvesResponse['shelves'][number] }) 
           </button>
         </div>
       </div>
-      <ul className="shelf-rail" ref={rail} aria-label={shelf.label}>
-        {shelf.items.map((it) => {
-          const key = `${it.mediaType}:${it.tmdbId}`;
+      <ul className="shelf-rail" ref={rail} aria-label={shelf.label} aria-busy={loading}>
+        {items.map((it) => {
+          const key = keyOf(it);
           const mine = added.has(key) || (it.inLibrary && (it.inLibrary.status === 'to_watch' || it.inLibrary.status === 'watching'));
           return (
             <li key={key} className="shelf-card">
@@ -731,6 +788,16 @@ function Shelf({ shelf }: { shelf: TonightShelvesResponse['shelves'][number] }) 
                   )}
                   {mine && <span className="poster-badge">Na sua lista</span>}
                 </WorkLink>
+                <button
+                  type="button"
+                  className="shelf-hide"
+                  aria-label={`Não mostrar mais: ${it.title}`}
+                  title="Não mostrar mais"
+                  disabled={busy === key}
+                  onClick={() => void hide(it)}
+                >
+                  <Icon name="minus" size={15} />
+                </button>
                 {!mine && (
                   <button
                     type="button"
@@ -749,10 +816,20 @@ function Shelf({ shelf }: { shelf: TonightShelvesResponse['shelves'][number] }) 
                   {it.title}
                 </span>
                 <span className="muted small">{[kindLabel(it.kind), it.year].filter(Boolean).join(' · ')}</span>
+                {it.availableOn && it.availableOn.length > 0 && (
+                  <span className="shelf-where" title={`Em: ${it.availableOn.join(', ')}`}>
+                    {it.availableOn.join(', ')}
+                  </span>
+                )}
               </div>
             </li>
           );
         })}
+        {hasMore && (
+          <li ref={sentinel} className="shelf-card shelf-more" aria-hidden="true">
+            <span className="skeleton skeleton-poster" />
+          </li>
+        )}
       </ul>
     </section>
   );

@@ -21,7 +21,7 @@ export function planMaxRuntime(plan: TonightPlan): number | undefined {
 
 export const GENRE_LABEL = new Map<string, string>(GENRES.map((g) => [g.key, g.label]));
 
-export type Source = 'list' | 'best' | 'theme' | 'recent' | 'ai';
+export type Source = 'list' | 'best' | 'theme' | 'recent' | 'ai' | 'similar';
 
 export interface Candidate {
   item: TitleSearchResult;
@@ -36,6 +36,8 @@ export interface Candidate {
   runtimeOk?: boolean;
   /** origem pedida comprovada (busca por país de origem ou país da obra conferido) */
   originOk?: boolean;
+  /** veio das recomendações/semelhantes desta obra de referência ("igual a X") */
+  similarTo?: string;
   /** compatibilidade com o pedido (0..1) */
   fit: number;
   /** compatibilidade com o perfil (0..1) */
@@ -93,6 +95,8 @@ export function searchFit(c: Omit<Candidate, 'score' | 'fit' | 'profile' | 'popu
     parts.push(per.reduce((x, y) => x + y, 0) / per.length);
   }
   if (plan.decade) parts.push(c.item.year && c.item.year >= plan.decade && c.item.year < plan.decade + 10 ? 1 : 0);
+  // "igual a X": a IA compara a premissa (1); as recomendações do TMDB vêm logo atrás (0,9)
+  if (plan.references?.length) parts.push(c.source === 'ai' ? 1 : c.similarTo ? 0.9 : 0);
   return parts.length ? parts.reduce((x, y) => x + y, 0) / parts.length : 1;
 }
 
@@ -144,7 +148,8 @@ export function compareCandidates(a: Candidate, b: Candidate): number {
 export function reasonFor(c: Omit<Candidate, 'score' | 'fit' | 'profile' | 'popular'>, plan: TonightPlan): string {
   const parts: string[] = [];
   if (c.source === 'list') parts.push('Na sua lista');
-  if (c.source === 'ai') parts.push('Sugestão da IA para o seu pedido');
+  if (c.source === 'ai') parts.push(plan.references?.length ? `Sugestão da IA: na linha de ${plan.references.join(' e ')}` : 'Sugestão da IA para o seu pedido');
+  if (c.similarTo) parts.push(`Parecido com ${c.similarTo}`);
   const asked = [...plan.genresAll, ...plan.genresAny].filter((g) => c.genres.includes(g));
   if (asked.length) parts.push(joinPt(asked.map((g) => GENRE_LABEL.get(g)!.toLowerCase())));
   // só o que foi comprovado: palavra-chave do TMDB (tema) ou duração dentro do pedido. Gênero

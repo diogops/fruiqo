@@ -1553,6 +1553,9 @@ export type TonightDefaults = z.infer<typeof TonightDefaultsSchema>;
  * streamings, sem o que você já assistiu/abandonou. Montadas no servidor a partir do TMDB (RF-30).
  */
 export const TONIGHT_SHELF_KEYS = ['new', 'action', 'scifi'] as const;
+export type TonightShelfKey = (typeof TONIGHT_SHELF_KEYS)[number];
+/** `availableOn`: onde está na assinatura (seus streamings; sem streaming cadastrado, os do Brasil) */
+export const TonightShelfItemSchema = TitleSearchResultSchema.extend({ availableOn: z.array(z.string()).optional() });
 export const TonightShelvesResponseSchema = z.object({
   /** streamings usados no filtro (vazio = em qualquer lugar no Brasil) */
   services: z.array(z.string()),
@@ -1560,11 +1563,19 @@ export const TonightShelvesResponseSchema = z.object({
     z.object({
       key: z.enum(TONIGHT_SHELF_KEYS),
       label: z.string(),
-      items: z.array(TitleSearchResultSchema),
+      items: z.array(TonightShelfItemSchema),
+      /** há mais páginas (rolagem infinita: GET /tonight/shelves/:key?page=N) */
+      hasMore: z.boolean().optional(),
     }),
   ),
 });
 export type TonightShelvesResponse = z.infer<typeof TonightShelvesResponseSchema>;
+export const TonightShelfPageResponseSchema = z.object({ items: z.array(TonightShelfItemSchema), hasMore: z.boolean() });
+export type TonightShelfPageResponse = z.infer<typeof TonightShelfPageResponseSchema>;
+
+/** "Não mostrar mais" (botão −): o título sai das prateleiras e da busca do "O que assistir hoje?". */
+export const TonightHideRequestSchema = z.object({ tmdbId: z.number().int().positive(), mediaType: z.enum(['movie', 'tv']) }).strict();
+export type TonightHideRequest = z.infer<typeof TonightHideRequestSchema>;
 
 /** Uso de IA (tokens e custo estimado pelo preço do modelo), últimos 30 dias, para o Perfil. */
 export const AiUsageReportSchema = z.object({

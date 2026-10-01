@@ -424,6 +424,23 @@ export function overrideScore(o: { mode: 'pin' | 'exclude' | 'level'; score: num
  * Uso de IA por chamada (tokens e custo estimado pelo preço do modelo), para o resumo "Uso de IA"
  * do Perfil. Nunca guarda o texto enviado nem a resposta.
  */
+/**
+ * D-25: "não mostrar mais" no "O que assistir hoje?" (botão − nas prateleiras e nos resultados).
+ * Sai das prateleiras e da busca daquele usuário; não mexe no catálogo.
+ */
+export const tonightHidden = pgTable(
+  'tonight_hidden',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    mediaType: text('media_type').notNull(),
+    tmdbId: integer('tmdb_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.mediaType, t.tmdbId] })],
+);
+
 export const aiUsage = pgTable(
   'ai_usage',
   {

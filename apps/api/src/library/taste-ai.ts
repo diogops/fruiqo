@@ -101,8 +101,9 @@ const WHAT: Record<TonightKind | 'video', { en: string; kinds: string; verb: str
   music: { en: 'music (songs, albums or artists)', kinds: 'music_track, music_album or artist', verb: 'listen to' },
 };
 
-function tonightSystem(kind?: TonightKind, max = MAX_PICKS): string {
+function tonightSystem(kind?: TonightKind, max = MAX_PICKS, references?: string[], avoidGenres?: string[]): string {
   const w = WHAT[kind ?? 'video'];
+  const ref = references?.length ? references.join('; ') : '';
   return [
     `You recommend ${w.en} for a Brazilian user to ${w.verb} today, from a request built from their taste profile and mood.`,
     'The request inside <request> is the brief; <constraints> lists what is already known or unwanted.',
@@ -112,7 +113,14 @@ function tonightSystem(kind?: TonightKind, max = MAX_PICKS): string {
     'When streaming services are listed, prefer works you know are available in Brazil on them.',
     `Return up to ${max} real, well-regarded works that best fit, best match first. Vary the picks (not several from the same franchise, author, director or artist).`,
     'Never suggest anything listed under "Não sugerir". Respect what they dislike.',
-    kind === 'book' || kind === 'music'
+    ...(ref
+      ? [
+          `The user wants works like this reference: ${ref}. Pick works that share its premise and central mechanism (the kind of mystery, structure, setting and the kind of twist), across genres, not just its genre. Never return the reference itself.`,
+          ...(avoidGenres?.length ? [`The user dislikes these genres: ${avoidGenres.join(', ')}. Do not pick works mainly of them, even if the reference is close to them.`] : []),
+          'Order from the closest to the reference to the loosest.',
+        ]
+      : []),
+    kind === 'book' || kind === 'music' || ref
       ? `Output keys: t = original title, k = kind (${w.kinds}), c = author of a book or artist of a song/album, y = year of first release, r = why it fits, in Brazilian Portuguese, at most 15 words.`
       : `Output keys: t = original title, k = kind (${w.kinds}), y = year of first release. No reasons.`,
     'Be brief. Never invent works. If there is nothing to go on, return an empty list.',
@@ -201,6 +209,7 @@ const PlanSchema = z.object({
   avoid: z.array(z.enum(ATTRIBUTE_KEYS as [string, ...string[]])),
   decade: z.number().int().nullable(),
   origins: z.array(z.enum(ORIGIN_KEYS as [string, ...string[]])),
+  references: z.array(z.string()),
   unmapped: z.array(z.string()),
 });
 const PLAN_SYSTEM = [
@@ -209,6 +218,7 @@ const PLAN_SYSTEM = [
   'Distinguish requirements, alternatives, exclusions and preferences. Do not suggest titles and do not state facts about works.',
   'Every genre or subgenre the user names is a requirement: put it in genresAll (in genresAny only when the user offers alternatives, as in "ação ou aventura"). Never add a genre the user did not name.',
   'origins: where the work comes from when the user asks for it ("nórdico", "coreano", "nacional" = brazilian); it is a requirement. Never infer an origin the user did not ask for.',
+  'references: works the user names as a model ("igual a X", "parecido com X", "mesma premissa de X"), copied as typed, without the article. The words of a title are never a genre or quality request ("Os Horrores de Caddo Lake" is not a horror request); take genres only from what the user asks directly.',
   'A quality is not a genre: "inteligente", "que faça pensar", "leve" or "curto" go only in prefer, without implying any genre.',
   'A fact about the work itself, such as being based on a true story ("história real", "fatos reais", "biografia"), is mandatory: put true_story in prefer; the search only accepts works proven to have it.',
   "Put relevant expressions you could not map into unmapped (short, in the user's words). Return only JSON.",
@@ -221,7 +231,12 @@ export interface TasteAi {
   planRequest(text: string, userId: string): Promise<Result<TonightPlan>>;
   /** `request`: o pedido otimizado que foi à IA (transparência) */
   /** `max`: quantos candidatos pedir (até MAX_PICKS_LIMIT); padrão 10, ou 15 com filtro de streaming */
-  tonight(brief: TasteBrief, userId: string, kind?: TonightKind, opts?: { filtered?: boolean; max?: number }): Promise<Result<{ picks: TonightPick[]; request?: string }>>;
+  tonight(
+    brief: TasteBrief,
+    userId: string,
+    kind?: TonightKind,
+    opts?: { filtered?: boolean; max?: number; references?: string[]; avoidGenres?: string[] },
+  ): Promise<Result<{ picks: TonightPick[]; request?: string }>>;
 }
 
 interface ParsedResponse {
@@ -324,9 +339,10 @@ export class AnthropicTasteAi implements TasteAi {
     brief: TasteBrief,
     userId: string,
     kind?: TonightKind,
-    opts: { filtered?: boolean; max?: number } = {},
+    opts: { filtered?: boolean; max?: number; references?: string[]; avoidGenres?: string[] } = {},
   ): Promise<Result<{ picks: TonightPick[]; request?: string }>> {
     const max = Math.min(MAX_PICKS_LIMIT, opts.max ?? (opts.filtered ? MAX_PICKS_FILTERED : MAX_PICKS));
+    const refs = opts.references?.length ? opts.references : undefined;
     const request = requestText(brief, kind);
     const constraints = constraintsText(brief);
     if (request.length + constraints.length > MAX_BRIEF_CHARS) return { ok: false, reason: 'too_long' };
@@ -336,7 +352,7 @@ export class AnthropicTasteAi implements TasteAi {
       const call = async (client: LlmClient, model: string) => {
         const res = (await client.messages.parse(
           this.params(
-            tonightSystem(kind, max),
+            tonightSystem(kind, max, refs, opts.avoidGenres),
             Picks,
             `<request>\n${request}\n</request>\n<constraints>\n${constraints}\n</constraints>`,
             4000 + max * 120,

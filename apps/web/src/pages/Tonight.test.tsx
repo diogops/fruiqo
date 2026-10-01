@@ -316,6 +316,7 @@ describe('"O que assistir hoje?" (D-25)', () => {
         ],
       },
       'POST /library/import': { created: [makeTitle({ title: 'Estreia Nova' })], skipped: [] },
+      'POST /tonight/hide': { status: 204 },
     });
     const user = userEvent.setup();
     renderWithProviders(<TonightPage />);
@@ -327,6 +328,10 @@ describe('"O que assistir hoje?" (D-25)', () => {
     await user.click(within(novos).getByRole('button', { name: 'Quero assistir: Estreia Nova' }));
     await waitFor(() => expect(calls.find((c) => c.path === '/library/import')?.body).toEqual({ items: [{ tmdbId: 11, mediaType: 'movie' }] }));
     await waitFor(() => expect(within(novos).queryByRole('button', { name: 'Quero assistir: Estreia Nova' })).toBeNull());
+    // "−": não mostrar mais (some da prateleira e vale para a busca)
+    await user.click(within(screen.getByRole('list', { name: 'Ação' })).getByRole('button', { name: 'Não mostrar mais: Explosão' }));
+    await waitFor(() => expect(calls.find((c) => c.path === '/tonight/hide')?.body).toEqual({ tmdbId: 21, mediaType: 'movie' }));
+    await waitFor(() => expect(screen.queryByText('Explosão')).toBeNull());
   });
 });
 

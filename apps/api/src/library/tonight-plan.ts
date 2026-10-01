@@ -28,7 +28,7 @@ export const ATTRIBUTES = {
   },
   plot_twist: {
     label: 'com reviravolta',
-    terms: ['reviravolta', 'reviravoltas', 'plot twist', 'final surpreendente', 'final inesperado', 'twist'],
+    terms: ['reviravolta', 'reviravoltas', 'plot twist', 'plot twists', 'final surpreendente', 'final inesperado', 'twist', 'que engana', 'que enganam', 'enganam ate o fim', 'engana ate o fim', 'surpreende no final'],
     keywords: ['twist ending', 'plot twist'],
     like: ['thriller', 'mystery'],
     avoid: [],
@@ -168,6 +168,11 @@ export interface TonightPlan {
   decade?: number;
   /** origem da obra (requisito): "nórdico" → SE/NO/DK/FI/IS */
   origins?: Origin[];
+  /**
+   * Obras de referência ("igual a X", "parecido com X", "mesma premissa de X"), como o usuário
+   * escreveu: a busca usa as recomendações/semelhantes de X no TMDB e a IA compara a premissa.
+   */
+  references?: string[];
   /** trechos relevantes que não viraram nada (mostrados ao usuário; motivo para chamar a IA) */
   unmapped: string[];
 }
@@ -188,6 +193,10 @@ const STOP = new Set(
   'sobre estou quero queria assistir ver filme filmes serie series um uma uns umas bom boa bons boas que seja sejam mas e de do da dos das algo hoje pra para me eu com muito muita mais tipo alguma algum coisa legal hoje agora tambem ou nao noite assim isso esse essa ai la uns tenha tenham tiver ser sendo estou to tô esta ta'
     .split(' '),
 );
+
+/** "igual(is) a X", "parecido(s) com X", "no estilo de X", "mesma premissa de X" → X é obra de referência */
+const REFERENCE =
+  /\b(?:igua(?:l|is)(?:zinh[oa]s?)?|parecid[oa]s?|semelhantes?|similar(?:es)?|no estilo|estilo|mesma (?:premissa|pegada|vibe|historia|ideia|linha))\s+(?:(?:a|ao|aos|as|com|de|do|da|dos|das)\s+)?(?:(?:o|a|os|as)\s+)?([a-z0-9][a-z0-9 :'-]{1,60}?)(?=\s*(?:,|;|\.|$)|\s+(?:que|e que|mas|com|sem|so que)\s)/g;
 
 /** "sem terror", "nada de romance", "não quero drama", "evitar comédia" → exclusões */
 const NEGATION = /\b(?:sem|nada de|nao quero|evitar|evite|menos|exceto)\s+([a-z0-9\s-]{2,40}?)(?=,|;|\.| e | mas | com | que |$)/g;
@@ -225,6 +234,18 @@ export function localPlan(raw: string): TonightPlan {
     plan.decade = 2000;
     text = text.replace(/\banos\s+(2000|dois mil)\b/, ' ');
   }
+
+  // obra de referência primeiro: o nome dela sai do texto (senão "Os Horrores de Caddo Lake" vira terror)
+  const refs: string[] = [];
+  text = text.replace(REFERENCE, (_m, title: string) => {
+    const t = title.trim();
+    const { genres, rest } = genreTermsIn(t);
+    // "parecido com algo leve" não é obra; "tipo um suspense" também não
+    if (!t || /^(algo|alguma coisa|coisa|um|uma|uns|umas)\b/.test(t) || (genres.length > 0 && !rest.trim()) || attrsIn(t).length > 0) return _m;
+    refs.push(t);
+    return ' ';
+  });
+  if (refs.length) plan.references = [...new Set(refs)].slice(0, 3);
 
   plan.prefer = attrsIn(text);
   text = stripAttrs(text);
@@ -274,14 +295,17 @@ export function sanitizePlan(p: {
   avoid?: string[];
   decade?: number | null;
   origins?: string[];
+  references?: string[];
   unmapped?: string[];
 }): TonightPlan {
   const g = (l?: string[]) => (l ?? []).filter((x): x is GenreKey => GENRE_SET.has(x)).slice(0, 4);
   const a = (l?: string[]) => (l ?? []).filter((x): x is Attr => ATTR_SET.has(x)).slice(0, 4);
   const decade = p.decade && p.decade >= 1920 && p.decade <= 2030 && p.decade % 10 === 0 ? p.decade : undefined;
   const origins = [...new Set((p.origins ?? []).filter((x): x is Origin => ORIGIN_SET.has(x)))].slice(0, 3);
+  const references = [...new Set((p.references ?? []).map((r) => r.trim().slice(0, 80)).filter((r) => r.length >= 2))].slice(0, 3);
   return dedupe({
     ...(origins.length ? { origins } : {}),
+    ...(references.length ? { references } : {}),
     genresAll: g(p.genresAll),
     genresAny: g(p.genresAny),
     genresNone: g(p.genresNone),
@@ -298,6 +322,7 @@ export function planLabel(p: TonightPlan, genreLabel: (g: GenreKey) => string): 
   if (p.genresAll.length) parts.push(p.genresAll.map(genreLabel).join(' + '));
   if (p.genresAny.length) parts.push(p.genresAny.map(genreLabel).join(' ou '));
   if (p.prefer.length) parts.push(p.prefer.map((x) => ATTRIBUTES[x].label).join(', '));
+  if (p.references?.length) parts.push(`parecido com ${p.references.join(' e ')}`);
   if (p.origins?.length) parts.push(p.origins.map((o) => ORIGINS[o].label).join(' ou '));
   if (p.decade) parts.push(`anos ${String(p.decade).slice(2)}`);
   if (p.genresNone.length) parts.push(`sem ${p.genresNone.map(genreLabel).join(', ').toLowerCase()}`);
@@ -306,5 +331,5 @@ export function planLabel(p: TonightPlan, genreLabel: (g: GenreKey) => string): 
 }
 
 export function planIsEmpty(p: TonightPlan): boolean {
-  return !p.genresAll.length && !p.genresAny.length && !p.genresNone.length && !p.prefer.length && !p.avoid.length && !p.decade && !p.origins?.length;
+  return !p.genresAll.length && !p.genresAny.length && !p.genresNone.length && !p.prefer.length && !p.avoid.length && !p.decade && !p.origins?.length && !p.references?.length;
 }

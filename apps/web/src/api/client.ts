@@ -16,6 +16,9 @@ import {
   TonightResponseSchema,
   TonightDefaultsSchema,
   TonightShelvesResponseSchema,
+  TonightShelfPageResponseSchema,
+  type TonightShelfKey,
+  type TonightHideRequest,
   AiUsageReportSchema,
   type TonightRequest,
   type TonightWatchedRequest,
@@ -283,6 +286,8 @@ export const api = {
   /** gêneros na ordem do seu gosto e o tipo que você mais vê */
   tonightDefaults: () => request(TonightDefaultsSchema, '/tonight/defaults'),
   tonightShelves: () => request(TonightShelvesResponseSchema, '/tonight/shelves'),
+  tonightShelfPage: (key: TonightShelfKey, page: number) => request(TonightShelfPageResponseSchema, `/tonight/shelves/${key}?page=${page}`),
+  tonightHide: (body: TonightHideRequest) => request(z.unknown(), '/tonight/hide', 'POST', body),
   tonightWatched: (body: TonightWatchedRequest) => request(TitleSchema, '/tonight/watched', 'POST', body),
   addFavorite: (body: CreateFavoriteRequest) => request(FavoriteSchema, '/profile/favorites', 'POST', body),
   deleteFavorite: (id: string) => request(NoContent, `/profile/favorites/${id}`, 'DELETE'),

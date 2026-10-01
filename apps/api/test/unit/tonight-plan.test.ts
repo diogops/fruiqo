@@ -166,3 +166,30 @@ describe('origem e investigação ("um suspense nórdico com detetive")', () => 
   });
 });
 
+describe('"igual a X" (obra de referência)', () => {
+  it('o nome da obra vira referência e não gênero ("Os Horrores de Caddo Lake" não é pedido de terror)', () => {
+    const p = localPlan('filmes iguais os horrores de caddo lake, que tenham a mesma premissa, que enganam até o fim');
+    expect(p.references).toEqual(['horrores de caddo lake']);
+    expect(p.genresAll).toEqual([]);
+    expect(p.prefer).toContain('plot_twist');
+    expect(planLabel(p, label)).toContain('parecido com horrores de caddo lake');
+  });
+
+  it('"parecido com Dark", "no estilo de Coerência"; "parecido com algo leve" não é obra', () => {
+    expect(localPlan('uma série parecida com dark').references).toEqual(['dark']);
+    expect(localPlan('um filme no estilo de coerência').references).toEqual(['coerencia']);
+    expect(localPlan('algo parecido com algo leve').references).toBeUndefined();
+    expect(sanitizePlan({ references: ['  Caddo Lake ', 'x'] }).references).toEqual(['Caddo Lake']);
+  });
+
+  it('pontuação: IA (premissa) antes das recomendações do TMDB; o resto não entra', () => {
+    const p = localPlan('igual a caddo lake');
+    const item = { tmdbId: 1, mediaType: 'movie' as const, kind: 'movie' as const, title: 'X', cast: [], inLibrary: null, matchedBy: 'browse' as const };
+    const ai = rate({ item, source: 'ai', page: 1, anime: false, genres: [], themes: [] }, p);
+    const tmdb = rate({ item, source: 'similar', page: 1, anime: false, genres: [], themes: [], similarTo: 'Caddo Lake' }, p);
+    expect(ai.fit).toBe(1);
+    expect(tmdb.fit).toBeCloseTo(0.9);
+    expect(reasonFor({ item, source: 'similar', page: 1, anime: false, genres: [], themes: [], similarTo: 'Caddo Lake' }, p)).toBe('Parecido com Caddo Lake');
+  });
+});
+

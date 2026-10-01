@@ -144,7 +144,7 @@ export function Layout() {
         inert={hiddenDrawer || undefined}
       >
         <div className="sidebar-top">
-          <NavLink to="/catalogo" className="brand" aria-label="Fruiqo, ir para o catálogo">
+          <NavLink to="/hoje" className="brand" aria-label="Fruiqo, ir para o que assistir hoje">
             <BrandMark />
             <span className="brand-text">
               <span className="brand-name">Fruiqo</span>
@@ -200,7 +200,7 @@ export function Layout() {
               >
                 <Icon name="menu" />
               </button>
-              <NavLink to="/catalogo" className="topbar-brand" aria-label="Fruiqo, ir para o catálogo">
+              <NavLink to="/hoje" className="topbar-brand" aria-label="O que assistir hoje?" title="O que assistir hoje?">
                 <BrandMark />
               </NavLink>
             </>

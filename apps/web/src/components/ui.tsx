@@ -98,6 +98,7 @@ const PATHS = {
   grip: 'M9 5h.01M9 12h.01M9 19h.01M15 5h.01M15 12h.01M15 19h.01',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
   plus: 'M12 5v14M5 12h14',
+  minus: 'M5 12h14',
   x: 'M18 6L6 18M6 6l12 12',
   top: 'M17 11l-5-5-5 5M12 6v14M5 3h14',
   bottom: 'M7 13l5 5 5-5M12 18V4M5 21h14',

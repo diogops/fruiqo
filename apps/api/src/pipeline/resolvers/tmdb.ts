@@ -354,6 +354,22 @@ export class TmdbResolver {
   }
 
   /** Elenco principal (até 3) para os cards da busca. */
+  /** D-25: "igual a X": recomendações e semelhantes da obra X no TMDB (recomendações primeiro, sem repetir). */
+  async relatedTo(mediaType: 'movie' | 'tv', id: number): Promise<TmdbHit[]> {
+    const page = async (kind: 'recommendations' | 'similar') =>
+      SearchSchema.parse(await this.get(`/${mediaType}/${id}/${kind}?language=pt-BR&page=1`))
+        .results.map((x) => toHit({ ...x, media_type: mediaType }))
+        .filter((h): h is TmdbHit => h !== null);
+    const [rec, sim] = await Promise.all([page('recommendations').catch(() => [] as TmdbHit[]), page('similar').catch(() => [] as TmdbHit[])]);
+    const seen = new Set<string>();
+    return [...rec, ...sim].filter((h) => {
+      const k = `${h.mediaType}:${h.tmdbId}`;
+      if (seen.has(k) || h.tmdbId === id) return false;
+      seen.add(k);
+      return true;
+    });
+  }
+
   /** D-25: países de origem e de produção de uma obra (prova de "nórdico", "coreano"...). */
   async countriesOf(mediaType: 'movie' | 'tv', id: number): Promise<string[]> {
     const r = TitleCountriesSchema.parse(await this.get(`/${mediaType}/${id}`));

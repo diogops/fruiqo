@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import {
   type ImproveSummaryRequest,
   ImproveSummaryRequestSchema,
@@ -6,6 +6,11 @@ import {
   type Title,
   type TonightDefaults,
   TonightShelvesResponse,
+  type TonightShelfKey,
+  type TonightShelfPageResponse,
+  TONIGHT_SHELF_KEYS,
+  type TonightHideRequest,
+  TonightHideRequestSchema,
   type TonightRequest,
   TonightRequestSchema,
   type TonightResponse,
@@ -183,6 +188,21 @@ export class TonightController {
   @HttpCode(200)
   suggest(@CurrentAuth() auth: AccessClaims, @Body(new ZodPipe(TonightRequestSchema.optional())) body: TonightRequest | undefined): Promise<TonightResponse> {
     return this.tonight.tonight(auth.userId, body ?? {});
+  }
+
+  /** rolagem infinita: página seguinte de uma prateleira */
+  @Get('shelves/:key')
+  shelfPage(@CurrentAuth() auth: AccessClaims, @Param('key') key: string, @Query('page') page?: string): Promise<TonightShelfPageResponse> {
+    if (!(TONIGHT_SHELF_KEYS as readonly string[]).includes(key)) throw new NotFoundException('Prateleira não encontrada');
+    const n = Math.min(25, Math.max(2, Number.parseInt(page ?? '2', 10) || 2));
+    return this.tonight.shelfPage(auth.userId, key as TonightShelfKey, n);
+  }
+
+  /** "Não mostrar mais" (−): sai das prateleiras e da busca */
+  @Post('hide')
+  @HttpCode(204)
+  async hide(@CurrentAuth() auth: AccessClaims, @Body(new ZodPipe(TonightHideRequestSchema)) body: TonightHideRequest): Promise<void> {
+    await this.tonight.hide(auth.userId, body);
   }
 
   /** "Já assisti": grava como assistido e não sugere de novo */
