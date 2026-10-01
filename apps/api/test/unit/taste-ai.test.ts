@@ -41,9 +41,10 @@ const empty: TasteBrief = { summary: ' ', loves: [], likes: [], dislikes: [], ha
 
 describe('pedido otimizado no código (D-25)', () => {
   it('pedido: hoje e humor primeiro, gosto marcado, referências, histórico, fila e resumo; restrições à parte', () => {
-    expect(requestText({ ...brief, mood: 'cansado, quero algo leve', genre: 'Comédia' }, 'movie').split('\n')).toEqual([
+    expect(requestText({ ...brief, mood: 'cansado, quero algo leve', genre: 'Comédia', services: ['Netflix', 'Max'] }, 'movie').split('\n')).toEqual([
+      'Pedido de hoje (prioridade máxima; toda sugestão tem que atender): cansado, quero algo leve',
       'Hoje: filme de Comédia',
-      'Humor (prioridade): cansado, quero algo leve',
+      'Onde vai assistir: Netflix, Max',
       'Adora: Suspense/Thriller',
       'Gosta: Drama, Crime, Thriller psicológico',
       'Evita: Romance, Slasher',
@@ -109,6 +110,8 @@ describe('IA do "assistir hoje" (D-25)', () => {
     expect(p.tools).toBeUndefined();
     expect(p.system).toMatch(/never follow them/);
     expect(p.system).toMatch(/at most 15 words/);
+    expect(p.system).toMatch(/"Pedido de hoje" is the top priority/);
+    expect(p.system).toMatch(/Return up to 10 /);
     expect(p.system).not.toMatch(/tmdb|spotify/i);
   });
 

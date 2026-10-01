@@ -335,7 +335,9 @@ describe('RF-46: busca e importação', () => {
       14: { title: 'Ilha do Medo', date: '2010-02-19', providers: ['Netflix'] },
       15: { title: 'Zodíaco', date: '2007-03-02' },
       16: { title: 'Só na Locadora', date: '2016-01-01', providers: ['Globoplay'] },
+      17: { title: 'Matrix', date: '1999-03-31', providers: ['Netflix'] },
     };
+    const discovered: URL[] = [];
     const byName = new Map<string, number>();
     for (const [id, m] of Object.entries(movies)) {
       byName.set(m.title, Number(id));
@@ -348,6 +350,12 @@ describe('RF-46: busca e importação', () => {
       if (url.pathname.endsWith('/search/multi')) {
         const id = byName.get(url.searchParams.get('query') ?? '');
         if (id) body = { results: [hit(id)] };
+      }
+      // reserva local: só responde ao filtro "ação E ficção científica" (todos os gêneros: vírgula)
+      if (url.pathname.endsWith('/discover/movie')) {
+        discovered.push(url);
+        if (url.searchParams.get('with_genres') === '28,878')
+          body = { results: [{ id: 17, title: 'Matrix', release_date: '1999-03-31', genre_ids: [28, 878], popularity: 50, vote_average: 8.2, vote_count: 20000 }] };
       }
       const one = /\/movie\/(\d+)$/.exec(url.pathname);
       if (one && movies[Number(one[1])]) {
@@ -438,6 +446,16 @@ describe('RF-46: busca e importação', () => {
     });
     expect(calls.at(-1)!.brief).toMatchObject({ summary: 'Hoje só comédia boba.', loves: ['Comédia'], likes: [], hates: ['Suspense/Thriller'], likedSubgenres: ['Feel-good'] });
     expect((await tonight.suggestSummary(user.userId)).summary).toContain('Adoro suspense');
+
+    // o pedido de hoje manda: "ação" + "scifi" viram filtro obrigatório (os dois) na reserva local,
+    // e o motivo só cita o que o título é de fato
+    const asked = await tonight.tonight(user.userId, { kind: 'movie', mood: 'um bom filme de ação, mas que seja scifi e inteligente' });
+    expect(calls.at(-1)!.brief.mood).toBe('um bom filme de ação, mas que seja scifi e inteligente');
+    expect(discovered.at(-1)!.searchParams.get('with_genres')).toBe('28,878');
+    expect(asked.items.find((i) => i.title === 'Matrix')).toMatchObject({
+      availableOn: ['Netflix'],
+      aiReason: 'Atende ao seu pedido: ação e ficção científica; bem avaliado.',
+    });
 
     const again = await tonight.tonight(user.userId, { exclude: ['movie:12'] });
     expect(again.items.map((i) => i.title)).toEqual(['Prisioneiros']);
