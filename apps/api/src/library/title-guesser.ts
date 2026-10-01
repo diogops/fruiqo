@@ -91,9 +91,9 @@ export function createTitleGuesser(env: Env, gateway?: PipelineGateway): TitleGu
   if (env.AI_MODE !== 'anthropic' || !env.ANTHROPIC_API_KEY || env.TMDB_AI_CLEARANCE !== 'confirmed') return null;
   const gw = gateway ?? new PipelineGateway({ mode: env.PIPELINE_MODE });
   return new AnthropicTitleGuesser({
-    model: env.AI_MODEL,
+    model: env.AI_TITLES_MODEL,
     maxInputChars: env.AI_MAX_INPUT_CHARS,
     dailyQuota: env.AI_DAILY_QUOTA,
-    client: trackingClient(gw.llmClient(() => new Anthropic({ maxRetries: 2, timeout: 30_000 }) as unknown as LlmClient)),
+    client: trackingClient(gw.llmClient(() => new Anthropic({ maxRetries: 2, timeout: 90_000 }) as unknown as LlmClient)),
   });
 }

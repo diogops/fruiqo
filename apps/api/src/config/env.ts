@@ -37,7 +37,7 @@ const EnvSchema = z.object({
 
   LLM_ENABLED: bool,
   LLM_REAL_CONTENT_ALLOWED: bool,
-  LLM_MODEL: z.string().default('claude-opus-5'),
+  LLM_MODEL: z.string().default('claude-opus-5-5'),
   LLM_DAILY_QUOTA: z.coerce.number().int().min(0).default(50),
   LLM_MAX_INPUT_CHARS: z.coerce.number().int().min(200).max(20_000).default(4000),
   ANTHROPIC_API_KEY: optionalSecret,
@@ -48,6 +48,11 @@ const EnvSchema = z.object({
   AI_MODE: z.enum(['off', 'rules', 'anthropic']).default('rules'),
   /** RNF-09: modelo pequeno para interpretar o humor (a extração de conteúdo usa LLM_MODEL) */
   AI_MODEL: z.string().default('claude-haiku-4-5'),
+  /**
+   * D-24/RF-46: achar títulos por descrição e no texto de prints. Depende de conhecer filmes/séries/livros,
+   * onde o Haiku errou 2 de 3 no comparativo de 2026-10-01; o Opus 5.5 fica perto do Fable por 1/3 do preço.
+   */
+  AI_TITLES_MODEL: z.string().default('claude-opus-5-5'),
   AI_MAX_INPUT_CHARS: z.coerce.number().int().min(50).max(4000).default(1000),
   AI_DAILY_QUOTA: z.coerce.number().int().min(0).default(100),
   /**
@@ -56,7 +61,12 @@ const EnvSchema = z.object({
    */
   AI_OCR_TEXT_ALLOWED: bool,
   /** D-25: modelo do "O que assistir hoje?" e do "melhorar resumo" (o mais capaz; a sugestão é o produto) */
-  AI_TONIGHT_MODEL: z.string().default('claude-fable-5-1'),
+  // comparativo de 2026-10-01 (reports/ai-bench-resumo-2026-10-01.md): interpretar o pedido, todos os
+  // modelos fortes acertam 100% (Haiku é 12× mais barato que o Fable); sugerir títulos, Opus 5.5 fica a
+  // 2 pontos do Fable por 1/3 do preço
+  AI_TONIGHT_MODEL: z.string().default('claude-opus-5-5'),
+  /** D-25: modelo que interpreta o pedido do "O que assistir hoje?" (tarefa simples) */
+  AI_TONIGHT_PLAN_MODEL: z.string().default('claude-haiku-4-5'),
   /** profundidade do raciocínio na sugestão (o raciocínio conta como saída: custo × qualidade); o passo de melhorar o pedido roda sempre em `low` */
   AI_TONIGHT_EFFORT: z.enum(['low', 'medium', 'high']).default('low'),
   /** preço por milhão de tokens do AI_MODEL (padrão: Haiku 4.5, US$ 1 / US$ 5) */

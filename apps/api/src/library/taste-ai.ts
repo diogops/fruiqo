@@ -235,7 +235,10 @@ export class AnthropicTasteAi implements TasteAi {
 
   constructor(
     private readonly opts: {
+      /** sugerir títulos e melhorar resumo */
       model: string;
+      /** interpretar o pedido (tarefa simples: modelo barato acerta igual; ausente = `model`) */
+      planModel?: string;
       dailyQuota: number;
       client: LlmClient;
       /** profundidade do raciocínio na sugestão (o raciocínio conta como saída); ausente = padrão do modelo */
@@ -255,12 +258,21 @@ export class AnthropicTasteAi implements TasteAi {
    * O modelo pensa antes de responder e o raciocínio conta como saída: o esforço controla o quanto
    * ele pensa e o max_tokens é o teto de gasto por chamada (estourou = falha fechada, segue sem IA).
    */
-  private params(system: string, format: Parameters<typeof zodOutputFormat>[0], content: string, maxTokens: number, effort?: 'low' | 'medium' | 'high') {
+  private params(
+    system: string,
+    format: Parameters<typeof zodOutputFormat>[0],
+    content: string,
+    maxTokens: number,
+    effort?: 'low' | 'medium' | 'high',
+    model = this.opts.model,
+  ) {
+    // o Haiku 4.5 não aceita esforço de raciocínio (400): só os modelos que pensam recebem
+    const thinks = !model.startsWith('claude-haiku');
     return {
-      model: this.opts.model,
+      model,
       max_tokens: maxTokens,
       system,
-      output_config: { format: zodOutputFormat(format), ...(effort ? { effort } : {}) },
+      output_config: { format: zodOutputFormat(format), ...(effort && thinks ? { effort } : {}) },
       messages: [{ role: 'user' as const, content }],
     };
   }
@@ -286,7 +298,7 @@ export class AnthropicTasteAi implements TasteAi {
     if (!this.take(userId)) return { ok: false, reason: 'quota' };
     try {
       const res = (await this.opts.client.messages.parse(
-        this.params(PLAN_SYSTEM, PlanSchema, JSON.stringify({ untrusted_user_data: { request: t } }), 2000, 'low'),
+        this.params(PLAN_SYSTEM, PlanSchema, JSON.stringify({ untrusted_user_data: { request: t } }), 2000, 'low', this.opts.planModel ?? this.opts.model),
       )) as ParsedResponse;
       if (res.stop_reason === 'refusal' || res.stop_reason === 'max_tokens') return { ok: false, reason: 'failed' };
       const parsed = PlanSchema.safeParse(res.parsed_output);
@@ -354,6 +366,7 @@ export function createTasteAi(env: Env, gateway?: PipelineGateway): TasteAi | nu
   const gw = gateway ?? new PipelineGateway({ mode: env.PIPELINE_MODE });
   return new AnthropicTasteAi({
     model: env.AI_TONIGHT_MODEL,
+    planModel: env.AI_TONIGHT_PLAN_MODEL,
     dailyQuota: env.AI_DAILY_QUOTA,
     ...(env.AI_TONIGHT_EFFORT ? { effort: env.AI_TONIGHT_EFFORT } : {}),
     // o modelo pensa antes de responder: pode levar mais de um minuto

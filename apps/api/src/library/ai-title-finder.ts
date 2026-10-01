@@ -137,9 +137,9 @@ export function createAiTitleFinder(env: Env, gateway?: PipelineGateway): AiTitl
   if (env.AI_MODE !== 'anthropic' || !env.ANTHROPIC_API_KEY || env.TMDB_AI_CLEARANCE !== 'confirmed') return null;
   const gw = gateway ?? new PipelineGateway({ mode: env.PIPELINE_MODE });
   return new AnthropicTitleFinder({
-    model: env.AI_MODEL,
+    model: env.AI_TITLES_MODEL,
     dailyQuota: env.AI_DAILY_QUOTA,
     ocrAllowed: env.AI_OCR_TEXT_ALLOWED,
-    client: trackingClient(gw.llmClient(() => new Anthropic({ maxRetries: 2, timeout: 45_000 }) as unknown as LlmClient)),
+    client: trackingClient(gw.llmClient(() => new Anthropic({ maxRetries: 2, timeout: 90_000 }) as unknown as LlmClient)),
   });
 }
