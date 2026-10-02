@@ -1142,14 +1142,15 @@ select[data-from='tmdb'] { border-color: var(--accent, #4f8cff); }
 .tonight-hero-sub { margin: 0.4rem 0 0; color: var(--text-2); max-width: 60ch; }
 .tonight-form { display: grid; gap: 0.85rem; margin-top: 1.25rem; }
 .tonight-ask {
-  display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0.4rem 0.4rem 1rem;
-  border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface-solid);
+  /* campo numa linha e o botão embaixo, com metade da largura e centralizado (celular e desktop) */
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; row-gap: 0.5rem; padding: 0.4rem 0.6rem 0.6rem 1rem;
+  border-radius: 18px; border: 1px solid var(--border-strong); background: var(--surface-solid);
   box-shadow: var(--shadow-1); color: var(--accent); transition: border-color 160ms var(--ease), box-shadow 160ms var(--ease);
 }
 .tonight-ask:focus-within { border-color: var(--primary-2); box-shadow: 0 0 0 4px var(--primary-soft); }
-.tonight-ask input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font-size: 1.05rem; padding: 0.55rem 0; outline: none; box-shadow: none; }
+.tonight-ask input { flex: 1 1 calc(100% - 2rem); min-width: 0; border: 0; background: transparent; color: var(--text); font-size: 1.05rem; padding: 0.55rem 0; outline: none; box-shadow: none; }
 .tonight-ask input::placeholder { color: var(--muted); }
-.tonight-go { border-radius: 999px; padding: 0.6rem 1.25rem; font-weight: 600; white-space: nowrap; background: var(--grad-brand); border: 0; }
+.tonight-go { flex: 0 0 50%; margin-inline: auto; justify-content: center; border-radius: 999px; padding: 0.6rem 1.25rem; font-weight: 600; white-space: nowrap; background: var(--grad-brand); border: 0; }
 .tonight-options { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .pill-select select {
   appearance: none; border-radius: 999px; padding: 0.45rem 2rem 0.45rem 0.95rem; min-height: 38px; max-width: 100%;
