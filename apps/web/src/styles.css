@@ -1137,6 +1137,7 @@ select[data-from='tmdb'] { border-color: var(--accent, #4f8cff); }
     var(--grad-surface);
   box-shadow: var(--shadow-2);
 }
+.tonight-hero-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
 .tonight-hero-head h1 { margin: 0; font-size: clamp(1.5rem, 3.2vw, 2.1rem); letter-spacing: -0.02em; line-height: 1.15; }
 .tonight-hero-sub { margin: 0.4rem 0 0; color: var(--text-2); max-width: 60ch; }
 .tonight-form { display: grid; gap: 0.85rem; margin-top: 1.25rem; }
@@ -1238,10 +1239,14 @@ img.tn-poster.loaded { opacity: 1; }
 .skeleton-poster { aspect-ratio: 2 / 3; border-radius: 10px; }
 
 @media (max-width: 768px) {
-  .tonight-page { gap: 1.25rem; }
-  .tonight-hero { border-radius: 18px; }
-  .tonight-ask { flex-wrap: wrap; border-radius: 16px; padding: 0.5rem 0.6rem 0.6rem 0.85rem; }
-  .tonight-ask input { flex-basis: calc(100% - 2rem); font-size: 1rem; }
+  .tonight-page { gap: 1rem; }
+  /* card baixo: com a lista, "Novas sugestões" aparece sem rolar */
+  .tonight-hero { border-radius: 18px; padding: 0.9rem 1rem 1rem; }
+  .tonight-hero-head h1 { font-size: 1.35rem; }
+  .tonight-hero-head .tonight-opts-toggle { margin: -0.4rem -0.4rem -0.4rem 0; }
+  .tonight-form { gap: 0.6rem; margin-top: 0.6rem; }
+  .tonight-ask { flex-wrap: wrap; row-gap: 0.4rem; border-radius: 16px; padding: 0.3rem 0.5rem 0.5rem 0.85rem; }
+  .tonight-ask input { flex-basis: calc(100% - 2rem); font-size: 1rem; padding: 0.45rem 0; }
   .tonight-go { width: 100%; min-height: var(--touch, 44px); justify-content: center; }
   /* tipo + gênero numa linha; animes, já vistos e filtros na outra */
   .tonight-options { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.5rem; }
@@ -1340,7 +1345,7 @@ img.tn-poster.loaded { opacity: 1; }
 /* "Instalar app" (Android): discreto, no topo do conteúdo */
 .install-app { margin: 0 0 1rem; }
 
-/* "Assistir hoje" mais limpo: ícone que mostra/esconde as opções no fim da busca */
+/* "Assistir hoje" mais limpo: ícone que mostra/esconde as opções, ao lado do título do card */
 .tonight-opts-toggle {
   position: relative; flex: none; display: grid; place-items: center; width: 40px; height: 40px; padding: 0;
   border-radius: 999px; border: 1px solid transparent; background: transparent; color: var(--muted); cursor: pointer;
@@ -1351,5 +1356,4 @@ img.tn-poster.loaded { opacity: 1; }
 @media (max-width: 768px) {
   /* no celular, a lista de resultados fica só com título, ano, onde assistir e ações */
   .tonight-card .tc-reason { display: none; }
-  .tonight-ask input { flex-basis: calc(100% - 4.5rem); }
 }

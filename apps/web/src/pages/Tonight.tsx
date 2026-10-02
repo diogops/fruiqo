@@ -367,6 +367,18 @@ export function TonightPage() {
       <section className="tonight-hero" aria-labelledby="tonight-title">
         <div className="tonight-hero-head">
           <h1 id="tonight-title">O que assistir hoje?</h1>
+          <button
+            type="button"
+            className={optionsOpen ? 'tonight-opts-toggle on' : 'tonight-opts-toggle'}
+            aria-label={optionsOpen ? 'Ocultar opções' : 'Mostrar opções'}
+            title={optionsOpen ? 'Ocultar opções' : 'Mostrar opções'}
+            aria-expanded={optionsOpen}
+            aria-controls="tonight-options"
+            onClick={() => setOptionsOpen((o) => !o)}
+          >
+            <Icon name="filter" size={17} />
+            {optionsActive && !optionsOpen && <span className="opts-dot" aria-hidden="true" />}
+          </button>
         </div>
         <form className="tonight-form" onSubmit={submit}>
           <div className="tonight-ask">
@@ -384,18 +396,6 @@ export function TonightPage() {
               autoComplete="off"
               autoFocus
             />
-            <button
-              type="button"
-              className={optionsOpen ? 'tonight-opts-toggle on' : 'tonight-opts-toggle'}
-              aria-label={optionsOpen ? 'Ocultar opções' : 'Mostrar opções'}
-              title={optionsOpen ? 'Ocultar opções' : 'Mostrar opções'}
-              aria-expanded={optionsOpen}
-              aria-controls="tonight-options"
-              onClick={() => setOptionsOpen((o) => !o)}
-            >
-              <Icon name="filter" size={17} />
-              {optionsActive && !optionsOpen && <span className="opts-dot" aria-hidden="true" />}
-            </button>
             <button type="submit" className="btn btn-primary tonight-go" disabled={ask.isPending} aria-busy={ask.isPending}>
               {ask.isPending ? 'Procurando…' : data ? 'Buscar de novo' : 'Sugerir'}
             </button>
