@@ -194,6 +194,19 @@ describe('"O que assistir hoje?" (D-25)', () => {
     expect(posts[1]!.body).toMatchObject({ exclude: ['movie:1', 'movie:2'] });
   });
 
+  it('muitas buscas seguidas (429): aviso discreto em vez de erro, e tenta de novo sozinho', async () => {
+    __setAccessToken('tok');
+    mockApi({
+      'GET /tonight/defaults': defaults,
+      'POST /tonight': () => ({ status: 429, body: { error: 'Too Many Requests', message: 'Muitas buscas em pouco tempo; espere um pouco' } }),
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<TonightPage />);
+    await user.click(await screen.findByRole('button', { name: /Sugerir/ }));
+    expect(await screen.findByText(/Buscando mais sugestões em alguns segundos/)).toBeTruthy();
+    expect(screen.queryByText(/Muitas buscas em pouco tempo/)).toBeNull();
+  });
+
   it('com um "quero assistir" no meio, a lista vazia também busca de novo sozinha', async () => {
     __setAccessToken('tok');
     let round = 0;

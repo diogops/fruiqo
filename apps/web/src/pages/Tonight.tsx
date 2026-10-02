@@ -16,7 +16,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
-import { api } from '../api/client';
+import { ApiError, api } from '../api/client';
 import { ErrorNote } from '../components/shared';
 import { useToast } from '../components/Toast';
 import { Icon, WorkLink } from '../components/ui';
@@ -147,6 +147,8 @@ export function TonightPage() {
   const [advChanged, setAdvChanged] = useState(false);
   const [advOpen, setAdvOpen] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
+  // limite de buscas atingido: aviso discreto e nova tentativa automática
+  const [cooling, setCooling] = useState(false);
   // tudo o que já apareceu nesta rodada: "novas sugestões" não repetem
   const [shown, setShown] = useState<string[]>([]);
   const [gone, setGone] = useState<Set<string>>(new Set());
@@ -193,7 +195,18 @@ export function TonightPage() {
       };
       return api.tonight(body);
     },
+    onError: (err) => {
+      // muitas buscas seguidas (quem está montando o perfil decide rápido): espera e tenta de novo sozinho
+      if (err instanceof ApiError && err.status === 429) {
+        setCooling(true);
+        window.setTimeout(() => {
+          setCooling(false);
+          ask.mutate(shownRef.current);
+        }, 8_000);
+      }
+    },
     onSuccess: (data) => {
+      setCooling(false);
       setGone(new Set());
       setShown((s) => [...new Set([...s, ...picksOf(data).map((p) => p.key)])]);
     },
@@ -509,7 +522,12 @@ export function TonightPage() {
         </form>
       </section>
 
-      <ErrorNote error={ask.error ?? actionError} />
+      <ErrorNote error={(ask.error instanceof ApiError && ask.error.status === 429 ? null : ask.error) ?? actionError} />
+      {cooling && (
+        <p className="muted small tonight-cooling" role="status">
+          Buscando mais sugestões em alguns segundos…
+        </p>
+      )}
       {ask.isPending && (
         <div className="tonight-loading" role="status" aria-live="polite">
           <div className="tonight-loading-card">

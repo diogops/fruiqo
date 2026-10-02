@@ -133,7 +133,9 @@ const levelBucket = (v: number): 'loves' | 'likes' | 'dislikes' | 'hates' | null
 
 @Injectable()
 export class TonightService {
-  private readonly limiter = new PerUserRateLimiter(Number(process.env.TONIGHT_RATE_LIMIT_PER_MIN ?? 10), 60_000);
+  // quem está montando o perfil decide rápido (já assisti / hoje não) e cada lista vazia busca de novo;
+  // o caro é a IA, que tem cota diária própria. O limite aqui só segura abuso
+  private readonly limiter = new PerUserRateLimiter(Number(process.env.TONIGHT_RATE_LIMIT_PER_MIN ?? 40), 60_000);
   /** userId → (chave "movie:123" → nome mostrado, quando) */
   private readonly shown = new Map<string, Map<string, { name: string; at: number }>>();
   /**
