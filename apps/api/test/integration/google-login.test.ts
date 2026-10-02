@@ -26,7 +26,7 @@ const google = (id: GoogleIdentity) => ctx.http().post('/auth/google').send({ cr
 
 describe('login com Google', () => {
   it('providers mostra o Client ID', async () => {
-    expect((await ctx.http().get('/auth/providers').expect(200)).body).toEqual({ google: { clientId: 'cliente-teste.apps.googleusercontent.com' } });
+    expect((await ctx.http().get('/auth/providers').expect(200)).body).toEqual({ google: { clientId: 'cliente-teste.apps.googleusercontent.com' }, passwordReset: false });
   });
 
   it('cria a conta sem senha, com o nome do Google; entra de novo pelo mesmo sub; exclui confirmando pelo Google', async () => {
