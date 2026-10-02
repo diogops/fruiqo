@@ -572,6 +572,19 @@ img, video { height: auto; }
   .topbar.search-open .topbar-search input { flex: 1; min-width: 0; }
 }
 
+/* ------------------------------------------------------ celular: nada passa da largura da tela */
+/* o iPhone amplia a página ao focar um campo com letra < 16px e ela fica "desenquadrada":
+   em telas de toque (e estreitas), todo campo tem 16px. Vale sobre os tamanhos menores dos
+   componentes (status, nota, filtros, pílulas) */
+@media (pointer: coarse), (max-width: 768px) {
+  input:not([type='checkbox']):not([type='radio']), select, textarea { font-size: 16px !important; }
+}
+/* rede de segurança: a página nunca rola para o lado (clip não cria rolagem nem quebra o sticky) */
+html, body { max-width: 100%; overflow-x: clip; }
+/* toque duplo não amplia a página (a pinça continua funcionando, por acessibilidade) */
+html { touch-action: manipulation; }
+#root { min-width: 0; }
+
 /* ------------------------------------------------------ toque e hover */
 @media (pointer: coarse) {
   .btn, .icon-btn, select, input:not([type='checkbox']):not([type='radio']), .user-chip, .nav-link, .menu-item { min-height: var(--touch); }
@@ -688,7 +701,13 @@ html.has-docked-bulkbar .toasts { bottom: calc(5.75rem + env(safe-area-inset-bot
     width: 100%; max-width: none; height: 100dvh; max-height: 100dvh; border-radius: 0; border: none;
     padding: max(0.75rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1.25rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
   }
-  .modal-head { padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+  /* cabeçalho fixo no topo do sheet: o conteúdo rola por baixo, o ✕ fica sempre à mão */
+  .modal-head {
+    position: sticky; top: calc(-1 * max(0.75rem, env(safe-area-inset-top))); z-index: 3;
+    margin-top: calc(-1 * max(0.75rem, env(safe-area-inset-top)));
+    padding-top: max(0.75rem, env(safe-area-inset-top)); padding-bottom: 0.5rem;
+    background: var(--elevated); border-bottom: 1px solid var(--border);
+  }
   .modal-close { width: var(--touch); height: var(--touch); font-size: 1.6rem; }
   .title-hero { margin-left: -1rem; margin-right: -1rem; padding-left: 1rem; padding-right: 1rem; }
   .toasts { left: max(0.75rem, env(safe-area-inset-left)); right: max(0.75rem, env(safe-area-inset-right)); bottom: calc(0.75rem + env(safe-area-inset-bottom)); }
@@ -790,6 +809,17 @@ html.has-docked-bulkbar .toasts { bottom: calc(5.75rem + env(safe-area-inset-bot
 .search-row { flex-wrap: wrap; align-items: center; gap: 0.5rem; }
 .search-row > label.grow { flex: 1 1 100%; }
 .search-row .search-input { width: 100%; min-height: 2.9rem; font-size: 1.05rem; padding: 0.65rem 0.9rem; }
+/* ✕ "Limpar busca" dentro do campo (o nativo de alguns navegadores some para não duplicar) */
+.search-field { position: relative; }
+.search-field .search-input { padding-right: 2.75rem; }
+.search-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; display: none; }
+.search-clear {
+  position: absolute; right: 0.35rem; top: 50%; transform: translateY(-50%);
+  width: 36px; height: 36px; display: grid; place-items: center; padding: 0;
+  border: 0; border-radius: 999px; background: var(--surface-3); color: var(--text-2); cursor: pointer;
+}
+.search-clear:hover { color: var(--text); }
+@media (pointer: coarse) { .search-clear { width: 40px; height: 40px; } }
 .search-row select { max-width: 13rem; }
 .fav-picked { margin: 0.25rem 0; }
 .fav-picked .chip { display: inline-flex; align-items: center; gap: 0.2rem; }

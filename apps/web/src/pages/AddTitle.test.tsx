@@ -85,6 +85,20 @@ describe('adicionar título por busca (RF-46)', () => {
     });
   });
 
+  it('✕ "Limpar busca" apaga o texto e devolve o foco ao campo (celular não tem como apagar tudo de uma vez)', async () => {
+    __setAccessToken('tok');
+    mockApi({ 'GET /search/titles': response(), 'GET /lists': [] });
+    const user = userEvent.setup();
+    renderWithProviders(<AddTitle onClose={vi.fn()} />);
+    const input = screen.getByRole('searchbox', { name: 'Buscar filme, série ou livro' }) as HTMLInputElement;
+    expect(screen.queryByRole('button', { name: 'Limpar busca' })).toBeNull();
+    await user.type(input, 'duna');
+    await user.click(screen.getByRole('button', { name: 'Limpar busca' }));
+    expect(input.value).toBe('');
+    expect(document.activeElement).toBe(input);
+    expect(screen.queryByRole('button', { name: 'Limpar busca' })).toBeNull();
+  });
+
   it('"+ Nova lista…" cria a lista ali mesmo e já importa os marcados nela', async () => {
     __setAccessToken('tok');
     const LIST = '00000000-0000-4000-8000-0000000000aa';

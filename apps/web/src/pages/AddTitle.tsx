@@ -11,7 +11,7 @@ import {
   type TitleStatus,
 } from '@fruiqo/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { api } from '../api/client';
 import { ListPicker } from '../components/ListPicker';
@@ -121,6 +121,7 @@ export function TitleSearch({
   allowTaken?: boolean;
 }) {
   const [text, setText] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
   const [kind, setKind] = useState<KindFilter>('');
   // "Buscar com IA": o pedido vai inteiro para a IA ("filme recente de faroeste"); livros seguem sem IA
   const [useAi, setUseAi] = useState(false);
@@ -142,9 +143,10 @@ export function TitleSearch({
   return (
     <div className="title-search">
       <div className="row search-row">
-        <label className="grow">
+        <label className="grow search-field">
           <span className="sr-only">Buscar filme, série ou livro</span>
           <input
+            ref={searchRef}
             type="search"
             className="search-input"
             // RF-45: foco no campo ao abrir (o Modal foca o primeiro campo)
@@ -155,6 +157,20 @@ export function TitleSearch({
             maxLength={200}
             aria-label="Buscar filme, série ou livro"
           />
+          {/* celular: o teclado não tem como apagar tudo de uma vez */}
+          {text && (
+            <button
+              type="button"
+              className="search-clear"
+              aria-label="Limpar busca"
+              onClick={() => {
+                setText('');
+                searchRef.current?.focus();
+              }}
+            >
+              <Icon name="x" size={16} />
+            </button>
+          )}
         </label>
         <label>
           <span className="sr-only">Tipo</span>
@@ -464,7 +480,7 @@ function PickImport({
   const toast = useToast();
   const [picked, setPicked] = useState<Map<string, SearchPick>>(new Map());
   const [listId, setListId] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<false | 'want' | 'next'>(false);
   const [error, setError] = useState<unknown>(null);
 
   function toggle(r: SearchPick) {
@@ -479,7 +495,7 @@ function PickImport({
 
   /** `next`: "Próximo a assistir" (vão para o topo da Minha Área, na ordem em que foram marcados) */
   async function send(next: boolean) {
-    setBusy(true);
+    setBusy(next ? 'next' : 'want');
     setError(null);
     try {
       const refs = [...picked.values()].map((r) => r.ref);
@@ -491,7 +507,8 @@ function PickImport({
       });
       // de trás para a frente: o primeiro marcado termina em 1º
       if (next) for (const t of [...res.created].reverse()) await api.updateTitle(t.id, { next: true });
-      await qc.invalidateQueries();
+      // não espera recarregar o app inteiro para fechar: avisa já e atualiza o resto em segundo plano
+      void qc.invalidateQueries();
       const n = res.created.length;
       const skipped = res.skipped.length + (res.skippedBooks?.length ?? 0);
       toast.show(
@@ -513,11 +530,11 @@ function PickImport({
       <ErrorNote error={error} />
       <div className="actions sticky-actions">
         <span className="muted small grow">{picked.size} selecionado(s)</span>
-        <button type="button" className="btn" disabled={busy || picked.size === 0} onClick={() => void send(false)}>
-          Quero assistir
+        <button type="button" className="btn" disabled={busy !== false || picked.size === 0} aria-busy={busy === 'want'} onClick={() => void send(false)}>
+          {busy === 'want' ? 'Adicionando…' : 'Quero assistir'}
         </button>
-        <button type="button" className="btn btn-primary" disabled={busy || picked.size === 0} onClick={() => void send(true)}>
-          Próximo a assistir
+        <button type="button" className="btn btn-primary" disabled={busy !== false || picked.size === 0} aria-busy={busy === 'next'} onClick={() => void send(true)}>
+          {busy === 'next' ? 'Adicionando…' : 'Próximo a assistir'}
         </button>
       </div>
     </div>
