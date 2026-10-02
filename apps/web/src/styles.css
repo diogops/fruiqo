@@ -1247,7 +1247,7 @@ img.tn-poster.loaded { opacity: 1; }
   .tonight-form { gap: 0.6rem; margin-top: 0.6rem; }
   .tonight-ask { flex-wrap: wrap; row-gap: 0.4rem; border-radius: 16px; padding: 0.3rem 0.5rem 0.5rem 0.85rem; }
   .tonight-ask input { flex-basis: calc(100% - 2rem); font-size: 1rem; padding: 0.45rem 0; }
-  .tonight-go { width: 100%; min-height: var(--touch, 44px); justify-content: center; }
+  .tonight-go { flex: 0 0 50%; margin-inline: auto; min-height: var(--touch, 44px); justify-content: center; }
   /* tipo + gênero numa linha; animes, já vistos e filtros na outra */
   .tonight-options { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.5rem; }
   .tonight-options .pill-select { grid-column: span 3; }
