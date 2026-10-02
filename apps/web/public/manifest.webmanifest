@@ -1,17 +1,61 @@
 {
   "name": "Fruiqo",
   "short_name": "Fruiqo",
-  "description": "Sua fila de filmes, séries, livros e músicas.",
+  "description": "O que assistir hoje, sua fila de filmes, séries, livros e músicas.",
   "lang": "pt-BR",
-  "start_url": "/catalogo",
+  "start_url": "/hoje",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0b1220",
   "theme_color": "#0b1220",
   "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "id": "/",
+  "categories": [
+    "entertainment",
+    "lifestyle"
+  ],
+  "shortcuts": [
+    {
+      "name": "Assistir hoje",
+      "short_name": "Hoje",
+      "url": "/hoje",
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Minha Área",
+      "short_name": "Minha Área",
+      "url": "/minha-area",
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
   ]
 }
