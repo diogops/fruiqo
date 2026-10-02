@@ -236,6 +236,18 @@ export async function loginWithGoogle(credential: string): Promise<{ email: stri
   return { email: session.email };
 }
 
+/** "Esqueci minha senha": pede o link por e-mail (a resposta não diz se a conta existe). */
+export async function forgotPassword(email: string): Promise<void> {
+  const res = await send('/auth/password/forgot', 'POST', { email }, false);
+  if (!res.ok) throw await toError(res);
+}
+
+/** Senha nova pelo link do e-mail. */
+export async function resetPassword(token: string, password: string): Promise<void> {
+  const res = await send('/auth/password/reset', 'POST', { token, password }, false);
+  if (!res.ok) throw await toError(res);
+}
+
 /** Provedores de login ligados (sem resposta, nenhum). */
 export async function authProviders(): Promise<AuthProvidersResponse> {
   try {

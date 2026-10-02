@@ -4,6 +4,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { SHOW_DEV_TOOLS } from '../devTools';
+import { InstallAppButton } from '../pwa/InstallAppButton';
 import { useRouteAutofocus } from './autofocus';
 import { BrandMark, Icon, Menu, MQ, ThemeToggle, useFocusTrap, useMediaQuery, type IconName } from './ui';
 
@@ -282,6 +283,7 @@ export function Layout() {
         </header>
         <main className="content" ref={mainRef}>
           <InstallTip />
+          <InstallAppButton className="btn btn-primary install-app" />
           <Outlet />
         </main>
       </div>

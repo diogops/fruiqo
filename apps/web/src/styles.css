@@ -1332,3 +1332,10 @@ img.tn-poster.loaded { opacity: 1; }
 .list-picker > label { font-weight: 600; font-size: 0.9rem; }
 .list-picker-new { gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 .list-picker-new input { flex: 1 1 220px; min-width: 0; }
+
+/* "Esqueci minha senha" e a página de redefinição */
+.forgot-link { justify-self: center; font-size: 0.9rem; }
+.reset-card { max-width: 440px; margin: 0 auto; display: grid; gap: 0.85rem; }
+.reset-card h1 { margin: 0; }
+/* "Instalar app" (Android): discreto, no topo do conteúdo */
+.install-app { margin: 0 0 1rem; }

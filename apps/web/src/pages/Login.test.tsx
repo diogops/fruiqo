@@ -184,3 +184,24 @@ describe('Login com MFA e acesso controlado', () => {
   });
 });
 
+describe('Esqueci minha senha', () => {
+  it('só aparece com o envio de e-mail ligado; manda o link e mostra a mesma resposta sempre', async () => {
+    const { calls } = setup({ 'GET /auth/providers': { google: null, passwordReset: true }, 'POST /auth/password/forgot': { status: 204 } });
+    await userEvent.click(await screen.findByRole('button', { name: 'Esqueci minha senha' }));
+    expect(screen.getByRole('heading', { name: 'Esqueci minha senha' })).toBeTruthy();
+    await userEvent.type(screen.getByLabelText('E-mail'), 'eu@example.com');
+    await userEvent.click(screen.getByRole('button', { name: 'Enviar link' }));
+    expect(await screen.findByText(/Se houver uma conta com este e-mail/)).toBeTruthy();
+    expect(calls.find((c) => c.path === '/auth/password/forgot')?.body).toEqual({ email: 'eu@example.com' });
+    await userEvent.click(screen.getByRole('button', { name: 'Voltar para entrar' }));
+    expect(screen.getByRole('heading', { name: 'Entrar' })).toBeTruthy();
+  });
+
+  it('sem envio de e-mail no servidor: sem o link', async () => {
+    setup({ 'GET /auth/providers': { google: null, passwordReset: false } });
+    await screen.findByLabelText('E-mail');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByRole('button', { name: 'Esqueci minha senha' })).toBeNull();
+  });
+});
+

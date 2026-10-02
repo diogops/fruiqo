@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
-import { ApiError, authProviders } from '../api/client';
+import { ApiError, authProviders, forgotPassword } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { GoogleButton } from '../components/GoogleButton';
 import { BrandMark } from '../components/ui';
@@ -56,9 +56,17 @@ export function Login() {
   const [mfaCode, setMfaCode] = useState('');
   // login com Google: só aparece quando o servidor tem o Client ID
   const [googleId, setGoogleId] = useState<string | null>(null);
+  // "Esqueci minha senha": só quando o servidor envia e-mail
+  const [canReset, setCanReset] = useState(false);
+  const [forgot, setForgot] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
   useEffect(() => {
     let alive = true;
-    void authProviders().then((p) => alive && setGoogleId(p.google?.clientId ?? null));
+    void authProviders().then((p) => {
+      if (!alive) return;
+      setGoogleId(p.google?.clientId ?? null);
+      setCanReset(p.passwordReset === true);
+    });
     return () => {
       alive = false;
     };
@@ -125,6 +133,20 @@ export function Login() {
     }
   }
 
+  async function onForgot(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      await forgotPassword(email.trim());
+      setForgotSent(true);
+    } catch (err) {
+      setError(describeError(err, 'login'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onMfa(e: FormEvent) {
     e.preventDefault();
     if (!mfaToken) return;
@@ -164,7 +186,43 @@ export function Login() {
         </span>
       </section>
       <div className="login-panel">
-        {mfaToken ? (
+        {forgot ? (
+          <form className="card form" onSubmit={(e) => void onForgot(e)} noValidate>
+            <div>
+              <h1>Esqueci minha senha</h1>
+              <p className="page-sub">
+                {forgotSent
+                  ? 'Se houver uma conta com este e-mail, enviamos um link para criar uma senha nova. Ele vale por 30 minutos; confira também o spam.'
+                  : 'Informe o e-mail da sua conta. Enviamos um link para criar uma senha nova.'}
+              </p>
+            </div>
+            {!forgotSent && (
+              <label>
+                E-mail
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required autoFocus />
+              </label>
+            )}
+            <p className="error" role="alert" aria-live="assertive">
+              {error}
+            </p>
+            {!forgotSent && (
+              <button type="submit" className="btn btn-primary" disabled={busy || !email.trim()}>
+                {busy ? 'Enviando…' : 'Enviar link'}
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn btn-link"
+              onClick={() => {
+                setForgot(false);
+                setForgotSent(false);
+                setError(null);
+              }}
+            >
+              Voltar para entrar
+            </button>
+          </form>
+        ) : mfaToken ? (
           <form className="card form" onSubmit={(e) => void onMfa(e)} noValidate>
             <div>
               <h1>Verificação em duas etapas</h1>
@@ -272,6 +330,18 @@ export function Login() {
           <button type="submit" className="btn btn-primary" disabled={busy}>
             {busy ? (signup ? 'Criando…' : 'Entrando…') : signup ? 'Criar conta' : 'Entrar'}
           </button>
+          {!signup && canReset && (
+            <button
+              type="button"
+              className="btn btn-link forgot-link"
+              onClick={() => {
+                setForgot(true);
+                setError(null);
+              }}
+            >
+              Esqueci minha senha
+            </button>
+          )}
           <p className="small muted legal-note">
             Ao continuar, você concorda com a <Link to="/privacidade">política de privacidade</Link>.
           </p>

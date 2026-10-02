@@ -10,6 +10,7 @@ import { ListDetail, Lists } from './pages/Lists';
 import { Login } from './pages/Login';
 import { Admin } from './pages/Admin';
 import { Privacy } from './pages/Privacy';
+import { ResetPassword } from './pages/ResetPassword';
 import { Profile } from './pages/Profile';
 import { Sandbox } from './pages/Sandbox';
 import { TonightPage } from './pages/Tonight';
@@ -55,6 +56,7 @@ export function App() {
             <Routes>
               {/* pública, sem login (exigida pelo login com Google e pela LGPD) */}
               <Route path="/privacidade" element={<Privacy />} />
+              <Route path="/redefinir-senha" element={<ResetPassword />} />
               <Route path="*" element={<Gate />} />
             </Routes>
           </BrowserRouter>
