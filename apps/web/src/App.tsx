@@ -8,6 +8,7 @@ import { Activity, ActivityDetail } from './pages/Activity';
 import { Catalog } from './pages/Catalog';
 import { ListDetail, Lists } from './pages/Lists';
 import { Login } from './pages/Login';
+import { Admin } from './pages/Admin';
 import { Privacy } from './pages/Privacy';
 import { Profile } from './pages/Profile';
 import { Sandbox } from './pages/Sandbox';
@@ -34,6 +35,7 @@ function Gate() {
         <Route path="atividade/:shareId" element={<ActivityDetail />} />
         <Route path="hoje" element={<TonightPage />} />
         <Route path="perfil" element={<Profile />} />
+        <Route path="admin" element={<Admin />} />
         {SHOW_DEV_TOOLS && <Route path="sandbox" element={<Sandbox />} />}
         <Route path="*" element={<Navigate to="/minha-area" replace />} />
       </Route>

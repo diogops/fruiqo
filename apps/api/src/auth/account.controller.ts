@@ -1,6 +1,6 @@
-import { Body, Controller, Delete, HttpCode, Inject, Optional, Req, Res, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, Delete, HttpCode, Inject, Optional, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { type DeleteAccountRequest, DeleteAccountRequestSchema } from '@fruiqo/contracts';
+import { type DeleteAccountRequest, DeleteAccountRequestSchema, type MfaCodeRequest, MfaCodeRequestSchema, type MfaEnableResponse, type MfaSetupResponse } from '@fruiqo/contracts';
 import type { Request, Response } from 'express';
 import { ZodPipe } from '../common/zod-pipe.js';
 import { ENV, type Env } from '../config/env.js';
@@ -22,6 +22,29 @@ export class AccountController {
     @Inject(ENV) private readonly env: Env,
     @Optional() @Inject(GOOGLE_VERIFIER) private readonly google: GoogleVerifier | null = null,
   ) {}
+
+  /** MFA: gera o segredo (ainda desligado) e o link/QR do app autenticador. */
+  @Post('mfa/setup')
+  @HttpCode(200)
+  @Throttle(ACCOUNT_THROTTLE)
+  setupMfa(@CurrentAuth() auth: AccessClaims): Promise<MfaSetupResponse> {
+    return this.auth.setupMfa(auth.userId);
+  }
+
+  /** MFA: o primeiro código liga a verificação e devolve os códigos de recuperação (mostrados uma vez). */
+  @Post('mfa/enable')
+  @HttpCode(200)
+  @Throttle(ACCOUNT_THROTTLE)
+  enableMfa(@CurrentAuth() auth: AccessClaims, @Body(new ZodPipe(MfaCodeRequestSchema)) body: MfaCodeRequest): Promise<MfaEnableResponse> {
+    return this.auth.enableMfa(auth.userId, auth.sessionId, body.code);
+  }
+
+  @Post('mfa/disable')
+  @HttpCode(204)
+  @Throttle(ACCOUNT_THROTTLE)
+  async disableMfa(@CurrentAuth() auth: AccessClaims, @Body(new ZodPipe(MfaCodeRequestSchema)) body: MfaCodeRequest): Promise<void> {
+    await this.auth.disableMfa(auth.userId, body.code);
+  }
 
   /** Exclusão definitiva da conta e de tudo dela (LGPD; App Store 5.1.1(v)). */
   @Delete()

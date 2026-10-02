@@ -1264,3 +1264,25 @@ img.poster.loaded { opacity: 1; }
 .legal-body strong { color: var(--text); }
 .legal-foot { margin-top: 2rem; }
 .legal-note { margin: 0; text-align: center; }
+
+/* verificação em duas etapas */
+.mfa { margin-top: 1.5rem; }
+.mfa-setup, .mfa-recovery { display: grid; gap: 0.75rem; padding: 1rem; border-radius: 14px; max-width: 560px; }
+.mfa-steps { margin: 0; padding-left: 1.2rem; display: grid; gap: 0.25rem; }
+.mfa-qr { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; }
+.mfa-qr img { border-radius: 10px; background: #fff; padding: 6px; }
+.mfa-qr-skel { display: block; width: 192px; height: 192px; }
+.mfa-secret { word-break: break-all; }
+.mfa-form { align-items: flex-end; flex-wrap: wrap; gap: 0.5rem; }
+.mfa-form input { max-width: 14ch; letter-spacing: 0.15em; font-variant-numeric: tabular-nums; }
+.mfa-recovery ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, max-content)); gap: 0.35rem 1.5rem; }
+.badge-ok { background: var(--ok-soft); color: var(--ok); }
+
+/* administração de acessos */
+.admin-add { align-items: flex-end; gap: 0.5rem; max-width: 640px; }
+.admin-list { list-style: none; margin: 0 0 1rem; padding: 0; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; max-width: 760px; }
+.admin-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.65rem 0.9rem; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.admin-row:last-child { border-bottom: 0; }
+.admin-who { display: grid; gap: 0.1rem; min-width: 0; }
+.admin-who strong { overflow-wrap: anywhere; }
+.admin-acts { gap: 0.35rem; }

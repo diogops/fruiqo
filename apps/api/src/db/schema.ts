@@ -32,6 +32,13 @@ export const users = pgTable(
     displayName: text('display_name'),
     /** false = conta criada pelo Google, sem senha definida (reautenticação pelo Google) */
     hasPassword: boolean('has_password').notNull().default(true),
+    /** MFA (TOTP): segredo criptografado (AES-256-GCM); com mfa_enabled=false é só a configuração pendente */
+    mfaSecret: text('mfa_secret'),
+    mfaEnabled: boolean('mfa_enabled').notNull().default(false),
+    /** último passo de 30 s aceito (impede reusar o mesmo código) */
+    mfaLastStep: integer('mfa_last_step'),
+    /** códigos de recuperação: só o hash SHA-256; cada um vale uma vez */
+    mfaRecovery: jsonb('mfa_recovery').$type<string[]>(),
   },
   (t) => [uniqueIndex('users_email_key').on(t.email), uniqueIndex('users_google_sub_key').on(t.googleSub)],
 );
@@ -50,6 +57,8 @@ export const sessions = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }).notNull().defaultNow(),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    /** a sessão passou pelo MFA (exigido para a área de administração) */
+    mfaVerified: boolean('mfa_verified').notNull().default(false),
   },
   (t) => [index('sessions_user_idx').on(t.userId)],
 );
@@ -434,6 +443,19 @@ export function overrideScore(o: { mode: 'pin' | 'exclude' | 'level'; score: num
  * D-25: "não mostrar mais" no "O que assistir hoje?" (botão − nas prateleiras e nos resultados).
  * Sai das prateleiras e da busca daquele usuário; não mexe no catálogo.
  */
+/**
+ * Pedidos de acesso e e-mails autorizados (o administrador aprova). Não pertence a um usuário: só as
+ * rotas de administração (admin + MFA) e o cadastro/login leem e escrevem.
+ */
+export const accessRequests = pgTable('access_requests', {
+  email: text('email').primaryKey(),
+  /** pending = pediu e aguarda; approved = pode usar; denied = recusado/revogado */
+  status: text('status').notNull().default('pending'),
+  requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
+  decidedAt: timestamp('decided_at', { withTimezone: true }),
+  decidedBy: text('decided_by'),
+});
+
 export const tonightHidden = pgTable(
   'tonight_hidden',
   {

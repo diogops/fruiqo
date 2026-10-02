@@ -16,6 +16,7 @@ import { AccountController } from './auth/account.controller.js';
 import { AuthController } from './auth/auth.controller.js';
 import { AuthGuard, Public } from './auth/auth.guard.js';
 import { AuthService } from './auth/auth.service.js';
+import { AdminController } from './auth/admin.controller.js';
 import { GOOGLE_VERIFIER, googleVerifier } from './auth/google.js';
 import { TokenService } from './auth/tokens.js';
 import { HttpExceptionFilter } from './common/http-exception.filter.js';
@@ -113,6 +114,7 @@ export class AppModule {
         ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: Number(process.env.API_RATE_LIMIT_PER_MIN ?? 120) }]),
       ],
       controllers: [
+        AdminController,
         HealthController,
         AuthController,
         AccountController,

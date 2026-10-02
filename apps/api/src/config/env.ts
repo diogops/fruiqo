@@ -72,6 +72,18 @@ const EnvSchema = z.object({
    * D-26 aceita (docs/phase0/openai-api-tos.md); interpretar o pedido e o resumo seguem na Anthropic.
    */
   AI_TONIGHT_TITLES_PROVIDER: z.enum(['anthropic', 'openai']).default('anthropic'),
+  /** administradores (aprovam acessos; área exige MFA), separados por vírgula */
+  ADMIN_EMAILS: z
+    .string()
+    .default('')
+    .transform((v) =>
+      v
+        .split(',')
+        .map((e) => e.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  /** chave do segredo de MFA (base64 de 32 bytes); sem ela, deriva do JWT_SECRET */
+  MFA_ENCRYPTION_KEY: optionalSecret,
   /** login com Google: Client ID (tipo Web) do Google Cloud; vazio = botão desligado */
   GOOGLE_CLIENT_ID: optionalSecret,
   AI_TONIGHT_OPENAI_MODEL: z.string().default('gpt-6.1-sol'),

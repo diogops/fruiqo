@@ -53,6 +53,11 @@ import {
   WEB_CLIENT_VALUE,
   WebSessionResponseSchema,
   GoogleWebSessionResponseSchema,
+  MfaChallengeSchema,
+  MfaSetupResponseSchema,
+  MfaEnableResponseSchema,
+  AccessListResponseSchema,
+  type AccessDecisionRequest,
   AuthProvidersResponseSchema,
   type AuthProvidersResponse,
   type ApplyPriorityDraftRequest,
@@ -180,10 +185,24 @@ function qs(params: Record<string, string | number | boolean | undefined | null>
 
 // ---------- auth ----------
 
-export async function login(email: string, password: string): Promise<void> {
+/** Login com senha. Com MFA ligado, devolve o desafio (a sessão sai em `completeMfa`). */
+export async function login(email: string, password: string): Promise<{ mfaToken: string } | null> {
   const res = await send('/auth/login', 'POST', { email, password, deviceName: 'Navegador (web)' }, false);
   if (!res.ok) throw await toError(res);
-  accessToken = WebSessionResponseSchema.parse(await res.json()).accessToken;
+  const body: unknown = await res.json();
+  const challenge = MfaChallengeSchema.safeParse(body);
+  if (challenge.success) return { mfaToken: challenge.data.mfaToken };
+  accessToken = WebSessionResponseSchema.parse(body).accessToken;
+  return null;
+}
+
+/** Segunda etapa: o código do app autenticador (ou um de recuperação) abre a sessão. */
+export async function completeMfa(mfaToken: string, code: string): Promise<string> {
+  const res = await send('/auth/mfa', 'POST', { mfaToken, code }, false);
+  if (!res.ok) throw await toError(res);
+  const body = GoogleWebSessionResponseSchema.parse(await res.json());
+  accessToken = body.accessToken;
+  return body.email;
 }
 
 /** Cadastro pelo fluxo web: a API devolve a sessão (refresh em cookie), então já entra. */
@@ -206,12 +225,15 @@ export async function logout(): Promise<void> {
  * uma vez só: aqui um 401 significa senha errada, e não pode derrubar a sessão.
  */
 /** Login com Google: a API confere o ID token, abre a sessão (cookie) e devolve o e-mail da conta. */
-export async function loginWithGoogle(credential: string): Promise<string> {
+export async function loginWithGoogle(credential: string): Promise<{ email: string; mfaToken?: string }> {
   const res = await send('/auth/google', 'POST', { credential, deviceName: 'Navegador (web)' }, false);
   if (!res.ok) throw await toError(res);
-  const body = GoogleWebSessionResponseSchema.parse(await res.json());
-  accessToken = body.accessToken;
-  return body.email;
+  const body: unknown = await res.json();
+  const challenge = MfaChallengeSchema.extend({ email: z.string() }).safeParse(body);
+  if (challenge.success) return { email: challenge.data.email, mfaToken: challenge.data.mfaToken };
+  const session = GoogleWebSessionResponseSchema.parse(body);
+  accessToken = session.accessToken;
+  return { email: session.email };
 }
 
 /** Provedores de login ligados (sem resposta, nenhum). */
@@ -309,6 +331,12 @@ export const api = {
   /** gêneros na ordem do seu gosto e o tipo que você mais vê */
   tonightDefaults: () => request(TonightDefaultsSchema, '/tonight/defaults'),
   tonightShelves: () => request(TonightShelvesResponseSchema, '/tonight/shelves'),
+  // MFA (verificação em duas etapas) e administração de acessos
+  mfaSetup: () => request(MfaSetupResponseSchema, '/account/mfa/setup', 'POST'),
+  mfaEnable: (code: string) => request(MfaEnableResponseSchema, '/account/mfa/enable', 'POST', { code }),
+  mfaDisable: (code: string) => request(z.unknown(), '/account/mfa/disable', 'POST', { code }),
+  adminAccess: () => request(AccessListResponseSchema, '/admin/access'),
+  adminDecide: (body: AccessDecisionRequest) => request(z.unknown(), '/admin/access', 'PUT', body),
   tonightShelfPage: (key: TonightShelfKey, page: number) => request(TonightShelfPageResponseSchema, `/tonight/shelves/${key}?page=${page}`),
   tonightHide: (body: TonightHideRequest) => request(z.unknown(), '/tonight/hide', 'POST', body),
   tonightWatched: (body: TonightWatchedRequest) => request(TitleSchema, '/tonight/watched', 'POST', body),

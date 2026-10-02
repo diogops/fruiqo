@@ -722,8 +722,48 @@ export const ApiErrorSchema = z.object({
   message: z.string(),
   /** RF-44: 409 do apply do rascunho quando a fila mudou */
   staleDetails: z.object({ added: z.number().int().min(0), removed: z.number().int().min(0) }).optional(),
+  /**
+   * access_pending: e-mail sem acesso (pedido registrado para o administrador aprovar);
+   * mfa_required: a área exige uma sessão que passou pelo MFA; mfa_setup_required: ative o MFA antes
+   */
+  code: z.enum(['access_pending', 'mfa_required', 'mfa_setup_required']).optional(),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;
+
+// ---------- MFA (TOTP) e acesso controlado pelo administrador ----------
+
+/** Login com MFA ligado: em vez da sessão, um desafio; a sessão sai em POST /auth/mfa. */
+export const MfaChallengeSchema = z.object({ mfaRequired: z.literal(true), mfaToken: z.string().min(20) });
+export type MfaChallenge = z.infer<typeof MfaChallengeSchema>;
+export const MfaVerifyRequestSchema = z.object({ mfaToken: z.string().min(20).max(2048), code: z.string().trim().min(6).max(20) }).strict();
+export type MfaVerifyRequest = z.infer<typeof MfaVerifyRequestSchema>;
+export const MfaSetupResponseSchema = z.object({ secret: z.string(), otpauthUrl: z.string() });
+export type MfaSetupResponse = z.infer<typeof MfaSetupResponseSchema>;
+export const MfaCodeRequestSchema = z.object({ code: z.string().trim().min(6).max(20) }).strict();
+export type MfaCodeRequest = z.infer<typeof MfaCodeRequestSchema>;
+export const MfaEnableResponseSchema = z.object({ recoveryCodes: z.array(z.string()) });
+export type MfaEnableResponse = z.infer<typeof MfaEnableResponseSchema>;
+
+export const ACCESS_STATUSES = ['pending', 'approved', 'denied'] as const;
+export const AccessEntrySchema = z.object({
+  email: z.string(),
+  status: z.enum(ACCESS_STATUSES),
+  requestedAt: z.iso.datetime(),
+  decidedAt: z.iso.datetime().nullable(),
+  /** já tem conta no Fruiqo */
+  hasAccount: z.boolean(),
+});
+export type AccessEntry = z.infer<typeof AccessEntrySchema>;
+export const AccessListResponseSchema = z.object({
+  entries: z.array(AccessEntrySchema),
+  /** autorizados pela configuração do servidor (não dá para revogar pela tela) */
+  configured: z.array(z.string()),
+});
+export type AccessListResponse = z.infer<typeof AccessListResponseSchema>;
+export const AccessDecisionRequestSchema = z
+  .object({ email: z.string().trim().toLowerCase().pipe(z.email()), status: z.enum(['approved', 'denied']) })
+  .strict();
+export type AccessDecisionRequest = z.infer<typeof AccessDecisionRequestSchema>;
 
 // ---------- Taxonomia (GET /taxonomy/genres) ----------
 
@@ -1085,6 +1125,10 @@ export const UserSettingsSchema = z.object({
   displayName: z.string().nullable().optional(),
   /** false = conta criada pelo Google, sem senha (excluir a conta confirma pelo Google) */
   hasPassword: z.boolean().optional(),
+  /** verificação em duas etapas (TOTP) ligada */
+  mfaEnabled: z.boolean().optional(),
+  /** administrador da plataforma (aprova acessos; exige MFA) */
+  isAdmin: z.boolean().optional(),
 });
 export type UserSettings = z.infer<typeof UserSettingsSchema>;
 export const UpdateUserSettingsRequestSchema = z

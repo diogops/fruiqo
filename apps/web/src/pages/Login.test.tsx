@@ -145,3 +145,42 @@ describe('Login com Google', () => {
   });
 });
 
+describe('Login com MFA e acesso controlado', () => {
+  it('senha certa com MFA: pede o código e só então entra', async () => {
+    const { calls } = setup({
+      'POST /auth/login': { mfaRequired: true, mfaToken: 'desafio-de-mfa-com-mais-de-vinte' },
+      'POST /auth/mfa': (c) =>
+        (c.body as { code: string }).code === '123456'
+          ? { body: { accessToken: 'tok', expiresIn: 900, email: 'admin@fruiqo.test' } }
+          : { status: 401, body: { error: 'Unauthorized', message: 'Código inválido' } },
+    });
+    await userEvent.type(await screen.findByLabelText('E-mail'), 'admin@fruiqo.test');
+    await userEvent.type(screen.getByLabelText('Senha'), STRONG);
+    await userEvent.click(screen.getByRole('button', { name: 'Entrar' }));
+    expect(await screen.findByRole('heading', { name: 'Verificação em duas etapas' })).toBeTruthy();
+    await userEvent.type(screen.getByLabelText('Código'), '000000');
+    await userEvent.click(screen.getByRole('button', { name: 'Entrar' }));
+    expect(await screen.findByText(/Código inválido/)).toBeTruthy();
+    await userEvent.clear(screen.getByLabelText('Código'));
+    await userEvent.type(screen.getByLabelText('Código'), '123456');
+    await userEvent.click(screen.getByRole('button', { name: 'Entrar' }));
+    expect(await screen.findByText('logado')).toBeTruthy();
+    expect(calls.filter((c) => c.path === '/auth/mfa').at(-1)?.body).toEqual({ mfaToken: 'desafio-de-mfa-com-mais-de-vinte', code: '123456' });
+  });
+
+  it('e-mail sem acesso: mostra que o pedido foi enviado ao administrador', async () => {
+    setup({
+      'POST /auth/register': () => ({
+        status: 403,
+        body: { error: 'Forbidden', message: 'Pedido de acesso enviado. Você poderá entrar quando o administrador aprovar.', code: 'access_pending' },
+      }),
+    });
+    await userEvent.click(await screen.findByRole('tab', { name: 'Criar conta' }));
+    await userEvent.type(screen.getByLabelText('E-mail'), 'novo@example.com');
+    await userEvent.type(screen.getByLabelText('Senha'), STRONG);
+    await userEvent.type(screen.getByLabelText('Confirmar senha'), STRONG);
+    await userEvent.click(screen.getByRole('button', { name: 'Criar conta' }));
+    expect(await screen.findByText(/Pedido de acesso enviado/)).toBeTruthy();
+  });
+});
+

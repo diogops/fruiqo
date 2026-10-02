@@ -1,14 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { deleteAccount as apiDeleteAccount, login as apiLogin, loginWithGoogle as apiLoginGoogle, logout as apiLogout, onSessionLost, refreshSession, register as apiRegister } from '../api/client';
+import { completeMfa as apiCompleteMfa, deleteAccount as apiDeleteAccount, login as apiLogin, loginWithGoogle as apiLoginGoogle, logout as apiLogout, onSessionLost, refreshSession, register as apiRegister } from '../api/client';
 
 type AuthState = 'checking' | 'signed_out' | 'signed_in';
 
 interface AuthValue {
   state: AuthState;
   email: string | null;
-  signIn: (email: string, password: string) => Promise<void>;
-  /** login com Google (ID token do botão oficial) */
-  signInWithGoogle: (credential: string) => Promise<void>;
+  /** com MFA ligado, devolve o desafio; a sessão abre em `completeMfa` */
+  signIn: (email: string, password: string) => Promise<{ mfaToken: string } | null>;
+  /** login com Google (ID token do botão oficial); com MFA, devolve o desafio */
+  signInWithGoogle: (credential: string) => Promise<{ mfaToken: string } | null>;
+  completeMfa: (mfaToken: string, code: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   /** exclusão definitiva da conta; em caso de sucesso volta para o login */
@@ -49,15 +51,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = useCallback(async (e: string, password: string) => {
-    await apiLogin(e, password);
+    const challenge = await apiLogin(e, password);
+    if (challenge) return challenge;
     const normalized = e.trim().toLowerCase();
     writeEmail(normalized);
     setEmail(normalized);
     setState('signed_in');
+    return null;
   }, []);
 
   const signInWithGoogle = useCallback(async (credential: string) => {
-    const e = await apiLoginGoogle(credential);
+    const r = await apiLoginGoogle(credential);
+    if (r.mfaToken) return { mfaToken: r.mfaToken };
+    writeEmail(r.email);
+    setEmail(r.email);
+    setState('signed_in');
+    return null;
+  }, []);
+
+  const completeMfa = useCallback(async (mfaToken: string, code: string) => {
+    const e = await apiCompleteMfa(mfaToken, code);
     writeEmail(e);
     setEmail(e);
     setState('signed_in');
@@ -86,8 +99,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ state, email, signIn, signInWithGoogle, signUp, signOut, deleteAccount }),
-    [state, email, signIn, signInWithGoogle, signUp, signOut, deleteAccount],
+    () => ({ state, email, signIn, signInWithGoogle, completeMfa, signUp, signOut, deleteAccount }),
+    [state, email, signIn, signInWithGoogle, completeMfa, signUp, signOut, deleteAccount],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

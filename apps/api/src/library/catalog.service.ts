@@ -97,8 +97,17 @@ export class CatalogService {
   async getSettings(userId: string): Promise<UserSettings> {
     return withUser(this.db, userId, async (tx) => {
       const stored = await readSettings(tx);
-      const [me] = await tx.select({ displayName: users.displayName, hasPassword: users.hasPassword }).from(users).where(eq(users.id, userId));
-      return { ...toSettingsView(stored, this.env, await needsOnboarding(tx, stored)), displayName: me?.displayName ?? null, hasPassword: me?.hasPassword ?? true };
+      const [me] = await tx
+        .select({ email: users.email, displayName: users.displayName, hasPassword: users.hasPassword, mfaEnabled: users.mfaEnabled })
+        .from(users)
+        .where(eq(users.id, userId));
+      return {
+        ...toSettingsView(stored, this.env, await needsOnboarding(tx, stored)),
+        displayName: me?.displayName ?? null,
+        hasPassword: me?.hasPassword ?? true,
+        mfaEnabled: me?.mfaEnabled ?? false,
+        isAdmin: Boolean(me && this.env.ADMIN_EMAILS.includes(me.email.toLowerCase())),
+      };
     });
   }
 

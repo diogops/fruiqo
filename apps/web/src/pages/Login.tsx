@@ -37,6 +37,8 @@ export function passwordStrength(pw: string): { score: 0 | 1 | 2 | 3; label: str
 /** Mensagem clara por status, sem revelar quem está liberado para cadastro. */
 function describeError(err: unknown, mode: Mode): string {
   if (err instanceof ApiError) {
+    // acesso controlado: o pedido foi registrado (ou recusado); a mensagem vem do servidor
+    if (err.status === 403 && err.body.code === 'access_pending') return err.message;
     if (mode === 'signup' && err.status === 403) return 'Não foi possível criar a conta com este e-mail.';
     if (mode === 'signup' && err.status === 409) return 'Já existe uma conta com este e-mail. Tente entrar.';
     if (err.status === 400) return 'Confira os dados: e-mail válido e senha com pelo menos 12 caracteres.';
@@ -48,7 +50,10 @@ function describeError(err: unknown, mode: Mode): string {
 }
 
 export function Login() {
-  const { signIn, signUp, signInWithGoogle } = useAuth();
+  const { signIn, signUp, signInWithGoogle, completeMfa } = useAuth();
+  // MFA: depois da senha/Google, o código do app autenticador
+  const [mfaToken, setMfaToken] = useState<string | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
   // login com Google: só aparece quando o servidor tem o Client ID
   const [googleId, setGoogleId] = useState<string | null>(null);
   useEffect(() => {
@@ -63,10 +68,15 @@ export function Login() {
     setBusy(true);
     setError('');
     try {
-      await signInWithGoogle(credential);
+      const challenge = await signInWithGoogle(credential);
+      if (challenge) {
+        setMfaToken(challenge.mfaToken);
+        setBusy(false);
+      }
     } catch (err) {
       setBusy(false);
-      if (err instanceof ApiError && err.status === 403) setError('Este e-mail ainda não tem acesso ao Fruiqo.');
+      if (err instanceof ApiError && err.status === 403 && err.body.code === 'access_pending') setError(err.message);
+      else if (err instanceof ApiError && err.status === 403) setError('Este e-mail ainda não tem acesso ao Fruiqo.');
       else if (err instanceof ApiError && err.status === 401) setError('Não foi possível confirmar sua conta Google. Tente de novo.');
       else setError('Não foi possível entrar com o Google agora.');
     }
@@ -104,11 +114,32 @@ export function Login() {
     setBusy(true);
     try {
       if (signup) await signUp(email, password);
-      else await signIn(email, password);
+      else {
+        const challenge = await signIn(email, password);
+        if (challenge) setMfaToken(challenge.mfaToken);
+      }
     } catch (err) {
       setError(describeError(err, mode));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function onMfa(e: FormEvent) {
+    e.preventDefault();
+    if (!mfaToken) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await completeMfa(mfaToken, mfaCode);
+    } catch (err) {
+      setBusy(false);
+      if (err instanceof ApiError && err.status === 401 && /expirou/.test(err.message)) {
+        setMfaToken(null);
+        setMfaCode('');
+        setError('O tempo para o código acabou. Entre de novo.');
+      } else if (err instanceof ApiError && err.status === 401) setError('Código inválido. Confira o app autenticador e tente de novo.');
+      else setError(describeError(err, 'login'));
     }
   }
 
@@ -133,6 +164,43 @@ export function Login() {
         </span>
       </section>
       <div className="login-panel">
+        {mfaToken ? (
+          <form className="card form" onSubmit={(e) => void onMfa(e)} noValidate>
+            <div>
+              <h1>Verificação em duas etapas</h1>
+              <p className="page-sub">Digite o código de 6 dígitos do seu app autenticador, ou um código de recuperação.</p>
+            </div>
+            <label>
+              Código
+              <input
+                value={mfaCode}
+                onChange={(e) => setMfaCode(e.target.value)}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={20}
+                required
+                autoFocus
+              />
+            </label>
+            <p className="error" role="alert" aria-live="assertive">
+              {error}
+            </p>
+            <button type="submit" className="btn btn-primary" disabled={busy || mfaCode.trim().length < 6}>
+              {busy ? 'Conferindo…' : 'Entrar'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-link"
+              onClick={() => {
+                setMfaToken(null);
+                setMfaCode('');
+                setError(null);
+              }}
+            >
+              Voltar
+            </button>
+          </form>
+        ) : (
         <form className="card form" onSubmit={onSubmit} noValidate>
           <div className="auth-tabs" role="tablist" aria-label="Acesso">
             <button type="button" role="tab" aria-selected={!signup} className={!signup ? 'active' : ''} onClick={() => switchMode('login')}>
@@ -216,6 +284,7 @@ export function Login() {
             </>
           )}
         </form>
+        )}
       </div>
     </div>
   );

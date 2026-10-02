@@ -157,7 +157,7 @@ export function Layout() {
           )}
         </div>
         <nav aria-label="Seções">
-          {NAV.map((n) => (
+          {[...NAV, ...(settings.data?.isAdmin ? [{ to: '/admin', label: 'Administração', icon: 'review' as IconName }] : [])].map((n) => (
             <NavLink
               key={n.to}
               to={n.to}

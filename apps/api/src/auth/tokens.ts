@@ -8,6 +8,7 @@ export interface AccessClaims {
 
 const ISSUER = 'fruiqo-api';
 const AUDIENCE = 'fruiqo-app';
+const MFA_AUDIENCE = 'fruiqo-mfa';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export class TokenService {
@@ -30,6 +31,25 @@ export class TokenService {
       .setExpirationTime(`${this.accessTtlSeconds}s`)
       .setJti(randomUUID())
       .sign(this.key);
+  }
+
+  /** Desafio de MFA (5 min): só serve para POST /auth/mfa, não abre sessão. */
+  signMfaPending(userId: string, deviceName: string): Promise<string> {
+    return new SignJWT({ dev: deviceName })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject(userId)
+      .setIssuer(ISSUER)
+      .setAudience(MFA_AUDIENCE)
+      .setIssuedAt()
+      .setExpirationTime('5m')
+      .setJti(randomUUID())
+      .sign(this.key);
+  }
+
+  async verifyMfaPending(token: string): Promise<{ userId: string; deviceName: string }> {
+    const { payload } = await jwtVerify(token, this.key, { issuer: ISSUER, audience: MFA_AUDIENCE, algorithms: ['HS256'] });
+    if (typeof payload.sub !== 'string' || typeof payload.dev !== 'string') throw new Error('claims ausentes');
+    return { userId: payload.sub, deviceName: payload.dev };
   }
 
   /** Lança se o token for inválido/expirado. */

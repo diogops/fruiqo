@@ -10,6 +10,7 @@ import { DeclaredTasteSection } from './DeclaredTaste';
 import { DeleteAccountSection } from './DeleteAccount';
 import { TasteEditor } from './TasteEditor';
 import { AiUsageSection } from './AiUsage';
+import { MfaSection } from './MfaSection';
 import { Icon } from '../components/ui';
 
 export function Profile() {
@@ -204,6 +205,8 @@ export function Profile() {
           </label>
         </div>
       )}
+
+      <MfaSection />
 
       <AiUsageSection />
 

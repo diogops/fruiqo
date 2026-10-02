@@ -40,7 +40,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
         status === HttpStatus.CONFLICT && typeof stale?.added === 'number' && typeof stale.removed === 'number'
           ? { staleDetails: { added: stale.added, removed: stale.removed } }
           : {};
-      const body: ApiError = { error: HttpStatus[status] ?? 'ERROR', message, ...staleDetails };
+      // código para a tela reagir (acesso pendente, MFA): só valores conhecidos
+      const rawCode = typeof response === 'object' ? (response as { code?: unknown }).code : undefined;
+      const code: Pick<ApiError, 'code'> =
+        rawCode === 'access_pending' || rawCode === 'mfa_required' || rawCode === 'mfa_setup_required' ? { code: rawCode } : {};
+      const body: ApiError = { error: HttpStatus[status] ?? 'ERROR', message, ...staleDetails, ...code };
       res.status(status).json(body);
       return;
     }

@@ -17,6 +17,9 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import {
+  type MfaChallenge,
+  type MfaVerifyRequest,
+  MfaVerifyRequestSchema,
   type AuthProvidersResponse,
   type GoogleLoginRequest,
   GoogleLoginRequestSchema,
@@ -77,9 +80,24 @@ export class AuthController {
     @Body(new ZodPipe(LoginRequestSchema)) body: LoginRequest,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<TokenPair | WebSessionResponse> {
+  ): Promise<TokenPair | WebSessionResponse | MfaChallenge> {
     const origin = isWebClient(req) ? assertWebOrigin(req, this.env) : undefined;
     return this.respond(await this.auth.login(body), res, origin);
+  }
+
+  /** Segunda etapa do login (MFA): o código do app autenticador ou um de recuperação. */
+  @Public()
+  @Throttle(AUTH_THROTTLE)
+  @Post('mfa')
+  @HttpCode(200)
+  async mfa(
+    @Body(new ZodPipe(MfaVerifyRequestSchema)) body: MfaVerifyRequest,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<(TokenPair | WebSessionResponse) & { email: string }> {
+    const origin = isWebClient(req) ? assertWebOrigin(req, this.env) : undefined;
+    const { pair, email } = await this.auth.completeMfa(body.mfaToken, body.code);
+    return { ...this.respond(pair, res, origin), email };
   }
 
   /** Provedores de login ligados (o web só mostra o botão do Google com o Client ID). */
@@ -98,7 +116,7 @@ export class AuthController {
     @Body(new ZodPipe(GoogleLoginRequestSchema)) body: GoogleLoginRequest,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<(TokenPair | WebSessionResponse) & { email: string }> {
+  ): Promise<(TokenPair | WebSessionResponse | MfaChallenge) & { email: string }> {
     if (!this.googleVerifier) throw new NotFoundException('Login com Google desligado');
     const origin = isWebClient(req) ? assertWebOrigin(req, this.env) : undefined;
     const id = await this.googleVerifier.verify(body.credential).catch(() => {
@@ -160,7 +178,11 @@ export class AuthController {
   }
 
   /** Web: o refresh vai só no cookie httpOnly; o corpo leva apenas o access token. */
-  private respond(pair: TokenPair, res: Response, webOrigin: string | undefined): TokenPair | WebSessionResponse {
+  /** Sessão aberta: web recebe o refresh no cookie. Desafio de MFA: vai como está (sem sessão ainda). */
+  private respond(pair: TokenPair, res: Response, webOrigin: string | undefined): TokenPair | WebSessionResponse;
+  private respond(pair: TokenPair | MfaChallenge, res: Response, webOrigin: string | undefined): TokenPair | WebSessionResponse | MfaChallenge;
+  private respond(pair: TokenPair | MfaChallenge, res: Response, webOrigin: string | undefined): TokenPair | WebSessionResponse | MfaChallenge {
+    if ('mfaRequired' in pair) return pair;
     if (!webOrigin) return pair;
     setRefreshCookie(res, pair.refreshToken, webOrigin, this.env.WEB_COOKIE_PATH);
     return { accessToken: pair.accessToken, expiresIn: pair.expiresIn };
