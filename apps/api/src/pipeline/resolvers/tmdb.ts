@@ -354,6 +354,11 @@ export class TmdbResolver {
   }
 
   /** Elenco principal (até 3) para os cards da busca. */
+  /** D-22: links diretos do título nos serviços (Wikidata); vazio se não houver. */
+  titleLinksOf(mediaType: 'movie' | 'tv', id: number): ReturnType<typeof fetchTitleLinks> {
+    return fetchTitleLinks(mediaType, id, this.fetchImpl);
+  }
+
   /** D-25: "igual a X": recomendações e semelhantes da obra X no TMDB (recomendações primeiro, sem repetir). */
   async relatedTo(mediaType: 'movie' | 'tv', id: number): Promise<TmdbHit[]> {
     const page = async (kind: 'recommendations' | 'similar') =>

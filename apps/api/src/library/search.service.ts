@@ -13,7 +13,7 @@ import type {
   TitleSearchResult,
 } from '@fruiqo/contracts';
 import { GENRES, genresFromTmdb, genreTermsIn } from '@fruiqo/taxonomy';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { DB, type Db, type Tx, withUser } from '../db/client.js';
 import { recommendations, tasteSignals } from '../db/schema.js';
 import { autoRating, recomputeAutoRatings, trustedGeneral } from './auto-rating.js';
@@ -306,11 +306,16 @@ export class SearchService {
     const bookIds = [...new Set((req.books ?? []).map((b) => b.olWorkId))];
     const tmdb = unique.length > 0 ? this.requireTmdb() : null;
     const books = bookIds.length > 0 ? this.requireBooks() : null;
-    // rede fora da transação
-    const resolved = await mapLimit(unique, 4, async (item) => ({ item, res: await tmdb!.byId(item.mediaType, item.tmdbId).catch(() => null) }));
+    // rede fora da transação. Sem os links do Wikidata aqui (até ~2 s por título): eles são
+    // completados em segundo plano logo depois da resposta (completeTitleLinks)
+    const resolved = await mapLimit(unique, 4, async (item) => ({
+      item,
+      res: await tmdb!.byId(item.mediaType, item.tmdbId, undefined, { titleLinks: false }).catch(() => null),
+    }));
+    const linkLater: { id: string; mediaType: 'movie' | 'tv'; tmdbId: number }[] = [];
     const resolvedBooks = await mapLimit(bookIds, 2, async (olWorkId) => ({ olWorkId, res: await books!.byWorkId(olWorkId).catch(() => null) }));
 
-    return withUser(this.db, userId, async (tx) => {
+    const response = await withUser(this.db, userId, async (tx) => {
       const existing = await tx.select({ id: recommendations.id, key: recommendations.dedupKey, resolution: recommendations.resolution }).from(recommendations);
       const byExternal = new Map(existing.filter((e) => e.resolution?.externalId).map((e) => [e.resolution!.externalId, e.id]));
       const byKey = new Map(existing.map((e) => [e.key, e.id]));
@@ -358,6 +363,7 @@ export class SearchService {
           .returning();
         byKey.set(key, row!.id);
         byExternal.set(res.externalId, row!.id);
+        if (res.providers?.length) linkLater.push({ id: row!.id, mediaType: item.mediaType, tmdbId: item.tmdbId });
         created.push(await this.addedToMyArea(tx, userId, row!.id, req.listId));
       }
       // RF-48: livros escolhidos na busca (Open Library), mesmo fluxo de revisão
@@ -410,6 +416,26 @@ export class SearchService {
       const fresh = created.length > 0 ? await this.library.withLists(tx, await tx.select().from(recommendations).where(inArray(recommendations.id, created.map((c) => c.id)))) : [];
       const byId = new Map(fresh.map((t) => [t.id, t]));
       return { created: created.map((c) => byId.get(c.id) ?? c), skipped, ...(bookIds.length > 0 ? { skippedBooks } : {}) };
+    });
+    // links diretos nos serviços (Wikidata): depois da resposta, sem segurar quem está adicionando
+    if (linkLater.length && tmdb) void this.completeTitleLinks(userId, tmdb, linkLater);
+    return response;
+  }
+
+  /** Completa `resolution.titleLinks` dos títulos recém-importados (falha só deixa sem link direto). */
+  private async completeTitleLinks(userId: string, tmdb: TmdbResolver, items: { id: string; mediaType: 'movie' | 'tv'; tmdbId: number }[]): Promise<void> {
+    await mapLimit(items, 2, async (it) => {
+      try {
+        const titleLinks = await tmdb.titleLinksOf(it.mediaType, it.tmdbId);
+        await withUser(this.db, userId, (tx) =>
+          tx
+            .update(recommendations)
+            .set({ resolution: sql`coalesce(${recommendations.resolution}, '{}'::jsonb) || jsonb_build_object('titleLinks', ${JSON.stringify(titleLinks)}::jsonb)` })
+            .where(eq(recommendations.id, it.id)),
+        );
+      } catch {
+        // opcional: sem link direto, o app usa a busca do serviço
+      }
     });
   }
 
