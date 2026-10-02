@@ -630,8 +630,8 @@ export function TonightPage() {
                     </div>
                   )}
                   <div className="tonight-actions">
-                    <button type="button" className="btn btn-sm btn-primary" disabled={busyKey === p.key} onClick={() => void act(p, 'want')}>
-                      {p.wantLabel}
+                    <button type="button" className="btn btn-link btn-sm" disabled={busyKey === p.key} onClick={() => void act(p, 'want')}>
+                      <Icon name={p.fromList ? 'play' : 'plus'} size={13} /> {p.wantLabel}
                     </button>
                     <button type="button" className="btn btn-link btn-sm" disabled={busyKey === p.key} onClick={() => void act(p, 'done')}>
                       <Icon name="check" size={13} /> {p.doneLabel}
