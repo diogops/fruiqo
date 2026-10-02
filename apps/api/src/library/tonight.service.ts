@@ -49,16 +49,51 @@ const KIND_SHARE = 0.65;
 /** gerador da IA (só complemento, quando a busca não chega a 5): quantos nomes pedir */
 const AI_CANDIDATES = 20;
 /** teto do pedido: o web desiste em 20 s; a IA que passar do prazo vira falha e a busca segue sem ela */
-const TONIGHT_BUDGET_MS = 17_000;
+const TONIGHT_BUDGET_MS = 18_000;
 /** a interpretação do pedido (modelo rápido) não pode comer o tempo das sugestões */
 const PLAN_BUDGET_MS = 6_000;
 /** reserva, depois das sugestões da IA, para conferir os nomes no TMDB */
-const CONFIRM_RESERVE_MS = 4_000;
+const CONFIRM_RESERVE_MS = 3_000;
 const AI_TIMED_OUT = { ok: false, reason: 'failed' } as const;
 /** pedido que é só o nome de uma obra: até quantas palavras, e quão parecido com o título (erro de digitação) */
 const TITLE_QUERY_MAX_WORDS = 8;
-const TITLE_QUERY_MIN_SIMILARITY = 0.85;
 const TITLE_QUERY_BUDGET_MS = 3_000;
+/** fração mínima de palavras em comum (com erro de digitação) entre o texto e o título */
+const TITLE_MIN_WORD_MATCH = 0.75;
+/** palavras que não contam na comparação de títulos */
+const TITLE_STOPWORDS = new Set(['o', 'a', 'os', 'as', 'um', 'uma', 'de', 'do', 'da', 'dos', 'das', 'e', 'em', 'no', 'na', 'the', 'of', 'and', 'in', 'on', 'el', 'la', 'los', 'las']);
+
+/** Palavras que contam num título, normalizadas. */
+function titleWords(t: string): string[] {
+  return t
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w && !TITLE_STOPWORDS.has(w));
+}
+
+/** Palavras iguais ou com erro de digitação ("cado" ~ "caddo", "brekaing" ~ "breaking"): 1 erro a partir de 3 letras, 2 a partir de 7. */
+function nearWord(a: string, b: string): boolean {
+  if (a === b) return true;
+  const len = Math.min(a.length, b.length);
+  return len >= 3 && levenshtein(a, b) <= (len >= 7 ? 2 : 1);
+}
+
+/** Quanto do texto bate com o título, 0..1, palavra a palavra (sobre o maior dos dois). */
+function titleWordMatch(query: string[], title: string[]): number {
+  if (!query.length || !title.length) return 0;
+  const used = new Set<number>();
+  let hits = 0;
+  for (const w of query) {
+    const i = title.findIndex((x, j) => !used.has(j) && nearWord(w, x));
+    if (i >= 0) {
+      used.add(i);
+      hits++;
+    }
+  }
+  return hits / Math.max(query.length, title.length);
+}
 
 /** Espera a IA até `deadline` (epoch ms); passou, devolve `timedOut` (a chamada termina sozinha depois). */
 function beforeDeadline<R>(deadline: number, call: () => Promise<R>, timedOut: R): Promise<R> {
@@ -168,6 +203,8 @@ export class TonightService {
    */
   private readonly sessions = new Map<string, VideoSession>();
   private readonly keywordIds = new Map<string, number | null>();
+  /** obra que um texto nomeia (findWork), pelas palavras do texto */
+  private readonly works = new Map<string, { hit: TmdbHit | null; at: number }>();
   private readonly titleKeywords = new Map<string, { ids: number[]; at: number }>();
   private readonly titleCountries = new Map<string, { ids: string[]; at: number }>();
   private readonly shelfCache = new Map<string, { value: TonightShelvesResponse; at: number }>();
@@ -509,13 +546,33 @@ export class TonightService {
     // o cliente também manda o que já mostrou (sobrevive a reinício da API)
     for (const k of ctx.exclude) session.shown.add(k);
 
+    // a IA leva ~10 s: em "igual a X" ela começa assim que o pedido é entendido, junto com o TMDB
+    const kindHint = req.kind === 'movie' || req.kind === 'series' ? req.kind : undefined;
+    let aiCall: ReturnType<TasteAi['tonight']> | undefined;
+    const startAi = (plan: TonightPlan, references?: string[]) =>
+      (aiCall ??= (async () => {
+        const ai = this.ai!;
+        const history = await this.seenSample(userId, [...plan.genresAll, ...plan.genresAny]);
+        const brief: TasteBrief = { ...ctx.brief, seen: history.sample, seenCount: history.total, ...(ctx.mood ? { mood: ctx.mood } : {}) };
+        const asked = new Set<GenreKey>([...plan.genresAll, ...plan.genresAny]);
+        const avoid = references ? (ctx.hated ?? (await this.avoidedGenres(userId))).filter((g) => !asked.has(g)) : [];
+        const call = withAiUsage(userId, 'tonight_titles', () =>
+          ai.tonight(brief, userId, kindHint, {
+            filtered: ctx.filterSubs.length > 0,
+            max: AI_CANDIDATES,
+            ...(references ? { references, avoidGenres: avoid.map((g) => GENRE_LABEL.get(g) ?? g) } : {}),
+          }),
+        );
+        return beforeDeadline(ctx.deadline - CONFIRM_RESERVE_MS, () => call, AI_TIMED_OUT);
+      })().catch(() => AI_TIMED_OUT));
+
     if (session.sig !== sig) {
       // nova revisão: plano, estoque e páginas zeram; o que já foi mostrado continua fora
       let plan = ctx.mood ? localPlan(ctx.mood) : EMPTY_PLAN;
       let planByAi = false;
       // o pedido é só o nome de um filme/série ("horrores de cado lake")? vira "com a mesma pegada de X"
-      const named = ctx.mood && plan.unmapped.length > 0 && !plan.references?.length ? await this.workNamedBy(ctx.mood, ctx.deadline) : null;
-      if (named) plan = { ...EMPTY_PLAN, references: [named] };
+      const named = ctx.mood && plan.unmapped.length > 0 && !plan.references?.length ? await this.findWork(ctx.mood, ctx.deadline) : null;
+      if (named) plan = { ...EMPTY_PLAN, references: [named.title] };
       else if (ctx.mood && plan.unmapped.length > 0 && ctx.aiAllowed && this.ai) {
         const ai = this.ai;
         const mood = ctx.mood;
@@ -532,9 +589,10 @@ export class TonightService {
       }
       plan = withSelectedGenre(plan, ctx.genreKey);
       Object.assign(session, { sig, plan, planByAi, pending: [], cursors: {}, exhausted: false, generated: false, at: Date.now() });
+      if (plan.references?.length && ctx.aiAllowed && this.ai) void startAi(plan, plan.references);
       const required = requiredAttrs(plan);
       if (plan.references?.length && this.tmdb) {
-        const related = await this.referenceCandidates(userId, plan, req.kind);
+        const related = await this.referenceCandidates(userId, plan, ctx.deadline, req.kind);
         for (const k of related.referenceKeys) session.shown.add(k);
         session.referenceTitles = related.titles;
         session.related = related.candidates;
@@ -662,17 +720,7 @@ export class TonightService {
     const generate = async () => {
       if (s.generated || !ctx.aiAllowed || !this.ai || !(ctx.mood || !planIsEmpty(plan))) return;
       s.generated = true;
-      const history = await this.seenSample(userId, [...plan.genresAll, ...plan.genresAny]);
-      const brief: TasteBrief = { ...ctx.brief, seen: history.sample, seenCount: history.total, ...(ctx.mood ? { mood: ctx.mood } : {}) };
-      const ai = this.ai;
-      const kindHint = req.kind === 'movie' || req.kind === 'series' ? req.kind : undefined;
-      const res = await beforeDeadline(ctx.deadline - CONFIRM_RESERVE_MS, () => withAiUsage(userId, 'tonight_titles', () =>
-        ai.tonight(brief, userId, kindHint, {
-          filtered: ctx.filterSubs.length > 0,
-          max: AI_CANDIDATES,
-          ...(referenceMode ? { references: s.referenceTitles?.length ? s.referenceTitles : plan.references, avoidGenres: avoided.map((g) => GENRE_LABEL.get(g) ?? g) } : {}),
-        }),
-      ), AI_TIMED_OUT);
+      const res = await startAi(plan, referenceMode ? (s.referenceTitles?.length ? s.referenceTitles : plan.references) : undefined);
       if (res.ok) {
         aiUsed = true;
         const guesses = res.value.picks.flatMap((g) =>
@@ -829,39 +877,48 @@ export class TonightService {
   }
 
   /**
+   * Acha no TMDB a obra que o texto nomeia, mesmo com erro de digitação ("horrores de cado lake") ou
+   * no título de outro idioma ("The Horrors of Caddo Lake"): a busca do TMDB não perdoa erro, então
+   * também procura sem cada palavra e por palavra solta, e escolhe o título que mais bate palavra a
+   * palavra. Sem nenhum que bata, null.
+   */
+  private async findWork(text: string, deadline: number): Promise<TmdbHit | null> {
+    const tmdb = this.tmdb;
+    const words = titleWords(text);
+    if (!tmdb || !words.length || words.length > TITLE_QUERY_MAX_WORDS) return null;
+    const cached = this.works.get(words.join(' '));
+    if (cached && Date.now() - cached.at < SHOWN_TTL_MS) return cached.hit;
+    const queries = new Set([text.trim(), words.join(' ')]);
+    if (words.length >= 2 && words.length <= 5) for (let i = 0; i < words.length; i++) queries.add(words.filter((_, j) => j !== i).join(' '));
+    for (const w of words) if (w.length >= 5) queries.add(w);
+    const lists = await beforeDeadline(
+      Math.min(deadline, Date.now() + TITLE_QUERY_BUDGET_MS),
+      () => Promise.all([...queries].slice(0, 9).map((q) => tmdb.searchMulti(q).then((r) => r.titles.slice(0, 10)).catch(() => [] as TmdbHit[]))),
+      [] as TmdbHit[][],
+    );
+    let best: { hit: TmdbHit; score: number } | null = null;
+    for (const hit of lists.flat()) {
+      const score = Math.max(titleWordMatch(words, titleWords(hit.title)), titleWordMatch(words, titleWords(hit.originalTitle ?? '')));
+      if (score >= TITLE_MIN_WORD_MATCH && (!best || score > best.score)) best = { hit, score };
+    }
+    const hit = best?.hit ?? null;
+    this.works.set(words.join(' '), { hit, at: Date.now() });
+    return hit;
+  }
+
+  /**
    * "Igual a X": acha X no TMDB (o tipo pedido, se houver) e traz as recomendações e semelhantes dele.
    * X sai do resultado (você já conhece). Nada disso vai à IA além do nome que você mesmo digitou.
    */
-  /**
-   * O texto inteiro é o nome de uma obra do TMDB (com até um erro de digitação, sem artigo)? Devolve o
-   * título certo. Só o título, nunca dado do TMDB, segue adiante como referência (ARB-REQ-06: o nome é
-   * o que o usuário digitou, corrigido).
-   */
-  private async workNamedBy(text: string, deadline: number): Promise<string | null> {
-    const words = text.trim().split(/\s+/);
-    if (!this.tmdb || words.length > TITLE_QUERY_MAX_WORDS) return null;
-    const tmdb = this.tmdb;
-    const bare = (t: string) => normTitle(t).replace(/^(o|a|os|as|um|uma|the)\s+/, '');
-    const q = bare(text);
-    if (q.length < 3) return null;
-    const close = (t: string | undefined) => {
-      const x = t ? bare(t) : '';
-      return x.length > 0 && 1 - levenshtein(q, x) / Math.max(q.length, x.length) >= TITLE_QUERY_MIN_SIMILARITY;
-    };
-    const hits = await beforeDeadline(Math.min(deadline, Date.now() + TITLE_QUERY_BUDGET_MS), () => tmdb.searchMulti(text).then((r) => r.titles).catch(() => [] as TmdbHit[]), [] as TmdbHit[]);
-    const hit = hits.slice(0, 5).find((h) => close(h.title) || close(h.originalTitle));
-    return hit ? hit.title : null;
-  }
-
-  private async referenceCandidates(userId: string, plan: TonightPlan, kind?: TonightKind) {
+  private async referenceCandidates(userId: string, plan: TonightPlan, deadline: number, kind?: TonightKind) {
     const tmdb = this.tmdb!;
     const media = kind === 'movie' ? 'movie' : kind === 'series' ? 'tv' : undefined;
     const refs = (
       await Promise.all(
         (plan.references ?? []).slice(0, 2).map(async (r) => {
-          const titles = (await tmdb.searchMulti(r).catch(() => null))?.titles ?? [];
-          const norm = normTitle(r);
-          return titles.find((h) => normTitle(h.title) === norm || normTitle(h.originalTitle ?? '') === norm) ?? titles[0] ?? null;
+          const found = await this.findWork(r, deadline);
+          if (found) return found;
+          return (await tmdb.searchMulti(r).catch(() => null))?.titles[0] ?? null;
         }),
       )
     ).filter((h): h is TmdbHit => h !== null);
