@@ -41,8 +41,19 @@ export const GoogleLoginRequestSchema = z.object({
 export type GoogleLoginRequest = z.infer<typeof GoogleLoginRequestSchema>;
 
 /** Provedores de login ligados no servidor (o web só mostra o botão do Google com o Client ID). */
-export const AuthProvidersResponseSchema = z.object({ google: z.object({ clientId: z.string() }).nullable() });
+export const AuthProvidersResponseSchema = z.object({
+  google: z.object({ clientId: z.string() }).nullable(),
+  /** "Esqueci minha senha" disponível (o servidor envia e-mail) */
+  passwordReset: z.boolean().optional(),
+});
 export type AuthProvidersResponse = z.infer<typeof AuthProvidersResponseSchema>;
+
+/** "Esqueci minha senha": pede o link por e-mail (a resposta é sempre a mesma, exista ou não a conta). */
+export const ForgotPasswordRequestSchema = z.object({ email: EmailSchema }).strict();
+export type ForgotPasswordRequest = z.infer<typeof ForgotPasswordRequestSchema>;
+/** Redefinição pelo link: o token do e-mail e a senha nova. */
+export const ResetPasswordRequestSchema = z.object({ token: z.string().min(32).max(128), password: PasswordSchema }).strict();
+export type ResetPasswordRequest = z.infer<typeof ResetPasswordRequestSchema>;
 
 export const RefreshRequestSchema = z.object({
   refreshToken: z.string().min(32).max(256),

@@ -17,6 +17,10 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import {
+  type ForgotPasswordRequest,
+  ForgotPasswordRequestSchema,
+  type ResetPasswordRequest,
+  ResetPasswordRequestSchema,
   type MfaChallenge,
   type MfaVerifyRequest,
   MfaVerifyRequestSchema,
@@ -104,7 +108,25 @@ export class AuthController {
   @Public()
   @Get('providers')
   providers(): AuthProvidersResponse {
-    return { google: this.env.GOOGLE_CLIENT_ID ? { clientId: this.env.GOOGLE_CLIENT_ID } : null };
+    return { google: this.env.GOOGLE_CLIENT_ID ? { clientId: this.env.GOOGLE_CLIENT_ID } : null, passwordReset: this.auth.passwordResetAvailable };
+  }
+
+  /** "Esqueci minha senha": sempre 204 (não revela se a conta existe). */
+  @Public()
+  @Throttle(AUTH_THROTTLE)
+  @Post('password/forgot')
+  @HttpCode(204)
+  async forgot(@Body(new ZodPipe(ForgotPasswordRequestSchema)) body: ForgotPasswordRequest): Promise<void> {
+    await this.auth.forgotPassword(body.email);
+  }
+
+  /** Senha nova pelo link do e-mail; todas as sessões são encerradas. */
+  @Public()
+  @Throttle(AUTH_THROTTLE)
+  @Post('password/reset')
+  @HttpCode(204)
+  async reset(@Body(new ZodPipe(ResetPasswordRequestSchema)) body: ResetPasswordRequest): Promise<void> {
+    await this.auth.resetPassword(body.token, body.password);
   }
 
   /** Login com Google: o ID token é conferido aqui e nunca guardado. Web recebe o e-mail junto. */

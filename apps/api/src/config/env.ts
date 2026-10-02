@@ -84,6 +84,12 @@ const EnvSchema = z.object({
     ),
   /** chave do segredo de MFA (base64 de 32 bytes); sem ela, deriva do JWT_SECRET */
   MFA_ENCRYPTION_KEY: optionalSecret,
+  /** e-mail ("Esqueci minha senha"): smtps://usuario:senha@host:465; vazio = desligado */
+  SMTP_URL: optionalSecret,
+  /** remetente, ex.: Fruiqo <conta@gmail.com> */
+  MAIL_FROM: z.string().optional(),
+  /** endereço do site, para os links dos e-mails */
+  WEB_APP_URL: z.string().default('https://fruiqo-web.vercel.app'),
   /** login com Google: Client ID (tipo Web) do Google Cloud; vazio = botão desligado */
   GOOGLE_CLIENT_ID: optionalSecret,
   AI_TONIGHT_OPENAI_MODEL: z.string().default('gpt-6.1-sol'),

@@ -447,6 +447,24 @@ export function overrideScore(o: { mode: 'pin' | 'exclude' | 'level'; score: num
  * Pedidos de acesso e e-mails autorizados (o administrador aprova). Não pertence a um usuário: só as
  * rotas de administração (admin + MFA) e o cadastro/login leem e escrevem.
  */
+/**
+ * "Esqueci minha senha": só o hash (SHA-256) do token do link; vale 30 min e uma vez. Tabela do
+ * sistema (sem RLS): a busca é pelo hash, antes de saber de quem é.
+ */
+export const passwordResets = pgTable(
+  'password_resets',
+  {
+    tokenHash: text('token_hash').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+  },
+  (t) => [index('password_resets_user_idx').on(t.userId)],
+);
+
 export const accessRequests = pgTable('access_requests', {
   email: text('email').primaryKey(),
   /** pending = pediu e aguarda; approved = pode usar; denied = recusado/revogado */

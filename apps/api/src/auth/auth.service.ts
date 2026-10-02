@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   UnauthorizedException,
   ConflictException,
 } from '@nestjs/common';
@@ -14,9 +15,10 @@ import { ENV, type Env } from '../config/env.js';
 import type { Queue } from 'bullmq';
 import { DB, type Db, type Tx, withUser } from '../db/client.js';
 import { SHARE_QUEUE_TOKEN, type ShareJob } from '../queue/queue.js';
-import { accessRequests, sessions, users } from '../db/schema.js';
+import { accessRequests, passwordResets, sessions, users } from '../db/schema.js';
 import { randomBytes } from 'node:crypto';
 import type { GoogleIdentity } from './google.js';
+import { MAILER, type Mailer, resetEmail } from './mail.js';
 import { decryptSecret, encryptSecret, hashRecovery, mfaKey, newRecoveryCodes, newTotpSecret, otpauthUrl, verifyTotp } from './mfa.js';
 import { getDummyHash, hashPassword, verifyPassword } from './password.js';
 import {
@@ -49,6 +51,7 @@ export class AuthService {
     @Inject(ENV) private readonly env: Env,
     private readonly tokens: TokenService,
     @Inject(SHARE_QUEUE_TOKEN) private readonly queue: Queue<ShareJob>,
+    @Optional() @Inject(MAILER) private readonly mailer: Mailer | null = null,
   ) {
     this.mfaKeyBuf = mfaKey(env);
   }
@@ -109,6 +112,60 @@ export class AuthService {
       .values({ email: d.email, status: d.status, decidedAt: now, decidedBy: adminEmail })
       .onConflictDoUpdate({ target: accessRequests.email, set: { status: d.status, decidedAt: now, decidedBy: adminEmail } });
     this.logger.log({ status: d.status }, 'acesso decidido pelo administrador');
+  }
+
+  // ---------- "Esqueci minha senha" ----------
+
+  get passwordResetAvailable(): boolean {
+    return this.mailer !== null;
+  }
+
+  /**
+   * Manda o link por e-mail se a conta existir (a resposta é a mesma de qualquer jeito, para não revelar
+   * quem tem conta). Um pedido a cada 2 min por conta; o link vale 30 min e uma vez.
+   */
+  async forgotPassword(email: string): Promise<void> {
+    if (!this.mailer) throw new NotFoundException('Redefinição de senha indisponível');
+    const e = email.trim().toLowerCase();
+    const found = (await this.db.execute<{ id: string }>(sql`select id from auth_lookup_user(${e})`)).rows[0];
+    if (!found) return;
+    const [recent] = await this.db
+      .select({ at: passwordResets.createdAt })
+      .from(passwordResets)
+      .where(and(eq(passwordResets.userId, found.id), isNull(passwordResets.usedAt)))
+      .orderBy(desc(passwordResets.createdAt))
+      .limit(1);
+    if (recent && Date.now() - recent.at.getTime() < 2 * 60_000) return;
+    const token = randomBytes(32).toString('base64url');
+    await this.db.insert(passwordResets).values({ tokenHash: hashSecret(token), userId: found.id, expiresAt: new Date(Date.now() + 30 * 60_000) });
+    const link = `${this.env.WEB_APP_URL.replace(/\/$/, '')}/redefinir-senha?token=${encodeURIComponent(token)}`;
+    try {
+      await this.mailer.send({ to: e, ...resetEmail(link) });
+      this.logger.log({ userId: found.id }, 'link de redefinição enviado');
+    } catch (err) {
+      this.logger.warn({ userId: found.id, err: (err as Error).name }, 'falha ao enviar o e-mail de redefinição');
+    }
+  }
+
+  /** Troca a senha pelo link: vale uma vez; encerra todas as sessões e destrava a conta. */
+  async resetPassword(token: string, password: string): Promise<void> {
+    const hash = hashSecret(token);
+    const [row] = await this.db.select().from(passwordResets).where(eq(passwordResets.tokenHash, hash));
+    if (!row || row.usedAt || row.expiresAt.getTime() < Date.now()) throw new UnauthorizedException('Link inválido ou expirado. Peça outro.');
+    const passwordHash = await hashPassword(password);
+    const used = await this.db
+      .update(passwordResets)
+      .set({ usedAt: new Date() })
+      .where(and(eq(passwordResets.tokenHash, hash), isNull(passwordResets.usedAt)))
+      .returning({ userId: passwordResets.userId });
+    if (used.length !== 1) throw new UnauthorizedException('Link inválido ou expirado. Peça outro.');
+    await withUser(this.db, row.userId, async (tx) => {
+      await tx.update(users).set({ passwordHash, hasPassword: true, failedLogins: 0, lockedUntil: null }).where(eq(users.id, row.userId));
+      await tx.update(sessions).set({ revokedAt: new Date() }).where(and(eq(sessions.userId, row.userId), isNull(sessions.revokedAt)));
+    });
+    // os outros links pendentes da conta deixam de valer
+    await this.db.update(passwordResets).set({ usedAt: new Date() }).where(and(eq(passwordResets.userId, row.userId), isNull(passwordResets.usedAt)));
+    this.logger.log({ userId: row.userId }, 'senha redefinida pelo link');
   }
 
   // ---------- MFA (TOTP) ----------

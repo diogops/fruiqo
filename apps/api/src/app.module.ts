@@ -18,6 +18,7 @@ import { AuthGuard, Public } from './auth/auth.guard.js';
 import { AuthService } from './auth/auth.service.js';
 import { AdminController } from './auth/admin.controller.js';
 import { GOOGLE_VERIFIER, googleVerifier } from './auth/google.js';
+import { createMailer, MAILER } from './auth/mail.js';
 import { TokenService } from './auth/tokens.js';
 import { HttpExceptionFilter } from './common/http-exception.filter.js';
 import { pinoParams } from './common/logger.js';
@@ -142,6 +143,8 @@ export class AppModule {
         AuthService,
         // login com Google: só com GOOGLE_CLIENT_ID (sem ele, as rotas respondem "desligado")
         { provide: GOOGLE_VERIFIER, useFactory: () => (env.GOOGLE_CLIENT_ID ? googleVerifier(env.GOOGLE_CLIENT_ID) : null) },
+        // e-mail ("Esqueci minha senha"): só com SMTP_URL
+        { provide: MAILER, useFactory: () => createMailer(env) },
         SharesService,
         LibraryService,
         CatalogService,

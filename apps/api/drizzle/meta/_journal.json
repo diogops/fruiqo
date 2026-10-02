@@ -169,6 +169,13 @@
       "when": 1790943030713,
       "tag": "0023_access_mfa",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790959021771,
+      "tag": "0024_password_resets",
+      "breakpoints": true
     }
   ]
 }
