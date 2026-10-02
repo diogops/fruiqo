@@ -52,7 +52,9 @@ export function GoogleButton({
       .then((gis) => {
         if (!alive || !box.current) return;
         gis.initialize({ client_id: clientId, callback: (r) => r.credential && cb.current(r.credential), ux_mode: 'popup', auto_select: false, itp_support: true });
-        const light = document.documentElement.dataset.theme === 'light';
+        // tema da tela: claro escolhido, ou "Sistema" com o sistema claro
+        const t = document.documentElement.dataset.theme;
+        const light = t === 'light' || (t === 'system' && window.matchMedia?.('(prefers-color-scheme: light)').matches);
         gis.renderButton(box.current, {
           type: 'standard',
           theme: light ? 'outline' : 'filled_black',

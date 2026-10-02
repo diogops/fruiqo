@@ -1251,6 +1251,10 @@ img.poster.loaded { opacity: 1; }
 /* o quadro do Google é "claro"; com a página "escura", o navegador pinta um fundo branco atrás dele.
    Com o mesmo esquema no contêiner, o quadro fica transparente e só aparece o botão */
 .google-btn, .google-btn iframe { color-scheme: light; background: transparent; }
+/* tema escuro: o botão "escuro" do Google (#202124) some no cartão; clareia para ~#3C4043 (cinza do
+   próprio Google nas interfaces escuras). O "G" e o texto continuam brancos */
+:root:not([data-theme='light']) .google-btn iframe { filter: brightness(1.85); }
+@media (prefers-color-scheme: light) { :root[data-theme='system'] .google-btn iframe { filter: none; } }
 
 /* política de privacidade (pública) */
 .legal { min-height: 100vh; background: var(--grad-page); color: var(--text); padding: 1.25rem 16px 3rem; }
