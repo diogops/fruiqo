@@ -27,7 +27,8 @@ import { CatalogService } from './catalog.service.js';
 import { LibraryService } from './library.service.js';
 import { PROVIDER_LABEL, STREAMING_PROVIDERS } from './providers.js';
 import { tmdbGenreIds } from './search-query.js';
-import { PerUserRateLimiter, SearchService } from './search.service.js';
+import { mapLimit, PerUserRateLimiter, SearchService } from './search.service.js';
+import { crossGenres, hasEvidence, referenceScore, type RefSignals, type RefTarget, searchKeywords, TONE_GENRE_IDS, weighKeywords } from './tonight-reference.js';
 import { briefIsEmpty, TASTE_AI, type TasteAi, type TasteBrief, type TonightKind } from './taste-ai.js';
 import { TMDB_CATALOG } from './tmdb-catalog.js';
 import { userAllowsAi } from './user-settings.js';
@@ -58,6 +59,11 @@ const AI_TIMED_OUT = { ok: false, reason: 'failed' } as const;
 /** pedido que é só o nome de uma obra: até quantas palavras, e quão parecido com o título (erro de digitação) */
 const TITLE_QUERY_MAX_WORDS = 8;
 const TITLE_QUERY_BUDGET_MS = 3_000;
+/** "igual a X": tempo para montar os candidatos no TMDB (roda junto com a IA) */
+const REFERENCE_BUDGET_MS = 7_000;
+/** candidatos de X avaliados (cada um custa uma consulta de palavras-chave, com cache) */
+const REFERENCE_POOL_MAX = 90;
+const KEYWORD_DF_TTL_MS = 30 * 24 * 3600 * 1000;
 /** fração mínima de palavras em comum (com erro de digitação) entre o texto e o título */
 const TITLE_MIN_WORD_MATCH = 0.75;
 /** palavras que não contam na comparação de títulos */
@@ -203,6 +209,8 @@ export class TonightService {
    */
   private readonly sessions = new Map<string, VideoSession>();
   private readonly keywordIds = new Map<string, number | null>();
+  /** em quantas obras cada palavra-chave aparece (`movie:123`; `movie:*` = total), para o peso */
+  private readonly keywordDf = new Map<string, { n: number; at: number }>();
   /** obra que um texto nomeia (findWork), pelas palavras do texto */
   private readonly works = new Map<string, { hit: TmdbHit | null; at: number }>();
   private readonly titleKeywords = new Map<string, { ids: number[]; at: number }>();
@@ -554,13 +562,13 @@ export class TonightService {
         const ai = this.ai!;
         const history = await this.seenSample(userId, [...plan.genresAll, ...plan.genresAny]);
         const brief: TasteBrief = { ...ctx.brief, seen: history.sample, seenCount: history.total, ...(ctx.mood ? { mood: ctx.mood } : {}) };
-        const asked = new Set<GenreKey>([...plan.genresAll, ...plan.genresAny]);
-        const avoid = references ? (ctx.hated ?? (await this.avoidedGenres(userId))).filter((g) => !asked.has(g)) : [];
+        // "igual a X": a IA não recebe os gêneros evitados (X pode ser de um deles); o servidor filtra depois
         const call = withAiUsage(userId, 'tonight_titles', () =>
-          ai.tonight(brief, userId, kindHint, {
+          // "igual a X": filme e série valem (o tipo da tela é o do seu hábito; o de X pesa na nota)
+          ai.tonight(brief, userId, references ? undefined : kindHint, {
             filtered: ctx.filterSubs.length > 0,
             max: AI_CANDIDATES,
-            ...(references ? { references, avoidGenres: avoid.map((g) => GENRE_LABEL.get(g) ?? g) } : {}),
+            ...(references ? { references } : {}),
           }),
         );
         return beforeDeadline(ctx.deadline - CONFIRM_RESERVE_MS, () => call, AI_TIMED_OUT);
@@ -592,13 +600,19 @@ export class TonightService {
       if (plan.references?.length && ctx.aiAllowed && this.ai) void startAi(plan, plan.references);
       const required = requiredAttrs(plan);
       if (plan.references?.length && this.tmdb) {
-        const related = await this.referenceCandidates(userId, plan, ctx.deadline, req.kind);
+        const related = await this.referenceCandidates(userId, plan, ctx.deadline, undefined, ctx.filterSubs.flatMap((k) => PROVIDER_TMDB_IDS[k] ?? []));
         for (const k of related.referenceKeys) session.shown.add(k);
         session.referenceTitles = related.titles;
         session.related = related.candidates;
+        session.referenceGenres = related.genres;
+        session.refTarget = related.target;
+        session.refSignals = related.signals;
       } else {
         session.referenceTitles = [];
         session.related = [];
+        session.referenceGenres = [];
+        session.refTarget = undefined;
+        session.refSignals = undefined;
       }
       session.keywordIds = await this.resolveKeywords(plan.prefer.filter((a) => !required.includes(a)));
       session.requiredKeywordIds = await this.resolveKeywords(required);
@@ -614,8 +628,9 @@ export class TonightService {
     // "Incluir animes e animações?" desmarcado: nada de anime nem de animação (desenho), a não ser que
     // o pedido seja de animação
     const wantsAnimation = Boolean(req.includeAnime) || plan.genresAll.includes('animation') || plan.genresAny.includes('animation');
-    // o que você evita (Perfil: "não curto"/"detesto"/excluído) fica de fora, a não ser que o pedido peça
-    const asked = new Set<GenreKey>([...plan.genresAll, ...plan.genresAny]);
+    // o que você evita (Perfil: "não curto"/"detesto"/excluído) fica de fora, a não ser que o pedido peça;
+    // em "igual a X", os gêneros de X contam como pedidos
+    const asked = new Set<GenreKey>([...plan.genresAll, ...plan.genresAny, ...(s.referenceGenres ?? [])]);
     const avoided = (ctx.hated ?? (await this.avoidedGenres(userId))).filter((g) => !asked.has(g));
     const retrievalPlan: TonightPlan = {
       ...plan,
@@ -728,18 +743,31 @@ export class TonightService {
         );
         const { items } = await this.search.confirmGuesses(userId, guesses, {
           matchedBy: 'description',
-          ...(kindHint ? { kind: kindHint } : {}),
+          ...(kindHint && !referenceMode ? { kind: kindHint } : {}),
           limit: AI_CANDIDATES,
         });
         const known = new Map(s.pending.map((c) => [`${c.item.mediaType}:${c.item.tmdbId}`, c]));
-        for (const item of items) {
+        // "igual a X": cada sugestão da IA ganha a nota de semelhança (posição na IA + o que mais ela tem de X)
+        const target = referenceMode ? s.refTarget : undefined;
+        const aiKeywords = target
+          ? await mapLimit(items, 16, (it) => beforeDeadline(ctx.deadline - 1_000, () => this.keywordsOf(it.mediaType, it.tmdbId), undefined as number[] | undefined))
+          : [];
+        items.forEach((item, i) => {
           const k = `${item.mediaType}:${item.tmdbId}`;
           const same = known.get(k);
           // a IA confirmou um que já estava no estoque (lista/recomendação): fica como sugestão da IA
           if (same) s.pending = s.pending.filter((c) => c !== same);
+          const genres = (item.genres ?? []) as GenreKey[];
+          let refScore: number | undefined;
+          if (target) {
+            const prev = s.refSignals?.get(k);
+            const base: RefSignals = prev ?? { mediaType: item.mediaType, genreIds: tmdbGenreIds(genres, item.mediaType), voteAverage: item.generalRating, voteCount: item.generalVotes };
+            refScore = referenceScore({ ...base, aiPos: i, keywordIds: prev?.keywordIds ?? aiKeywords[i] }, target);
+          }
           // gêneros vêm do resultado conferido (sem gêneros no resultado, o plano não filtra por eles)
-          s.pending.push(rate({ item, source: 'ai', page: 1, anime: Boolean(item.anime), genres: (item.genres ?? []) as GenreKey[], themes: [], ...(same?.similarTo ? { similarTo: same.similarTo } : {}) }, plan));
-        }
+          const c = rate({ item, source: 'ai', page: 1, anime: Boolean(item.anime), genres, themes: [], ...(same?.similarTo ? { similarTo: same.similarTo } : {}) }, plan);
+          s.pending.push(refScore != null ? { ...c, refScore } : c);
+        });
         s.pending.sort(compareCandidates);
       } else failed ??= res.reason === 'quota' ? 'quota' : 'failed';
     };
@@ -910,7 +938,7 @@ export class TonightService {
    * "Igual a X": acha X no TMDB (o tipo pedido, se houver) e traz as recomendações e semelhantes dele.
    * X sai do resultado (você já conhece). Nada disso vai à IA além do nome que você mesmo digitou.
    */
-  private async referenceCandidates(userId: string, plan: TonightPlan, deadline: number, kind?: TonightKind) {
+  private async referenceCandidates(userId: string, plan: TonightPlan, deadline: number, kind: TonightKind | undefined, providerIds: number[]) {
     const tmdb = this.tmdb!;
     const media = kind === 'movie' ? 'movie' : kind === 'series' ? 'tv' : undefined;
     const refs = (
@@ -922,18 +950,108 @@ export class TonightService {
         }),
       )
     ).filter((h): h is TmdbHit => h !== null);
-    const candidates: Candidate[] = [];
+    const refKeys = new Set(refs.map((r) => `${r.mediaType}:${r.tmdbId}`));
+    // a busca no TMDB de X não pode comer o tempo da IA nem o da resposta
+    const limit = Math.min(deadline - CONFIRM_RESERVE_MS, Date.now() + REFERENCE_BUDGET_MS);
+
+    const pool = new Map<string, { hit: TmdbHit; sig: RefSignals; ref: TmdbHit }>();
+    const add = (hit: TmdbHit, ref: TmdbHit, extra: Partial<RefSignals>) => {
+      const key = `${hit.mediaType}:${hit.tmdbId}`;
+      if (refKeys.has(key) || (media && hit.mediaType !== media)) return;
+      const cur = pool.get(key);
+      const sig: RefSignals = cur?.sig ?? { mediaType: hit.mediaType, genreIds: hit.genreIds, voteAverage: hit.voteAverage, voteCount: hit.voteCount };
+      // a melhor posição de cada fonte vale
+      if (extra.recPos != null) sig.recPos = Math.min(sig.recPos ?? Infinity, extra.recPos);
+      if (extra.simPos != null) sig.simPos = Math.min(sig.simPos ?? Infinity, extra.simPos);
+      if (extra.crew) sig.crew = true;
+      pool.set(key, { hit, sig, ref: cur?.ref ?? ref });
+    };
+
+    const targets = new Map<number, RefTarget>();
     for (const ref of refs) {
-      const related = (await tmdb.relatedTo(ref.mediaType, ref.tmdbId).catch(() => [] as TmdbHit[])).filter((h) => !media || h.mediaType === media);
-      if (!related.length) continue;
-      const items = await this.search.toResults(userId, related, 'browse', related.length);
-      const byKey = new Map(related.map((h) => [`${h.mediaType}:${h.tmdbId}`, h]));
-      for (const item of items) {
-        const h = byKey.get(`${item.mediaType}:${item.tmdbId}`)!;
-        candidates.push(rate({ item, source: 'similar', page: 1, anime: isAnime(h), genres: hitGenres(h), themes: [], similarTo: ref.title }, plan));
+      const noRelated = { recommendations: [] as TmdbHit[], similar: [] as TmdbHit[] };
+      const [keywords, creators, related] = await Promise.all([
+        beforeDeadline(limit, () => tmdb.keywordsOf(ref.mediaType, ref.tmdbId).catch(() => []), [] as { id: number; name: string }[]),
+        beforeDeadline(limit, () => tmdb.creatorsOf(ref.mediaType, ref.tmdbId).catch(() => []), [] as number[]),
+        beforeDeadline(limit, () => tmdb.relatedSplit(ref.mediaType, ref.tmdbId).catch(() => noRelated), noRelated),
+      ]);
+      const [total, ...df] = await beforeDeadline(
+        limit,
+        () => Promise.all([this.keywordFrequency(ref.mediaType), ...keywords.map((k) => this.keywordFrequency(ref.mediaType, k.id))]),
+        [0],
+      );
+      const weights = weighKeywords(keywords, new Map(keywords.map((k, i) => [k.id, df[i] ?? Number.MAX_SAFE_INTEGER])), total || 1_000_000);
+      targets.set(ref.tmdbId, { mediaType: ref.mediaType, genreIds: ref.genreIds, keywords: weights });
+      related.recommendations.forEach((h, i) => add(h, ref, { recPos: i }));
+      related.similar.forEach((h, i) => add(h, ref, { simPos: i }));
+
+      // dentro dos seus streamings: palavras-chave mais específicas de X (OU, com os gêneros de X), pares
+      // delas (E) e quem fez X
+      const where = providerIds.length ? { providerIds } : { availableBR: true };
+      const top = searchKeywords(weights);
+      const coreGenres = ref.genreIds.filter((g) => !TONE_GENRE_IDS.includes(g));
+      const otherMedia = ref.mediaType === 'movie' ? 'tv' : 'movie';
+      const medias: ('movie' | 'tv')[] = media ? [media] : [ref.mediaType, otherMedia];
+      const queries: { run: () => Promise<TmdbHit[]>; crew?: boolean }[] = [];
+      for (const m of top.length ? medias : []) {
+        const ids = m === ref.mediaType ? coreGenres : crossGenres(coreGenres, otherMedia);
+        const genres = ids.length ? { genreIds: ids, anyGenre: true } : {};
+        for (const page of m === ref.mediaType ? [1, 2] : [1])
+          queries.push({ run: () => tmdb.discoverBrowse(m, { ...where, ...genres, sort: 'votes', minVotes: 30, keywordIds: top.map((k) => k.id), page }) });
       }
+      const four = top.slice(0, 4);
+      if (!media || media === ref.mediaType)
+        for (let i = 0; i < four.length; i++)
+          for (let j = i + 1; j < four.length; j++)
+            queries.push({ run: () => tmdb.discoverBrowse(ref.mediaType, { ...where, sort: 'votes', minVotes: 10, keywordIds: [four[i]!.id, four[j]!.id], allKeywords: true }) });
+      if (creators.length && ref.mediaType === 'movie' && media !== 'tv')
+        queries.push({ run: () => tmdb.discoverBrowse('movie', { ...where, sort: 'votes', minVotes: 10, crewIds: creators }), crew: true });
+      const found = await Promise.all(
+        queries.map((q) => beforeDeadline(limit, () => q.run().catch(() => [] as TmdbHit[]), [] as TmdbHit[]).then((hits) => ({ hits, crew: q.crew }))),
+      );
+      for (const f of found) for (const h of f.hits) add(h, ref, f.crew ? { crew: true } : {});
     }
-    return { referenceKeys: refs.map((r) => `${r.mediaType}:${r.tmdbId}`), titles: refs.map((r) => `${r.title}${r.year ? ` (${r.year})` : ''}`), candidates };
+
+    // palavras-chave de cada candidato (cache de 6 h) para medir o quanto lembra X
+    const entries = [...pool.values()].slice(0, REFERENCE_POOL_MAX);
+    await mapLimit(entries, 16, async (e) => {
+      e.sig.keywordIds = await beforeDeadline(limit, () => this.keywordsOf(e.hit.mediaType, e.hit.tmdbId), undefined as number[] | undefined);
+    });
+    const signals = new Map<string, RefSignals>();
+    const kept = entries
+      .map((e) => {
+        const t = targets.get(e.ref.tmdbId)!;
+        signals.set(`${e.hit.mediaType}:${e.hit.tmdbId}`, e.sig);
+        return { ...e, score: referenceScore(e.sig, t), ok: hasEvidence(e.sig, t) };
+      })
+      .filter((e) => e.ok)
+      .sort((x, y) => y.score - x.score);
+    const items = await this.search.toResults(userId, kept.map((e) => e.hit), 'browse', kept.length);
+    const byKey = new Map(kept.map((e) => [`${e.hit.mediaType}:${e.hit.tmdbId}`, e]));
+    const candidates: Candidate[] = items.flatMap((item) => {
+      const e = byKey.get(`${item.mediaType}:${item.tmdbId}`);
+      if (!e) return [];
+      return [{ ...rate({ item, source: 'similar', page: 1, anime: isAnime(e.hit), genres: hitGenres(e.hit), themes: [], similarTo: e.ref.title }, plan), refScore: e.score }];
+    });
+    return {
+      referenceKeys: [...refKeys],
+      titles: refs.map((r) => `${r.title}${r.year ? ` (${r.year})` : ''}`),
+      genres: [...new Set(refs.flatMap((r) => hitGenres(r)))],
+      target: refs[0] ? targets.get(refs[0].tmdbId) : undefined,
+      signals,
+      candidates,
+    };
+  }
+
+  /** Em quantas obras a palavra-chave aparece no TMDB (sem id: o total), com cache de 30 dias. */
+  private async keywordFrequency(media: 'movie' | 'tv', keywordId?: number): Promise<number> {
+    const key = `${media}:${keywordId ?? '*'}`;
+    const hit = this.keywordDf.get(key);
+    if (hit && Date.now() - hit.at < KEYWORD_DF_TTL_MS) return hit.n;
+    const n = await this.tmdb!.keywordFrequency(media, keywordId).catch(() => null);
+    if (n == null) return keywordId ? Number.MAX_SAFE_INTEGER : 1_000_000;
+    this.keywordDf.set(key, { n, at: Date.now() });
+    return n;
   }
 
   /** Gêneros que você evita (Perfil: "não curto", "detesto" ou excluído). */
@@ -1158,5 +1276,10 @@ interface VideoSession {
   /** "igual a X": os títulos de X encontrados no TMDB e as recomendações/semelhantes deles */
   referenceTitles?: string[];
   related?: Candidate[];
+  /** gêneros de X: não são "evitados" nesta busca (você pediu algo como X) */
+  referenceGenres?: GenreKey[];
+  /** X para pontuar as sugestões da IA que chegam depois, e os sinais de cada candidato já visto */
+  refTarget?: RefTarget;
+  refSignals?: Map<string, RefSignals>;
   at: number;
 }

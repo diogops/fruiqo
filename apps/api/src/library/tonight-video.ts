@@ -38,6 +38,8 @@ export interface Candidate {
   originOk?: boolean;
   /** veio das recomendações/semelhantes desta obra de referência ("igual a X") */
   similarTo?: string;
+  /** "mesma pegada de X": nota de semelhança com X (tonight-reference.ts); quando existe, ordena por ela */
+  refScore?: number;
   /** compatibilidade com o pedido (0..1) */
   fit: number;
   /** compatibilidade com o perfil (0..1) */
@@ -138,6 +140,7 @@ export function compareCandidates(a: Candidate, b: Candidate): number {
   const listA = a.source === 'list' ? 1 : 0;
   const listB = b.source === 'list' ? 1 : 0;
   if (listA !== listB) return listB - listA;
+  if (!listA && (a.refScore != null || b.refScore != null)) return (b.refScore ?? -1) - (a.refScore ?? -1);
   const fit = Math.round(b.fit * 10) - Math.round(a.fit * 10);
   if (fit) return fit;
   if (listA) return 0; // mesma faixa de pedido: mantém a ordem da sua fila

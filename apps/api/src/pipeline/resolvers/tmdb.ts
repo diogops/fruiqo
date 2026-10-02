@@ -37,8 +37,13 @@ const TitleCountriesSchema = z.object({
 });
 /** filme: `keywords`; série: `results` */
 const TitleKeywordsSchema = z.object({
-  keywords: z.array(z.object({ id: z.number().int() })).optional(),
-  results: z.array(z.object({ id: z.number().int() })).optional(),
+  keywords: z.array(z.object({ id: z.number().int(), name: z.string().optional() })).optional(),
+  results: z.array(z.object({ id: z.number().int(), name: z.string().optional() })).optional(),
+});
+const TotalSchema = z.object({ total_results: z.number().int().nonnegative() });
+const CrewSchema = z.object({
+  crew: z.array(z.object({ id: z.number().int(), job: z.string().optional() })).optional(),
+  created_by: z.array(z.object({ id: z.number().int() })).optional(),
 });
 
 const PersonHit = z.object({
@@ -97,7 +102,8 @@ export interface DiscoverBrowse {
   originCountries?: string[];
   /** D-25: nota geral mínima (0..10) */
   minRating?: number;
-  sort: 'best' | 'popular' | 'newest';
+  /** `votes`: mais votadas primeiro (obras estabelecidas, sem o modismo da popularidade do dia) */
+  sort: 'best' | 'popular' | 'newest' | 'votes';
   page?: number;
   /** disponível no Brasil por assinatura ou de graça (sem exigir um serviço específico) */
   availableBR?: boolean;
@@ -106,6 +112,10 @@ export interface DiscoverBrowse {
   anyGenre?: boolean;
   withoutGenreIds?: number[];
   keywordIds?: number[];
+  /** todas as palavras-chave ao mesmo tempo (E) em vez de qualquer uma (OU) */
+  allKeywords?: boolean;
+  /** só filmes: pessoas da equipe (direção, roteiro, produção), qualquer uma */
+  crewIds?: number[];
   providerIds?: number[];
   /** só filmes (o /discover/tv não filtra por pessoa) */
   personId?: number;
@@ -323,7 +333,8 @@ export class TmdbResolver {
     const dateField = mediaType === 'movie' ? 'primary_release_date' : 'first_air_date';
     if (o.genreIds?.length) params.set('with_genres', o.genreIds.join(o.anyGenre ? '|' : ','));
     if (o.withoutGenreIds?.length) params.set('without_genres', o.withoutGenreIds.join(','));
-    if (o.keywordIds?.length) params.set('with_keywords', o.keywordIds.join('|'));
+    if (o.keywordIds?.length) params.set('with_keywords', o.keywordIds.join(o.allKeywords ? ',' : '|'));
+    if (o.crewIds?.length && mediaType === 'movie') params.set('with_crew', o.crewIds.join('|'));
     if (o.originCountries?.length) params.set('with_origin_country', o.originCountries.join('|'));
     if (o.minRating) params.set('vote_average.gte', String(o.minRating));
     if (o.providerIds?.length) {
@@ -342,6 +353,9 @@ export class TmdbResolver {
     if (o.sort === 'best') {
       params.set('sort_by', 'vote_average.desc');
       params.set('vote_count.gte', String(o.minVotes ?? (mediaType === 'movie' ? 1000 : 300)));
+    } else if (o.sort === 'votes') {
+      params.set('sort_by', 'vote_count.desc');
+      if (o.minVotes) params.set('vote_count.gte', String(o.minVotes));
     } else if (o.sort === 'newest') {
       params.set('sort_by', `${dateField}.desc`);
       if (o.minVotes) params.set('vote_count.gte', String(o.minVotes));
@@ -359,26 +373,44 @@ export class TmdbResolver {
     return fetchTitleLinks(mediaType, id, this.fetchImpl);
   }
 
-  /** D-25: "igual a X": recomendações e semelhantes da obra X no TMDB (recomendações primeiro, sem repetir). */
-  async relatedTo(mediaType: 'movie' | 'tv', id: number): Promise<TmdbHit[]> {
-    const page = async (kind: 'recommendations' | 'similar') =>
-      SearchSchema.parse(await this.get(`/${mediaType}/${id}/${kind}?language=pt-BR&page=1`))
-        .results.map((x) => toHit({ ...x, media_type: mediaType }))
-        .filter((h): h is TmdbHit => h !== null);
-    const [rec, sim] = await Promise.all([page('recommendations').catch(() => [] as TmdbHit[]), page('similar').catch(() => [] as TmdbHit[])]);
-    const seen = new Set<string>();
-    return [...rec, ...sim].filter((h) => {
-      const k = `${h.mediaType}:${h.tmdbId}`;
-      if (seen.has(k) || h.tmdbId === id) return false;
-      seen.add(k);
-      return true;
-    });
-  }
-
-  /** D-25: países de origem e de produção de uma obra (prova de "nórdico", "coreano"...). */
   async countriesOf(mediaType: 'movie' | 'tv', id: number): Promise<string[]> {
     const r = TitleCountriesSchema.parse(await this.get(`/${mediaType}/${id}`));
     return [...new Set([...(r.origin_country ?? []), ...(r.production_countries ?? []).map((c) => c.iso_3166_1)])];
+  }
+
+  /** Palavras-chave de uma obra com o nome (em inglês, como o TMDB as cadastra). */
+  async keywordsOf(mediaType: 'movie' | 'tv', id: number): Promise<{ id: number; name: string }[]> {
+    const r = TitleKeywordsSchema.parse(await this.get(`/${mediaType}/${id}/keywords`));
+    return (r.keywords ?? r.results ?? []).map((k) => ({ id: k.id, name: (k.name ?? '').toLowerCase() }));
+  }
+
+  /** Em quantas obras a palavra-chave aparece (o `total_results` do /discover); sem ela, o total geral. */
+  async keywordFrequency(mediaType: 'movie' | 'tv', keywordId?: number): Promise<number> {
+    const params = new URLSearchParams({ include_adult: 'false', page: '1' });
+    if (keywordId) params.set('with_keywords', String(keywordId));
+    return TotalSchema.parse(await this.get(`/discover/${mediaType}?${params}`)).total_results;
+  }
+
+  /** Quem fez a obra: direção, roteiro e produção (filme); criadores (série). Produção executiva fica de fora. */
+  async creatorsOf(mediaType: 'movie' | 'tv', id: number): Promise<number[]> {
+    const path = mediaType === 'movie' ? `/movie/${id}/credits` : `/tv/${id}`;
+    const r = CrewSchema.parse(await this.get(path));
+    const jobs = new Set(['Director', 'Screenplay', 'Writer', 'Producer', 'Novel', 'Story']);
+    const ids = mediaType === 'movie' ? (r.crew ?? []).filter((c) => c.job && jobs.has(c.job)).map((c) => c.id) : (r.created_by ?? []).map((c) => c.id);
+    return [...new Set(ids)].slice(0, 8);
+  }
+
+  /** Recomendações (páginas 1 e 2) e semelhantes (página 1) separadas: valem pesos diferentes. */
+  async relatedSplit(mediaType: 'movie' | 'tv', id: number): Promise<{ recommendations: TmdbHit[]; similar: TmdbHit[] }> {
+    const page = async (kind: 'recommendations' | 'similar', n: number) =>
+      SearchSchema.parse(await this.get(`/${mediaType}/${id}/${kind}?language=pt-BR&page=${n}`))
+        .results.map((x) => toHit({ ...x, media_type: mediaType }))
+        .filter((h): h is TmdbHit => h !== null && h.tmdbId !== id);
+    const none = () => [] as TmdbHit[];
+    const [r1, r2, sim] = await Promise.all([page('recommendations', 1).catch(none), page('recommendations', 2).catch(none), page('similar', 1).catch(none)]);
+    const seen = new Set<number>();
+    const recommendations = [...r1, ...r2].filter((h) => !seen.has(h.tmdbId) && (seen.add(h.tmdbId), true));
+    return { recommendations, similar: sim.filter((h) => !seen.has(h.tmdbId)) };
   }
 
   /** D-25: IDs das palavras-chave de uma obra (prova de "baseado em história real" etc.). */
