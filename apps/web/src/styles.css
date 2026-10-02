@@ -1190,19 +1190,18 @@ img.poster.loaded { opacity: 1; }
 .shelf-info { display: grid; gap: 0.1rem; min-width: 0; }
 .shelf-title { font-weight: 600; font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .shelf-where { color: var(--ok); font-size: 0.74rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* "+ Quero assistir" no canto de baixo do cartaz */
-.shelf-add {
-  position: absolute; right: 6px; bottom: 6px;
-  width: 34px; height: 34px; display: grid; place-items: center;
-  border-radius: 999px; border: 0; cursor: pointer; color: #fff; background: var(--grad-brand); box-shadow: var(--shadow-2);
+/* "−" e "+" pequenos, na linha do tipo/ano: não cobrem a capa nem o título */
+.shelf-meta { display: flex; align-items: center; justify-content: space-between; gap: 0.3rem; min-width: 0; }
+.shelf-meta > .muted { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shelf-acts { display: inline-flex; gap: 0.2rem; flex: none; }
+.shelf-add, .shelf-hide {
+  width: 22px; height: 22px; display: grid; place-items: center; padding: 0;
+  border-radius: 999px; cursor: pointer; border: 1px solid var(--border-strong);
 }
+.shelf-add { color: #fff; background: var(--primary); border-color: transparent; }
+.shelf-hide { color: var(--muted); background: transparent; }
 .shelf-add:disabled, .shelf-hide:disabled { opacity: 0.6; cursor: progress; }
-/* "−" não mostrar mais: canto de cima à esquerda, discreto */
-.shelf-hide {
-  position: absolute; left: 6px; top: 6px; width: 28px; height: 28px; display: grid; place-items: center;
-  border-radius: 999px; border: 0; cursor: pointer; color: #e8eef9; background: rgb(15 23 42 / 0.72); backdrop-filter: blur(4px);
-}
-.shelf-hide:hover { background: rgb(220 38 38 / 0.85); }
+.shelf-hide:hover { color: var(--danger); border-color: var(--danger); }
 .shelf-more { pointer-events: none; }
 .shelf-more .skeleton-poster { display: block; width: 100%; }
 .skeleton-title { display: block; width: 160px; height: 1.2rem; }
@@ -1232,7 +1231,6 @@ img.poster.loaded { opacity: 1; }
   .tonight-card .tonight-actions .act-label { display: none; }
   .shelf-nav { display: none; }
   .shelf-rail { grid-auto-columns: 29%; gap: 0.6rem; }
-  .shelf-add { width: 30px; height: 30px; right: 4px; bottom: 4px; }
   .poster-rating { font-size: 0.66rem; padding: 0.05rem 0.3rem; }
 }
 
@@ -1250,3 +1248,16 @@ img.poster.loaded { opacity: 1; }
 .auth-divider { display: flex; align-items: center; gap: 0.75rem; color: var(--muted); font-size: 0.85rem; margin: 0.25rem 0; }
 .auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 .google-btn { display: flex; justify-content: center; min-height: 44px; }
+
+/* política de privacidade (pública) */
+.legal { min-height: 100vh; background: var(--grad-page); color: var(--text); padding: 1.25rem 16px 3rem; }
+.legal-head { max-width: 760px; margin: 0 auto 1.5rem; }
+.legal-head .brand { display: inline-flex; align-items: center; gap: 0.6rem; text-decoration: none; color: var(--text); font-weight: 700; }
+.legal-body { max-width: 760px; margin: 0 auto; padding: clamp(1.25rem, 4vw, 2.25rem); border-radius: 18px; border: 1px solid var(--border); background: var(--grad-surface); line-height: 1.65; }
+.legal-body h1 { margin-top: 0; letter-spacing: -0.02em; }
+.legal-body h2 { margin: 1.75rem 0 0.5rem; font-size: 1.15rem; }
+.legal-body ul { padding-left: 1.2rem; display: grid; gap: 0.5rem; }
+.legal-body p, .legal-body li { color: var(--text-2); }
+.legal-body strong { color: var(--text); }
+.legal-foot { margin-top: 2rem; }
+.legal-note { margin: 0; text-align: center; }

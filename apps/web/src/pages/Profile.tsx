@@ -1,7 +1,7 @@
 import { JUSTWATCH_ATTRIBUTION, TMDB_ATTRIBUTION } from '@fruiqo/contracts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { api } from '../api/client';
 import { ErrorNote } from '../components/shared';
 import { useToast } from '../components/Toast';
@@ -171,6 +171,9 @@ export function Profile() {
       )}
 
       <h2>Privacidade</h2>
+      <p className="muted small">
+        Como usamos os seus dados: <Link to="/privacidade">política de privacidade</Link>.
+      </p>
       {settings.data && (
         <div className="privacy">
           <label className="check">

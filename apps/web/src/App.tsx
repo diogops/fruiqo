@@ -9,6 +9,7 @@ import { Catalog } from './pages/Catalog';
 import { ListDetail, Lists } from './pages/Lists';
 import { Login } from './pages/Login';
 import { Discover } from './pages/Discover';
+import { Privacy } from './pages/Privacy';
 import { Profile } from './pages/Profile';
 import { Sandbox } from './pages/Sandbox';
 import { TonightPage } from './pages/Tonight';
@@ -49,7 +50,11 @@ export function App() {
       <ToastProvider>
         <AuthProvider>
           <BrowserRouter>
-            <Gate />
+            <Routes>
+              {/* pública, sem login (exigida pelo login com Google e pela LGPD) */}
+              <Route path="/privacidade" element={<Privacy />} />
+              <Route path="*" element={<Gate />} />
+            </Routes>
           </BrowserRouter>
         </AuthProvider>
       </ToastProvider>

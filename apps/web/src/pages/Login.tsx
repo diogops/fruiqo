@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Link } from 'react-router';
 import { ApiError, authProviders } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { GoogleButton } from '../components/GoogleButton';
@@ -127,7 +128,9 @@ export function Login() {
           <h2>Seu cinema, organizado.</h2>
           <p>Tudo o que você salvou dos posts vira uma fila de filmes, séries, livros e músicas — priorizada do seu jeito.</p>
         </div>
-        <span className="login-foot">Dados de filmes e séries: TMDB · Disponibilidade: JustWatch</span>
+        <span className="login-foot">
+          Dados de filmes e séries: TMDB · Disponibilidade: JustWatch · <Link to="/privacidade">Política de privacidade</Link>
+        </span>
       </section>
       <div className="login-panel">
         <form className="card form" onSubmit={onSubmit} noValidate>
@@ -201,6 +204,9 @@ export function Login() {
           <button type="submit" className="btn btn-primary" disabled={busy}>
             {busy ? (signup ? 'Criando…' : 'Entrando…') : signup ? 'Criar conta' : 'Entrar'}
           </button>
+          <p className="small muted legal-note">
+            Ao continuar, você concorda com a <Link to="/privacidade">política de privacidade</Link>.
+          </p>
           {googleId && (
             <>
               <div className="auth-divider" role="separator">
