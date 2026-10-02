@@ -11,7 +11,6 @@ const NAV: { to: string; label: string; icon: IconName }[] = [
   { to: '/hoje', label: 'Assistir hoje', icon: 'play' },
   { to: '/minha-area', label: 'Minha Área', icon: 'star' },
   { to: '/catalogo', label: 'Catálogo', icon: 'film' },
-  { to: '/como-estou', label: 'Como estou', icon: 'sparkles' },
   { to: '/listas', label: 'Listas', icon: 'list' },
   { to: '/atividade', label: 'Atividade', icon: 'activity' },
   { to: '/perfil', label: 'Perfil', icon: 'user' },
@@ -158,7 +157,6 @@ export function Layout() {
           )}
         </div>
         <nav aria-label="Seções">
-          <span className="nav-label">Navegação</span>
           {NAV.map((n) => (
             <NavLink
               key={n.to}

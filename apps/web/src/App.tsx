@@ -8,7 +8,6 @@ import { Activity, ActivityDetail } from './pages/Activity';
 import { Catalog } from './pages/Catalog';
 import { ListDetail, Lists } from './pages/Lists';
 import { Login } from './pages/Login';
-import { Discover } from './pages/Discover';
 import { Privacy } from './pages/Privacy';
 import { Profile } from './pages/Profile';
 import { Sandbox } from './pages/Sandbox';
@@ -25,7 +24,8 @@ function Gate() {
         <Route index element={<Navigate to="/minha-area" replace />} />
         <Route path="minha-area" element={<Catalog key="area" area />} />
         <Route path="catalogo" element={<Catalog key="catalog" />} />
-        <Route path="como-estou" element={<Discover />} />
+        {/* "Como estou" virou o "Assistir hoje" (mesma função): o endereço antigo leva para lá */}
+        <Route path="como-estou" element={<Navigate to="/hoje" replace />} />
         <Route path="listas" element={<Lists />} />
         <Route path="listas/:id" element={<ListDetail />} />
         {/* D-23: sem revisão; o que se importa vai direto para a Minha Área */}
