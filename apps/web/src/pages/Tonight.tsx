@@ -648,7 +648,7 @@ function Poster({ src, title }: { src?: string | null; title: string }) {
   if (src && failed !== src)
     return (
       <img
-        className={loaded === src ? 'poster loaded' : 'poster'}
+        className={loaded === src ? 'tn-poster loaded' : 'tn-poster'}
         src={src}
         alt=""
         loading="lazy"
@@ -657,7 +657,7 @@ function Poster({ src, title }: { src?: string | null; title: string }) {
       />
     );
   return (
-    <span className="poster poster-fallback" aria-hidden="true">
+    <span className="tn-poster tn-poster-fallback" aria-hidden="true">
       {title.trim().charAt(0).toUpperCase() || '?'}
     </span>
   );

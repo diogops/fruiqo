@@ -1150,7 +1150,7 @@ select[data-from='tmdb'] { border-color: var(--accent, #4f8cff); }
 .tonight-card:hover { background: var(--surface-2); }
 @media (prefers-reduced-motion: no-preference) { .tonight-card { animation: fade-in 200ms var(--ease) both; } }
 .tonight-poster { position: relative; flex: none; width: 52px; display: block; }
-.tonight-poster .poster { border-radius: 7px; }
+.tonight-poster .tn-poster { border-radius: 7px; }
 .tonight-poster .poster-badge { display: none; }
 .tonight-card-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 0.15rem; line-height: 1.35; }
 .tc-title { font-size: 1.02rem; }
@@ -1161,13 +1161,13 @@ select[data-from='tmdb'] { border-color: var(--accent, #4f8cff); }
 .tc-reason { -webkit-line-clamp: 1; }
 .tonight-more { justify-content: center; border-top: 0; margin-top: 0; padding-top: 0; }
 
-.poster { display: block; width: 100%; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 10px; background: var(--surface-2); box-shadow: var(--shadow-1); }
+.tn-poster { display: block; width: 100%; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 10px; background: var(--surface-2); box-shadow: var(--shadow-1); }
 /* o cartaz aparece suave quando carrega (antes, o fundo da superfície) */
-img.poster { opacity: 0; }
-img.poster.loaded { opacity: 1; }
-@media (prefers-reduced-motion: no-preference) { img.poster { transition: opacity 260ms var(--ease), transform 200ms var(--ease), box-shadow 200ms var(--ease); } }
+img.tn-poster { opacity: 0; }
+img.tn-poster.loaded { opacity: 1; }
+@media (prefers-reduced-motion: no-preference) { img.tn-poster { transition: opacity 260ms var(--ease), transform 200ms var(--ease), box-shadow 200ms var(--ease); } }
 .tonight-poster, .shelf-poster { background: var(--surface-2); border-radius: 10px; }
-.poster-fallback { display: grid; place-items: center; font-size: 2rem; font-weight: 700; color: var(--muted); }
+.tn-poster-fallback { display: grid; place-items: center; font-size: 2rem; font-weight: 700; color: var(--muted); }
 .poster-badge { position: absolute; left: 6px; bottom: 6px; padding: 0.1rem 0.45rem; border-radius: 999px; font-size: 0.68rem; font-weight: 600; background: rgb(15 23 42 / 0.82); color: #e8eef9; backdrop-filter: blur(4px); }
 .poster-rating { position: absolute; right: 6px; top: 6px; display: inline-flex; align-items: center; gap: 0.2rem; padding: 0.1rem 0.4rem; border-radius: 999px; font-size: 0.72rem; font-weight: 700; background: rgb(15 23 42 / 0.82); color: #fbbf24; backdrop-filter: blur(4px); }
 
@@ -1184,8 +1184,8 @@ img.poster.loaded { opacity: 1; }
 .shelf-cover { position: relative; }
 .shelf-poster { position: relative; display: block; border-radius: 10px; }
 @media (prefers-reduced-motion: no-preference) {
-  .shelf-poster .poster { transition: transform 200ms var(--ease), box-shadow 200ms var(--ease); }
-  .shelf-card:hover .poster { transform: translateY(-3px); box-shadow: var(--shadow-3); }
+  .shelf-poster .tn-poster { transition: transform 200ms var(--ease), box-shadow 200ms var(--ease); }
+  .shelf-card:hover .tn-poster { transform: translateY(-3px); box-shadow: var(--shadow-3); }
 }
 .shelf-info { display: grid; gap: 0.1rem; min-width: 0; }
 .shelf-title { font-weight: 600; font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
