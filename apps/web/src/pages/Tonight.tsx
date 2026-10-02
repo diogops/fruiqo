@@ -149,6 +149,8 @@ export function TonightPage() {
   const [savingProfile, setSavingProfile] = useState(false);
   // limite de buscas atingido: aviso discreto e nova tentativa automática
   const [cooling, setCooling] = useState(false);
+  // tela limpa: tipo, gênero, animes, já vistos e filtros ficam atrás de um ícone no fim da busca
+  const [optionsOpen, setOptionsOpen] = useState(false);
   // tudo o que já apareceu nesta rodada: "novas sugestões" não repetem
   const [shown, setShown] = useState<string[]>([]);
   const [gone, setGone] = useState<Set<string>>(new Set());
@@ -355,6 +357,8 @@ export function TonightPage() {
     }
   }
 
+  // há opção diferente do padrão? (ponto no ícone quando as opções estão escondidas)
+  const optionsActive = Boolean(genre) || includeAnime || includeSeen || !includeQueue || advChanged || (touched.current && kind !== (defaults.data?.kind ?? ''));
   const placeholder =
     kind === 'book' ? 'Ex.: algo leve para ler' : kind === 'music' ? 'Ex.: algo animado para cozinhar' : 'Ex.: suspense nórdico, história real…';
 
@@ -363,7 +367,6 @@ export function TonightPage() {
       <section className="tonight-hero" aria-labelledby="tonight-title">
         <div className="tonight-hero-head">
           <h1 id="tonight-title">O que assistir hoje?</h1>
-          <p className="tonight-hero-sub">Conte o que você quer. Procuro primeiro na sua lista e depois nos seus streamings.</p>
         </div>
         <form className="tonight-form" onSubmit={submit}>
           <div className="tonight-ask">
@@ -379,12 +382,25 @@ export function TonightPage() {
               maxLength={TONIGHT_MOOD_MAX_CHARS}
               placeholder={placeholder}
               autoComplete="off"
+              autoFocus
             />
+            <button
+              type="button"
+              className={optionsOpen ? 'tonight-opts-toggle on' : 'tonight-opts-toggle'}
+              aria-label={optionsOpen ? 'Ocultar opções' : 'Mostrar opções'}
+              title={optionsOpen ? 'Ocultar opções' : 'Mostrar opções'}
+              aria-expanded={optionsOpen}
+              aria-controls="tonight-options"
+              onClick={() => setOptionsOpen((o) => !o)}
+            >
+              <Icon name="filter" size={17} />
+              {optionsActive && !optionsOpen && <span className="opts-dot" aria-hidden="true" />}
+            </button>
             <button type="submit" className="btn btn-primary tonight-go" disabled={ask.isPending} aria-busy={ask.isPending}>
               {ask.isPending ? 'Procurando…' : data ? 'Buscar de novo' : 'Sugerir'}
             </button>
           </div>
-          <div className="tonight-options">
+          <div id="tonight-options" className="tonight-options" hidden={!optionsOpen}>
             <label className="pill-select">
               <span className="sr-only">O que você quer</span>
               <select value={kind} onChange={(e) => changeKind(e.target.value as KindChoice)} aria-label="O que você quer">
@@ -439,7 +455,7 @@ export function TonightPage() {
             </button>
           </div>
           {adv && defaults.data && (
-            <section id="tonight-advanced" className="tonight-advanced" hidden={!advOpen} aria-label="Filtros desta busca">
+            <section id="tonight-advanced" className="tonight-advanced" hidden={!advOpen || !optionsOpen} aria-label="Filtros desta busca">
               {video && (
                 <label className="check small">
                   <input type="checkbox" checked={includeQueue} onChange={(e) => changeQueue(e.target.checked)} /> Começar pela minha lista (Quero assistir)

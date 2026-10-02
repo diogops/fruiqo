@@ -47,10 +47,13 @@ describe('"O que assistir hoje?" (D-25)', () => {
     __setAccessToken('tok');
     mockApi({ 'GET /tonight/defaults': defaults });
     renderWithProviders(<TonightPage />);
+    // tela limpa: o foco começa na busca e as opções ficam escondidas atrás do ícone
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText(/O que você quer assistir\?/)));
+    expect(screen.queryByRole('combobox', { name: 'O que você quer' })).toBeNull();
+    expect(screen.queryByText(/Conte o que você quer/)).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Mostrar opções' }));
     const kind = await screen.findByRole('combobox', { name: 'O que você quer' });
     await waitFor(() => expect(kind).toHaveProperty('value', 'movie'));
-    // o foco começa no campo de texto
-    expect(document.activeElement).toBe(screen.getByLabelText(/O que você quer assistir\?/));
     await userEvent.setup().selectOptions(kind, 'book');
     expect(screen.getByLabelText(/O que você quer ler\?/)).toBeTruthy();
     await userEvent.setup().selectOptions(kind, 'movie');
@@ -83,6 +86,7 @@ describe('"O que assistir hoje?" (D-25)', () => {
     });
     const user = userEvent.setup();
     renderWithProviders(<TonightPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Mostrar opções' }));
 
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'O que você quer' })).toHaveProperty('value', 'movie'));
     await user.selectOptions(screen.getByRole('combobox', { name: 'Gênero' }), 'thriller');
@@ -131,6 +135,7 @@ describe('"O que assistir hoje?" (D-25)', () => {
     });
     const user = userEvent.setup();
     renderWithProviders(<TonightPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Mostrar opções' }));
     const advanced = await screen.findByRole('button', { name: 'Filtros: onde procurar e perfil desta busca' });
     expect(advanced.getAttribute('aria-expanded')).toBe('false');
     await user.click(advanced);
@@ -242,6 +247,7 @@ describe('"O que assistir hoje?" (D-25)', () => {
     const { calls } = mockApi({ 'GET /tonight/defaults': defaults, 'POST /tonight': () => ({ body: responses[round++] }) });
     const user = userEvent.setup();
     renderWithProviders(<TonightPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Mostrar opções' }));
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'O que você quer' })).toHaveProperty('value', 'movie'));
     // sem busca feita, trocar o gênero não busca
     await user.selectOptions(screen.getByRole('combobox', { name: 'Gênero' }), 'drama');
@@ -284,6 +290,7 @@ describe('"O que assistir hoje?" (D-25)', () => {
     const { calls } = mockApi({ 'GET /tonight/defaults': defaults, 'POST /tonight': () => ({ body: responses[round++] }) });
     const user = userEvent.setup();
     renderWithProviders(<TonightPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Mostrar opções' }));
     const seen = await screen.findByRole('checkbox', { name: 'Incluir já vistos?' });
     expect(seen).toHaveProperty('checked', false);
     await user.click(screen.getByRole('button', { name: /Sugerir/ }));

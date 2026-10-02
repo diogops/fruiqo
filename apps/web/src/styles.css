@@ -1339,3 +1339,17 @@ img.tn-poster.loaded { opacity: 1; }
 .reset-card h1 { margin: 0; }
 /* "Instalar app" (Android): discreto, no topo do conteúdo */
 .install-app { margin: 0 0 1rem; }
+
+/* "Assistir hoje" mais limpo: ícone que mostra/esconde as opções no fim da busca */
+.tonight-opts-toggle {
+  position: relative; flex: none; display: grid; place-items: center; width: 40px; height: 40px; padding: 0;
+  border-radius: 999px; border: 1px solid transparent; background: transparent; color: var(--muted); cursor: pointer;
+}
+.tonight-opts-toggle:hover, .tonight-opts-toggle.on { color: var(--text); background: var(--surface-2); border-color: var(--border); }
+.opts-dot { position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 999px; background: var(--accent); }
+.tonight-options[hidden] { display: none !important; }
+@media (max-width: 768px) {
+  /* no celular, a lista de resultados fica só com título, ano, onde assistir e ações */
+  .tonight-card .tc-reason { display: none; }
+  .tonight-ask input { flex-basis: calc(100% - 4.5rem); }
+}
