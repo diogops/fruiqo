@@ -23,7 +23,7 @@ function Gate() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route index element={<Navigate to="/minha-area" replace />} />
+        <Route index element={<Navigate to="/hoje" replace />} />
         <Route path="minha-area" element={<Catalog key="area" area />} />
         <Route path="catalogo" element={<Catalog key="catalog" />} />
         {/* "Como estou" virou o "Assistir hoje" (mesma função): o endereço antigo leva para lá */}
@@ -38,7 +38,7 @@ function Gate() {
         <Route path="perfil" element={<Profile />} />
         <Route path="admin" element={<Admin />} />
         {SHOW_DEV_TOOLS && <Route path="sandbox" element={<Sandbox />} />}
-        <Route path="*" element={<Navigate to="/minha-area" replace />} />
+        <Route path="*" element={<Navigate to="/hoje" replace />} />
       </Route>
     </Routes>
   );

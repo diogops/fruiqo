@@ -48,13 +48,14 @@ export function mockApi(routes: Record<string, Handler | Record<string, unknown>
 
 export function renderWithProviders(ui: ReactElement, { route = '/' }: { route?: string } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const result = render(
     <QueryClientProvider client={client}>
       <ToastProvider>
         <MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>
       </ToastProvider>
     </QueryClientProvider>,
   );
+  return { ...result, queryClient: client };
 }
 
 let seq = 0;

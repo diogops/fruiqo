@@ -23,11 +23,18 @@ export function Profile() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [error, setError] = useState<unknown>(null);
   const navigate = useNavigate();
+  // as boas-vindas ficam até "Pronto"/"Agora não": o servidor deixa de mandar `onboarding` assim que o
+  // perfil ganha o primeiro dado, e sem isso o cartão sumiria no meio do preenchimento
+  const [welcome, setWelcome] = useState(false);
+  useEffect(() => {
+    if (settings.data?.onboarding) setWelcome(true);
+  }, [settings.data?.onboarding]);
 
   /** Primeiro acesso concluído ("começar") ou dispensado ("agora não"): não abre sozinho de novo. */
   async function finishOnboarding(go: boolean) {
     try {
       qc.setQueryData(['settings'], await api.updateSettings({ onboarded: true }));
+      setWelcome(false);
       if (go) navigate('/hoje');
     } catch (err) {
       setError(err);
@@ -103,7 +110,7 @@ export function Profile() {
       </p>
       <ErrorNote error={taste.error ?? subs.error ?? mood.error ?? error} />
 
-      {settings.data?.onboarding && (
+      {welcome && settings.data && (
         <section className="welcome card" aria-labelledby="welcome-title">
           <h2 id="welcome-title">
             <Icon name="sparkles" size={18} /> Boas-vindas ao Fruiqo{settings.data.displayName ? `, ${settings.data.displayName.split(' ')[0]}` : ''}!

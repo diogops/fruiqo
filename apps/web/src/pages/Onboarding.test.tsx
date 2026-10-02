@@ -62,6 +62,21 @@ describe('primeiro acesso', () => {
     expect(screen.getByText('página de hoje')).toBeTruthy();
   });
 
+  it('o cartão continua depois que o perfil ganha dados, até "Pronto"', async () => {
+    __setAccessToken('tok');
+    let onboarding = true;
+    mockApi({ 'GET /profile/settings': () => ({ body: settings(onboarding) }), 'PATCH /profile/settings': settings(false) });
+    const { queryClient } = renderApp('/perfil');
+    expect(await screen.findByRole('heading', { name: /Boas-vindas ao Fruiqo/ })).toBeTruthy();
+    // o servidor deixa de mandar `onboarding` quando o usuário salva algo no perfil
+    onboarding = false;
+    await queryClient.invalidateQueries({ queryKey: ['settings'] });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByRole('button', { name: 'Pronto, quero sugestões' })).toBeTruthy();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Pronto, quero sugestões' }));
+    expect(await screen.findByText('página de hoje')).toBeTruthy();
+  });
+
   it('"Pronto, quero sugestões" encerra e leva ao "O que assistir hoje?"', async () => {
     __setAccessToken('tok');
     mockApi({ 'GET /profile/settings': settings(true), 'PATCH /profile/settings': settings(false) });
