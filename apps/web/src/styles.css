@@ -1296,3 +1296,9 @@ img.tn-poster.loaded { opacity: 1; }
 .admin-who { display: grid; gap: 0.1rem; min-width: 0; }
 .admin-who strong { overflow-wrap: anywhere; }
 .admin-acts { gap: 0.35rem; }
+
+/* "+ Nova lista…" no seletor de lista */
+.list-picker { display: grid; gap: 0.35rem; }
+.list-picker > label { font-weight: 600; font-size: 0.9rem; }
+.list-picker-new { gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.list-picker-new input { flex: 1 1 220px; min-width: 0; }

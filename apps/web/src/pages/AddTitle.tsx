@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { api } from '../api/client';
+import { ListPicker } from '../components/ListPicker';
 import { ErrorNote, Modal } from '../components/shared';
 import { useToast } from '../components/Toast';
 import { Icon, Thumb, WorkLink } from '../components/ui';
@@ -459,7 +460,6 @@ function PickImport({
   inline?: boolean;
   children: (selected: Set<string>, toggle: (r: SearchPick) => void) => ReactNode;
 }) {
-  const lists = useQuery({ queryKey: ['lists'], queryFn: api.lists });
   const qc = useQueryClient();
   const toast = useToast();
   const [picked, setPicked] = useState<Map<string, SearchPick>>(new Map());
@@ -509,17 +509,7 @@ function PickImport({
   return (
     <div className="form">
       {children(new Set(picked.keys()), toggle)}
-      <label>
-        Lista (opcional)
-        <select value={listId} onChange={(e) => setListId(e.target.value)}>
-          <option value="">Nenhuma</option>
-          {(lists.data ?? []).map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      <ListPicker value={listId} onChange={setListId} />
       <ErrorNote error={error} />
       <div className="actions sticky-actions">
         <span className="muted small grow">{picked.size} selecionado(s)</span>
@@ -535,7 +525,6 @@ function PickImport({
 }
 
 function ManualAdd({ onClose }: { onClose: () => void }) {
-  const lists = useQuery({ queryKey: ['lists'], queryFn: api.lists });
   const qc = useQueryClient();
   const [title, setTitle] = useState('');
   const [kind, setKind] = useState<RecommendationKind>('movie');
@@ -582,17 +571,7 @@ function ManualAdd({ onClose }: { onClose: () => void }) {
           <input value={year} onChange={(e) => setYear(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" />
         </label>
       </div>
-      <label>
-        Lista (opcional)
-        <select value={listId} onChange={(e) => setListId(e.target.value)}>
-          <option value="">Nenhuma</option>
-          {(lists.data ?? []).map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      <ListPicker value={listId} onChange={setListId} />
       <ErrorNote error={error} />
       <div className="actions">
         <button type="button" className="btn" onClick={onClose}>

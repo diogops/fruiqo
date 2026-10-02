@@ -85,6 +85,36 @@ describe('adicionar título por busca (RF-46)', () => {
     });
   });
 
+  it('"+ Nova lista…" cria a lista ali mesmo e já importa os marcados nela', async () => {
+    __setAccessToken('tok');
+    const LIST = '00000000-0000-4000-8000-0000000000aa';
+    const newList = { id: LIST, name: 'Família', sourceShareId: null, pinned: false, itemCount: 0, doneCount: 0, createdAt: '2026-10-02T10:00:00.000Z', updatedAt: '2026-10-02T10:00:00.000Z', items: [] };
+    let lists: unknown[] = [];
+    const { calls } = mockApi({
+      'GET /search/titles': response(),
+      'GET /lists': () => ({ body: lists }),
+      'POST /lists': () => {
+        lists = [newList];
+        return { status: 201, body: newList };
+      },
+      'POST /library/import': { created: [makeTitle({ title: 'Duna' })], skipped: [] },
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<AddTitle onClose={vi.fn()} />);
+    await user.type(screen.getByRole('searchbox', { name: 'Buscar filme, série ou livro' }), 'duna');
+    await user.click(await screen.findByRole('checkbox', { name: 'Selecionar Duna (2021)' }));
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Lista (opcional)' }), '+ Nova lista…');
+    const name = screen.getByLabelText('Nova lista');
+    expect(document.activeElement).toBe(name);
+    await user.type(name, 'Família{Enter}');
+    await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.path === '/lists')?.body).toEqual({ name: 'Família' }));
+    await waitFor(() => expect((screen.getByRole('combobox', { name: 'Lista (opcional)' }) as HTMLSelectElement).value).toBe(LIST));
+
+    await user.click(screen.getByRole('button', { name: 'Quero assistir' }));
+    await waitFor(() => expect(calls.find((c) => c.path === '/library/import')?.body).toMatchObject({ listId: LIST }));
+  });
+
   it('busca por descrição indica IA ou o fallback por palavras-chave; "Quero assistir" importa sem revisão', async () => {
     __setAccessToken('tok');
     let ai = true;
