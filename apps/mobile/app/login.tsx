@@ -3,6 +3,7 @@ import * as Device from 'expo-device';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, Text, TextInput } from 'react-native';
 
+import { ApiError } from '../src/api/client';
 import { useAppState } from '../src/state/AppState';
 import { Button } from '../src/ui/components';
 import { ui } from '../src/ui/theme';
@@ -15,7 +16,10 @@ function deviceName() {
 
 export default function Login() {
   useTheme(); // re-renderiza na troca de tema
-  const { signIn, pendingShare } = useAppState();
+  const { signIn, completeMfa, pendingShare } = useAppState();
+  // MFA: depois da senha, o código do app autenticador
+  const [mfaToken, setMfaToken] = useState<string | null>(null);
+  const [code, setCode] = useState('');
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,12 +33,69 @@ export default function Login() {
     if (!PasswordSchema.safeParse(password).success) return setError('A senha precisa ter entre 12 e 128 caracteres.');
     setBusy(true);
     try {
-      await signIn(mode, e.data, password, deviceName());
+      const challenge = await signIn(mode, e.data, password, deviceName());
+      if (challenge) {
+        setMfaToken(challenge.mfaToken);
+        setCode('');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Não foi possível entrar.');
     } finally {
       setBusy(false);
     }
+  }
+
+  async function submitCode() {
+    if (!mfaToken) return;
+    setError(null);
+    if (code.trim().length < 6) return setError('Digite o código de 6 dígitos.');
+    setBusy(true);
+    try {
+      await completeMfa(mfaToken, code);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401 && /expirou/.test(err.message)) {
+        setMfaToken(null);
+        setError('O tempo para o código acabou. Entre de novo.');
+      } else if (err instanceof ApiError && err.status === 401) setError('Código inválido. Confira o app autenticador e tente de novo.');
+      else setError(err instanceof Error ? err.message : 'Não foi possível entrar.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (mfaToken) {
+    return (
+      <KeyboardAvoidingView style={ui.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView contentContainerStyle={ui.pad} keyboardShouldPersistTaps="handled">
+          <Text style={ui.h1}>Verificação em duas etapas</Text>
+          <Text style={ui.muted}>Digite o código de 6 dígitos do seu app autenticador, ou um código de recuperação.</Text>
+          <TextInput
+            style={ui.input}
+            placeholder="Código"
+            accessibilityLabel="Código"
+            autoFocus
+            keyboardType="number-pad"
+            textContentType="oneTimeCode"
+            autoComplete="one-time-code"
+            maxLength={20}
+            value={code}
+            onChangeText={setCode}
+            onSubmitEditing={submitCode}
+          />
+          {error && <Text style={ui.error}>{error}</Text>}
+          <Button title="Entrar" onPress={submitCode} loading={busy} />
+          <Button
+            title="Voltar"
+            variant="secondary"
+            onPress={() => {
+              setMfaToken(null);
+              setCode('');
+              setError(null);
+            }}
+          />
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
   }
 
   return (

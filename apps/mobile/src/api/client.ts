@@ -67,6 +67,7 @@ import {
   MoveTitleResponseSchema,
   TitleSchema,
   TokenPairSchema,
+  MfaChallengeSchema,
   type UpdateUserSettingsRequest,
   type UserSettings,
   UserSettingsSchema,
@@ -181,14 +182,26 @@ async function request<T>(path: string, schema: z.ZodType<T>, init: RequestInit 
 
 // ---------- Auth ----------
 
-async function authenticate(path: '/auth/login' | '/auth/register', body: LoginRequest | RegisterRequest) {
+/** Com MFA ligado, o login devolve o desafio (a sessão só sai em `completeMfa`). */
+async function authenticate(path: '/auth/login' | '/auth/register', body: LoginRequest | RegisterRequest): Promise<{ mfaToken: string } | null> {
   const res = await rawFetch(path, { method: 'POST', body: JSON.stringify(body) });
   if (!res.ok) throw await toApiError(res);
-  await storeTokens(TokenPairSchema.parse(await res.json()));
+  const json: unknown = await res.json();
+  const challenge = MfaChallengeSchema.safeParse(json);
+  if (challenge.success) return { mfaToken: challenge.data.mfaToken };
+  await storeTokens(TokenPairSchema.parse(json));
+  return null;
 }
 
 export const login = (body: LoginRequest) => authenticate('/auth/login', body);
 export const register = (body: RegisterRequest) => authenticate('/auth/register', body);
+
+/** Segunda etapa do login: código do app autenticador (ou de recuperação) → sessão. */
+export async function completeMfa(mfaToken: string, code: string): Promise<void> {
+  const res = await rawFetch('/auth/mfa', { method: 'POST', body: JSON.stringify({ mfaToken, code: code.trim() }) });
+  if (!res.ok) throw await toApiError(res);
+  await storeTokens(TokenPairSchema.parse(await res.json()));
+}
 
 export async function logout() {
   const refreshToken = await getToken(REFRESH_KEY);

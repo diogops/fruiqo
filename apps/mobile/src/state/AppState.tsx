@@ -17,7 +17,9 @@ type AppState = {
   authStatus: AuthStatus;
   pendingShare: CreateShareRequest | null;
   acceptConsent: () => Promise<void>;
-  signIn: (mode: 'login' | 'register', email: string, password: string, deviceName: string) => Promise<void>;
+  /** com MFA ligado, devolve o desafio; a sessão abre em `completeMfa` */
+  signIn: (mode: 'login' | 'register', email: string, password: string, deviceName: string) => Promise<{ mfaToken: string } | null>;
+  completeMfa: (mfaToken: string, code: string) => Promise<void>;
   signOut: () => Promise<void>;
   /** exclusão definitiva da conta; no sucesso volta para o login */
   deleteAccount: (password: string) => Promise<void>;
@@ -55,7 +57,14 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback<AppState['signIn']>(async (mode, email, password, deviceName) => {
     const body = { email, password, deviceName };
-    await (mode === 'login' ? api.login(body) : api.register(body));
+    const challenge = await (mode === 'login' ? api.login(body) : api.register(body));
+    if (challenge) return challenge;
+    setAuthStatus('signedIn');
+    return null;
+  }, []);
+
+  const completeMfa = useCallback(async (mfaToken: string, code: string) => {
+    await api.completeMfa(mfaToken, code);
     setAuthStatus('signedIn');
   }, []);
 
@@ -77,11 +86,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       pendingShare,
       acceptConsent,
       signIn,
+      completeMfa,
       signOut,
       deleteAccount,
       setPendingShare,
     }),
-    [consented, authStatus, pendingShare, acceptConsent, signIn, signOut, deleteAccount],
+    [consented, authStatus, pendingShare, acceptConsent, signIn, completeMfa, signOut, deleteAccount],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
