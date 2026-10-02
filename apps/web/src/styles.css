@@ -1247,14 +1247,20 @@ img.poster.loaded { opacity: 1; }
 /* login com Google: separador "ou" e o botão oficial centralizado */
 .auth-divider { display: flex; align-items: center; gap: 0.75rem; color: var(--muted); font-size: 0.85rem; margin: 0.25rem 0; }
 .auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
-.google-btn { display: flex; justify-content: center; min-height: 44px; }
-/* o quadro do Google é "claro"; com a página "escura", o navegador pinta um fundo branco atrás dele.
-   Com o mesmo esquema no contêiner, o quadro fica transparente e só aparece o botão */
-.google-btn, .google-btn iframe { color-scheme: light; background: transparent; }
-/* tema escuro: o botão "escuro" do Google (#202124) some no cartão; clareia para ~#3C4043 (cinza do
-   próprio Google nas interfaces escuras). O "G" e o texto continuam brancos */
-:root:not([data-theme='light']) .google-btn iframe { filter: brightness(1.85); }
-@media (prefers-color-scheme: light) { :root[data-theme='system'] .google-btn iframe { filter: none; } }
+.google-btn { position: relative; display: flex; justify-content: center; height: 44px; }
+/* nosso botão: padrão "Neutro" do Google (fundo #F2F2F2, texto #1F1F1F, "G" original) */
+.google-face {
+  display: flex; align-items: center; justify-content: center; gap: 0.6rem; width: 100%; max-width: 400px; height: 44px;
+  border-radius: 999px; background: #f2f2f2; color: #1f1f1f; font: 500 0.95rem/1 'Roboto', system-ui, sans-serif;
+  transition: background 140ms var(--ease), box-shadow 140ms var(--ease);
+}
+.google-g { flex: none; }
+.google-btn:hover .google-face { background: #e8e8e8; box-shadow: 0 1px 3px rgb(0 0 0 / 0.25); }
+.google-btn:focus-within .google-face { outline: 2px solid var(--focus); outline-offset: 2px; }
+.google-btn:not(.ready) .google-face { opacity: 0.6; }
+/* botão oficial do Google por cima, transparente: é ele que recebe o clique e abre o login */
+.google-official { position: absolute; inset: 0; display: flex; justify-content: center; align-items: center; opacity: 0.001; overflow: hidden; }
+.google-official, .google-official iframe { color-scheme: light; }
 
 /* política de privacidade (pública) */
 .legal { min-height: 100vh; background: var(--grad-page); color: var(--text); padding: 1.25rem 16px 3rem; }
