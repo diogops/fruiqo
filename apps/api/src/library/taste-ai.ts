@@ -219,6 +219,7 @@ const PLAN_SYSTEM = [
   'Every genre or subgenre the user names is a requirement: put it in genresAll (in genresAny only when the user offers alternatives, as in "ação ou aventura"). Never add a genre the user did not name.',
   'origins: where the work comes from when the user asks for it ("nórdico", "coreano", "nacional" = brazilian); it is a requirement. Never infer an origin the user did not ask for.',
   'references: works the user names as a model ("igual a X", "parecido com X", "mesma premissa de X"), copied as typed, without the article. The words of a title are never a genre or quality request ("Os Horrores de Caddo Lake" is not a horror request); take genres only from what the user asks directly.',
+  'When the whole request is just the name of a work, with no "igual a" and possibly misspelled ("horrores de cado lake"), it is a reference too: put that name in references, with the official spelling when you are sure of it, and nothing else.',
   'A quality is not a genre: "inteligente", "que faça pensar", "leve" or "curto" go only in prefer, without implying any genre.',
   'A fact about the work itself, such as being based on a true story ("história real", "fatos reais", "biografia"), is mandatory: put true_story in prefer; the search only accepts works proven to have it.',
   "Put relevant expressions you could not map into unmapped (short, in the user's words). Return only JSON.",

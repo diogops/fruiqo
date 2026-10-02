@@ -465,6 +465,11 @@ describe('RF-46: busca e importação', () => {
     expect(genCalls[0]!.seenCount).toBe(1);
     expect(noir.items.find((i) => i.title === 'Tenet')?.aiReason).toMatch(/^Sugestão da IA para o seu pedido/);
 
+    // pedido que é só o nome de um filme: vira "com a mesma pegada de X", sem passar pelo intérprete da IA
+    const named = await tonight.tonight(user.userId, { sessionId: session(), kind: 'movie', mood: 'Matrix' });
+    expect(named.understood).toBe('com a mesma pegada de Matrix');
+    expect(planCalls).toHaveLength(1);
+
     // "Incluir animes?" traz o Akira; "Só novidades" (sem a Minha Área) não traz Duna
     const anime = await tonight.tonight(user.userId, { sessionId: session(), kind: 'movie', mood: 'ação e scifi', includeAnime: true, includeQueue: false });
     expect(anime.items.map((i) => i.title)).toEqual(expect.arrayContaining(['Akira', 'Batman Animado']));

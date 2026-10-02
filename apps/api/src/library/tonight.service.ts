@@ -4,6 +4,7 @@ import { detectRisk, GENRES, type GenreKey, RISK_SUPPORT, SUBGENRES } from '@fru
 import { and, arrayOverlaps, asc, count, desc, eq, gte, inArray, isNotNull, lte } from 'drizzle-orm';
 import { DB, type Db, type Tx, withUser } from '../db/client.js';
 import { overrideScore, recommendations, tasteFavorites, tasteOverrides, tasteStatements, tasteSubgenrePrefs, tonightHidden, userSubscriptions } from '../db/schema.js';
+import { levenshtein } from '../pipeline/resolvers/match.js';
 import type { TmdbHit, TmdbResolver } from '../pipeline/resolvers/tmdb.js';
 import {
   type Candidate,
@@ -47,6 +48,28 @@ const KIND_MIN_WEIGHT = 6;
 const KIND_SHARE = 0.65;
 /** gerador da IA (só complemento, quando a busca não chega a 5): quantos nomes pedir */
 const AI_CANDIDATES = 20;
+/** teto do pedido: o web desiste em 20 s; a IA que passar do prazo vira falha e a busca segue sem ela */
+const TONIGHT_BUDGET_MS = 17_000;
+/** a interpretação do pedido (modelo rápido) não pode comer o tempo das sugestões */
+const PLAN_BUDGET_MS = 6_000;
+/** reserva, depois das sugestões da IA, para conferir os nomes no TMDB */
+const CONFIRM_RESERVE_MS = 4_000;
+const AI_TIMED_OUT = { ok: false, reason: 'failed' } as const;
+/** pedido que é só o nome de uma obra: até quantas palavras, e quão parecido com o título (erro de digitação) */
+const TITLE_QUERY_MAX_WORDS = 8;
+const TITLE_QUERY_MIN_SIMILARITY = 0.85;
+const TITLE_QUERY_BUDGET_MS = 3_000;
+
+/** Espera a IA até `deadline` (epoch ms); passou, devolve `timedOut` (a chamada termina sozinha depois). */
+function beforeDeadline<R>(deadline: number, call: () => Promise<R>, timedOut: R): Promise<R> {
+  const ms = deadline - Date.now();
+  if (ms <= 0) return Promise.resolve(timedOut);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<R>((resolve) => {
+    timer = setTimeout(() => resolve(timedOut), ms);
+  });
+  return Promise.race([call(), late]).finally(() => clearTimeout(timer));
+}
 /** no modo gerador: amostra do que já viu, dos gêneros da busca, como "não sugerir" */
 const SEEN_SAMPLE = 40;
 /** estoque da sessão: repõe quando cai abaixo disto */
@@ -301,6 +324,7 @@ export class TonightService {
 
   async tonight(userId: string, req: TonightRequest): Promise<TonightResponse> {
     if (!this.limiter.take(userId)) throw tooMany();
+    const deadline = Date.now() + TONIGHT_BUDGET_MS;
     const mood = req.mood?.trim() || undefined;
     // RNF-07: risco no humor vem antes de tudo (e o texto não vai a lugar nenhum)
     if (mood && detectRisk(mood).risk) return { aiUsed: false, risk: { ...RISK_SUPPORT }, services: [], items: [] };
@@ -377,6 +401,7 @@ export class TonightService {
 
     if (video) {
       const r = await this.videoTonight(userId, req, {
+        deadline,
         mood,
         genreKey,
         filterSubs,
@@ -397,7 +422,7 @@ export class TonightService {
     else if (briefIsEmpty(brief)) unavailable = 'no_profile';
     else {
       const ai = this.ai;
-      const res = await withAiUsage(userId, 'tonight_titles', () => ai.tonight(brief, userId, kind));
+      const res = await beforeDeadline(deadline - CONFIRM_RESERVE_MS, () => withAiUsage(userId, 'tonight_titles', () => ai.tonight(brief, userId, kind)), AI_TIMED_OUT);
       if (!res.ok) unavailable = res.reason === 'too_long' ? 'failed' : res.reason;
       else {
         aiUsed = true;
@@ -451,6 +476,7 @@ export class TonightService {
     userId: string,
     req: TonightRequest,
     ctx: {
+      deadline: number;
       mood?: string;
       genreKey?: GenreKey;
       filterSubs: string[];
@@ -487,10 +513,17 @@ export class TonightService {
       // nova revisão: plano, estoque e páginas zeram; o que já foi mostrado continua fora
       let plan = ctx.mood ? localPlan(ctx.mood) : EMPTY_PLAN;
       let planByAi = false;
-      if (ctx.mood && plan.unmapped.length > 0 && ctx.aiAllowed && this.ai) {
+      // o pedido é só o nome de um filme/série ("horrores de cado lake")? vira "com a mesma pegada de X"
+      const named = ctx.mood && plan.unmapped.length > 0 && !plan.references?.length ? await this.workNamedBy(ctx.mood, ctx.deadline) : null;
+      if (named) plan = { ...EMPTY_PLAN, references: [named] };
+      else if (ctx.mood && plan.unmapped.length > 0 && ctx.aiAllowed && this.ai) {
         const ai = this.ai;
         const mood = ctx.mood;
-        const res = await withAiUsage(userId, 'tonight_plan', () => ai.planRequest(mood, userId));
+        const res = await beforeDeadline(
+          Math.min(ctx.deadline, Date.now() + PLAN_BUDGET_MS),
+          () => withAiUsage(userId, 'tonight_plan', () => ai.planRequest(mood, userId)),
+          AI_TIMED_OUT,
+        );
         if (res.ok) {
           plan = res.value;
           planByAi = true;
@@ -633,13 +666,13 @@ export class TonightService {
       const brief: TasteBrief = { ...ctx.brief, seen: history.sample, seenCount: history.total, ...(ctx.mood ? { mood: ctx.mood } : {}) };
       const ai = this.ai;
       const kindHint = req.kind === 'movie' || req.kind === 'series' ? req.kind : undefined;
-      const res = await withAiUsage(userId, 'tonight_titles', () =>
+      const res = await beforeDeadline(ctx.deadline - CONFIRM_RESERVE_MS, () => withAiUsage(userId, 'tonight_titles', () =>
         ai.tonight(brief, userId, kindHint, {
           filtered: ctx.filterSubs.length > 0,
           max: AI_CANDIDATES,
           ...(referenceMode ? { references: s.referenceTitles?.length ? s.referenceTitles : plan.references, avoidGenres: avoided.map((g) => GENRE_LABEL.get(g) ?? g) } : {}),
         }),
-      );
+      ), AI_TIMED_OUT);
       if (res.ok) {
         aiUsed = true;
         const guesses = res.value.picks.flatMap((g) =>
@@ -799,6 +832,27 @@ export class TonightService {
    * "Igual a X": acha X no TMDB (o tipo pedido, se houver) e traz as recomendações e semelhantes dele.
    * X sai do resultado (você já conhece). Nada disso vai à IA além do nome que você mesmo digitou.
    */
+  /**
+   * O texto inteiro é o nome de uma obra do TMDB (com até um erro de digitação, sem artigo)? Devolve o
+   * título certo. Só o título, nunca dado do TMDB, segue adiante como referência (ARB-REQ-06: o nome é
+   * o que o usuário digitou, corrigido).
+   */
+  private async workNamedBy(text: string, deadline: number): Promise<string | null> {
+    const words = text.trim().split(/\s+/);
+    if (!this.tmdb || words.length > TITLE_QUERY_MAX_WORDS) return null;
+    const tmdb = this.tmdb;
+    const bare = (t: string) => normTitle(t).replace(/^(o|a|os|as|um|uma|the)\s+/, '');
+    const q = bare(text);
+    if (q.length < 3) return null;
+    const close = (t: string | undefined) => {
+      const x = t ? bare(t) : '';
+      return x.length > 0 && 1 - levenshtein(q, x) / Math.max(q.length, x.length) >= TITLE_QUERY_MIN_SIMILARITY;
+    };
+    const hits = await beforeDeadline(Math.min(deadline, Date.now() + TITLE_QUERY_BUDGET_MS), () => tmdb.searchMulti(text).then((r) => r.titles).catch(() => [] as TmdbHit[]), [] as TmdbHit[]);
+    const hit = hits.slice(0, 5).find((h) => close(h.title) || close(h.originalTitle));
+    return hit ? hit.title : null;
+  }
+
   private async referenceCandidates(userId: string, plan: TonightPlan, kind?: TonightKind) {
     const tmdb = this.tmdb!;
     const media = kind === 'movie' ? 'movie' : kind === 'series' ? 'tv' : undefined;

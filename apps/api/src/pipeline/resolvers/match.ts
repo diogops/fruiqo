@@ -22,7 +22,7 @@ export function similarity(a: string, b: string): number {
   return Math.max(0, Math.min(1, sim));
 }
 
-function levenshtein(a: string, b: string): number {
+export function levenshtein(a: string, b: string): number {
   if (a.length > b.length) [a, b] = [b, a];
   let prev = Array.from({ length: a.length + 1 }, (_, i) => i);
   for (let j = 1; j <= b.length; j++) {

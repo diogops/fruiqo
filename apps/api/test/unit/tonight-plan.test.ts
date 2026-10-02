@@ -172,7 +172,7 @@ describe('"igual a X" (obra de referência)', () => {
     expect(p.references).toEqual(['horrores de caddo lake']);
     expect(p.genresAll).toEqual([]);
     expect(p.prefer).toContain('plot_twist');
-    expect(planLabel(p, label)).toContain('parecido com horrores de caddo lake');
+    expect(planLabel(p, label)).toContain('com a mesma pegada de horrores de caddo lake');
   });
 
   it('"parecido com Dark", "no estilo de Coerência"; "parecido com algo leve" não é obra', () => {

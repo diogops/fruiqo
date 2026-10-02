@@ -114,7 +114,7 @@ export function __setAccessToken(token: string | null): void {
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
-async function send(path: string, method: Method, body: unknown, withAuth: boolean): Promise<Response> {
+async function send(path: string, method: Method, body: unknown, withAuth: boolean, timeoutMs?: number): Promise<Response> {
   const headers: Record<string, string> = { [WEB_CLIENT_HEADER]: WEB_CLIENT_VALUE };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (withAuth && accessToken) headers.Authorization = `Bearer ${accessToken}`;
@@ -123,6 +123,7 @@ async function send(path: string, method: Method, body: unknown, withAuth: boole
     headers,
     credentials: 'include',
     body: body === undefined ? undefined : JSON.stringify(body),
+    ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
   });
 }
 
@@ -159,11 +160,26 @@ export function refreshSession(): Promise<boolean> {
   return refreshing;
 }
 
-async function request<S extends z.ZodType>(schema: S, path: string, method: Method = 'GET', body?: unknown): Promise<z.infer<S>> {
-  let res = await send(path, method, body, true);
+/** pedido com prazo: passou de `ms`, desiste com `message` (o servidor também para a IA antes disso) */
+interface Deadline {
+  ms: number;
+  message: string;
+}
+
+async function request<S extends z.ZodType>(schema: S, path: string, method: Method = 'GET', body?: unknown, deadline?: Deadline): Promise<z.infer<S>> {
+  try {
+    return await requestOnce(schema, path, method, body, deadline?.ms);
+  } catch (err) {
+    if (deadline && err instanceof DOMException && err.name === 'TimeoutError') throw new ApiError(0, 'timeout', deadline.message);
+    throw err;
+  }
+}
+
+async function requestOnce<S extends z.ZodType>(schema: S, path: string, method: Method, body: unknown, timeoutMs?: number): Promise<z.infer<S>> {
+  let res = await send(path, method, body, true, timeoutMs);
   if (res.status === 401) {
     if (await refreshSession()) {
-      res = await send(path, method, body, true);
+      res = await send(path, method, body, true, timeoutMs);
     } else {
       sessionLostHandler?.();
       throw new ApiError(401, 'unauthorized', 'Sua sessão expirou. Entre de novo.');
@@ -339,7 +355,8 @@ export const api = {
   summarySuggestion: () => request(SummaryDraftSchema, '/profile/summary/suggestion'),
   improveSummary: (text: string) => request(SummaryDraftSchema, '/profile/summary/improve', 'POST', { text }),
   /** D-25: "O que assistir hoje?" */
-  tonight: (body: TonightRequest) => request(TonightResponseSchema, '/tonight', 'POST', body),
+  tonight: (body: TonightRequest) =>
+    request(TonightResponseSchema, '/tonight', 'POST', body, { ms: 20_000, message: 'A busca demorou demais e foi interrompida. Tente de novo ou mude o pedido.' }),
   /** gêneros na ordem do seu gosto e o tipo que você mais vê */
   tonightDefaults: () => request(TonightDefaultsSchema, '/tonight/defaults'),
   tonightShelves: () => request(TonightShelvesResponseSchema, '/tonight/shelves'),

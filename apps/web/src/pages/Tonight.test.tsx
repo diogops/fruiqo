@@ -70,6 +70,21 @@ describe('"O que assistir hoje?" (D-25)', () => {
     expect(within(where).getByRole('button', { name: 'Globoplay' }).getAttribute('aria-pressed')).toBe('false');
   });
 
+  it('busca que passa do prazo (20 s) sai do "procurando" com um aviso', async () => {
+    __setAccessToken('tok');
+    mockApi({
+      'GET /tonight/defaults': defaults,
+      'POST /tonight': () => {
+        throw new DOMException('signal timed out', 'TimeoutError');
+      },
+    });
+    renderWithProviders(<TonightPage />);
+    await userEvent.type(await screen.findByLabelText(/O que você quer assistir\?/), 'horrores de cado lake');
+    await userEvent.click(screen.getByRole('button', { name: 'Sugerir' }));
+    expect(await screen.findByText(/A busca demorou demais/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Sugerir' })).toBeTruthy();
+  });
+
   it('pede com tipo/gênero/humor/streamings, mostra motivo, novas sugestões sem repetir, "já assisti" e "quero assistir"', async () => {
     __setAccessToken('tok');
     let round = 0;

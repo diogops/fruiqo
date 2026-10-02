@@ -322,7 +322,7 @@ export function planLabel(p: TonightPlan, genreLabel: (g: GenreKey) => string): 
   if (p.genresAll.length) parts.push(p.genresAll.map(genreLabel).join(' + '));
   if (p.genresAny.length) parts.push(p.genresAny.map(genreLabel).join(' ou '));
   if (p.prefer.length) parts.push(p.prefer.map((x) => ATTRIBUTES[x].label).join(', '));
-  if (p.references?.length) parts.push(`parecido com ${p.references.join(' e ')}`);
+  if (p.references?.length) parts.push(`com a mesma pegada de ${p.references.join(' e ')}`);
   if (p.origins?.length) parts.push(p.origins.map((o) => ORIGINS[o].label).join(' ou '));
   if (p.decade) parts.push(`anos ${String(p.decade).slice(2)}`);
   if (p.genresNone.length) parts.push(`sem ${p.genresNone.map(genreLabel).join(', ').toLowerCase()}`);
