@@ -146,8 +146,6 @@ export function TonightPage() {
   const [adv, setAdv] = useState<{ summary: string; genres: Record<string, Group>; subs: Record<string, SubPref> } | null>(null);
   const [advChanged, setAdvChanged] = useState(false);
   const [advOpen, setAdvOpen] = useState(false);
-  // nesta rodada você aceitou alguma sugestão? (sem nenhuma, a lista vazia busca de novo sozinha)
-  const [wanted, setWanted] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   // tudo o que já apareceu nesta rodada: "novas sugestões" não repetem
   const [shown, setShown] = useState<string[]>([]);
@@ -197,7 +195,6 @@ export function TonightPage() {
     },
     onSuccess: (data) => {
       setGone(new Set());
-      setWanted(false);
       setShown((s) => [...new Set([...s, ...picksOf(data).map((p) => p.key)])]);
     },
   });
@@ -322,10 +319,11 @@ export function TonightPage() {
     setGone((g) => new Set(g).add(p.key));
   }
 
-  // tudo recusado (já assisti / hoje não) sem nenhum "quero": busca de novo sozinha, sem repetir
+  // você decidiu sobre todos (quero assistir, já assisti ou hoje não): busca de novo sozinha, sem repetir.
+  // Se a nova busca também vier vazia, para e mostra a mensagem (sem ciclo)
   const offered = picksOf(data).length;
   useEffect(() => {
-    if (offered > 0 && picks.length === 0 && !wanted && !ask.isPending && !data?.risk) ask.mutate(shown);
+    if (offered > 0 && picks.length === 0 && !ask.isPending && !data?.risk) ask.mutate(shown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [picks.length]);
 
@@ -334,7 +332,6 @@ export function TonightPage() {
     setActionError(null);
     try {
       await (which === 'want' ? p.want() : p.done());
-      if (which === 'want') setWanted(true);
       setGone((g) => new Set(g).add(p.key));
       await qc.invalidateQueries();
       toast.show(which === 'want' ? `"${p.title}" na Minha Área.` : `"${p.title}" marcado; não será sugerido de novo.`);
@@ -565,6 +562,7 @@ export function TonightPage() {
             </p>
           </div>
           {picks.length === 0 &&
+            !ask.isPending &&
             (data.exhausted ? (
               <div className="tonight-empty">
                 <p className="muted">Não encontrei mais títulos inéditos com estes filtros.</p>

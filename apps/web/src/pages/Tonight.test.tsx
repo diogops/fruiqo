@@ -72,7 +72,8 @@ describe('"O que assistir hoje?" (D-25)', () => {
     let round = 0;
     const responses: TonightResponse[] = [
       { aiUsed: true, request: 'Hoje: filme de Suspense/Thriller', services: ['Netflix', 'Globoplay'], items: [item(1, 'Prisioneiros', 'suspense pesado'), item(2, 'Zodíaco', 'investigação obsessiva')] },
-      { aiUsed: true, services: [], items: [item(3, 'Garota Exemplar', 'reviravolta')] },
+      { aiUsed: true, services: ['Netflix', 'Globoplay'], items: [item(3, 'Garota Exemplar', 'reviravolta')] },
+      { aiUsed: true, services: [], items: [item(4, 'Mindhunter', 'mente de assassino')] },
     ];
     const { calls } = mockApi({
       'GET /tonight/defaults': defaults,
@@ -109,11 +110,15 @@ describe('"O que assistir hoje?" (D-25)', () => {
     await user.click(within(list).getByRole('button', { name: 'Quero assistir' }));
     await waitFor(() => expect(calls.find((c) => c.path === '/library/import')?.body).toEqual({ items: [{ tmdbId: 2, mediaType: 'movie' }] }));
 
+    // decidiu sobre todos: busca de novo sozinha, sem repetir
+    expect(await screen.findByText('Garota Exemplar')).toBeTruthy();
+    expect(calls.filter((c) => c.path === '/tonight')[1]!.body).toMatchObject({ exclude: ['movie:1', 'movie:2'] });
+
     // "Qualquer lugar" + novas sugestões: manda o que já apareceu e nenhum serviço
     await user.click(screen.getByRole('button', { name: 'Qualquer lugar' }));
     await user.click(screen.getByRole('button', { name: /Novas sugestões/ }));
-    expect(await screen.findByText('Garota Exemplar')).toBeTruthy();
-    expect(calls.filter((c) => c.path === '/tonight')[1]!.body).toMatchObject({ exclude: ['movie:1', 'movie:2'], services: [] });
+    expect(await screen.findByText('Mindhunter')).toBeTruthy();
+    expect(calls.filter((c) => c.path === '/tonight')[2]!.body).toMatchObject({ exclude: ['movie:1', 'movie:2', 'movie:3'], services: [] });
   });
 
   it('Avançado: perfil só desta busca e "salvar no meu perfil" só com o que mudou', async () => {
@@ -187,6 +192,30 @@ describe('"O que assistir hoje?" (D-25)', () => {
     const posts = calls.filter((c) => c.path === '/tonight');
     expect(posts).toHaveLength(2);
     expect(posts[1]!.body).toMatchObject({ exclude: ['movie:1', 'movie:2'] });
+  });
+
+  it('com um "quero assistir" no meio, a lista vazia também busca de novo sozinha', async () => {
+    __setAccessToken('tok');
+    let round = 0;
+    const responses: TonightResponse[] = [
+      { aiUsed: true, services: ['Netflix'], items: [item(1, 'Prisioneiros', 'a'), item(2, 'Zodíaco', 'b')] },
+      { aiUsed: true, services: ['Netflix'], items: [item(3, 'Garota Exemplar', 'c')] },
+    ];
+    const { calls } = mockApi({
+      'GET /tonight/defaults': defaults,
+      'POST /tonight': () => ({ body: responses[round++] }),
+      'POST /library/import': { created: [makeTitle({ title: 'Prisioneiros' })], skipped: [] },
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<TonightPage />);
+    await user.click(await screen.findByRole('button', { name: /Sugerir/ }));
+    const list = await screen.findByRole('list', { name: 'Sugestões para hoje' });
+    await user.click(within(list).getAllByRole('button', { name: 'Quero assistir' })[0]!);
+    await waitFor(() => expect(within(list).queryByText('Prisioneiros')).toBeNull());
+    await user.click(within(list).getByRole('button', { name: 'Hoje não: Zodíaco' }));
+    expect(await screen.findByText('Garota Exemplar')).toBeTruthy();
+    expect(screen.queryByText(/Nada novo desta vez/)).toBeNull();
+    expect(calls.filter((c) => c.path === '/tonight')[1]!.body).toMatchObject({ exclude: ['movie:1', 'movie:2'] });
   });
 
   it('trocar o gênero com uma busca na tela limpa e busca de novo, já com o gênero novo', async () => {
