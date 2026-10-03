@@ -579,7 +579,9 @@ export class TonightService {
       let plan = ctx.mood ? localPlan(ctx.mood) : EMPTY_PLAN;
       let planByAi = false;
       // o pedido é só o nome de um filme/série ("horrores de cado lake")? vira "com a mesma pegada de X"
-      const named = ctx.mood && plan.unmapped.length > 0 && !plan.references?.length ? await this.findWork(ctx.mood, ctx.deadline) : null;
+      // só quando nada do texto foi entendido como gênero/atributo/origem/década ("comédia" não é o filme "Comedia")
+      const onlyUnknown = plan.unmapped.length > 0 && planIsEmpty({ ...plan, unmapped: [] });
+      const named = ctx.mood && onlyUnknown ? await this.findWork(ctx.mood, ctx.deadline) : null;
       if (named) plan = { ...EMPTY_PLAN, references: [named.title] };
       else if (ctx.mood && plan.unmapped.length > 0 && ctx.aiAllowed && this.ai) {
         const ai = this.ai;

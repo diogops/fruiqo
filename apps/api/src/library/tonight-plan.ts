@@ -2,7 +2,7 @@
 // próprio (gêneros da taxonomia + atributos qualitativos); quem procura as obras é o servidor
 // (Minha Área, /discover do TMDB), nunca a IA. O parser local resolve o comum sem custo; a IA só
 // interpreta o que ele não entendeu, devolvendo o MESMO formato (enums fechados).
-import { GENRE_KEYS, type GenreKey, genreTermsIn } from '@fruiqo/taxonomy';
+import { GENRE_KEYS, type GenreKey, genreTermsIn, SUBGENRES } from '@fruiqo/taxonomy';
 
 /**
  * Atributos qualitativos (ontologia própria).
@@ -262,6 +262,15 @@ export function localPlan(raw: string): TonightPlan {
   const withGenres = perPart.filter((p) => p.genres.length > 0);
   if (withGenres.length >= 2) plan.genresAny = withGenres.flatMap((p) => p.genres);
   else plan.genresAll = perPart.flatMap((p) => p.genres);
+  // subgênero ("comédia romântica", "thriller psicológico") vira os gêneros da regra dele na taxonomia:
+  // sem isso as palavras saíam do texto e o plano ficava vazio (busca sem filtro)
+  for (const key of new Set(perPart.flatMap((p) => p.subgenres))) {
+    const rule = SUBGENRES.find((d) => d.key === key)?.rule;
+    if (!rule) continue;
+    plan.genresAll.push(...(rule.all ?? []));
+    plan.genresNone.push(...(rule.none ?? []));
+    if (rule.anyOf?.[0] && !plan.genresAny.length) plan.genresAny.push(...rule.anyOf[0]);
+  }
 
   // o que sobrou e parece pedido: "não entendi" (motivo para chamar a IA)
   const rest = perPart.map((p) => p.rest).join(' ');

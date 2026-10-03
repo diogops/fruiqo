@@ -191,5 +191,9 @@ describe('"igual a X" (obra de referência)', () => {
     expect(tmdb.fit).toBeCloseTo(0.9);
     expect(reasonFor({ item, source: 'similar', page: 1, anime: false, genres: [], themes: [], similarTo: 'Caddo Lake' }, p)).toBe('Parecido com Caddo Lake');
   });
-});
 
+  it('subgênero vira os gêneros da regra (antes saía do texto e o plano ficava vazio)', () => {
+    expect(localPlan('comédia romântica')).toMatchObject({ genresAll: ['comedy', 'romance'], unmapped: [] });
+    expect(localPlan('thriller psicológico')).toMatchObject({ genresAll: ['thriller'], genresAny: ['mystery', 'drama'] });
+  });
+});
