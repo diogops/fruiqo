@@ -100,6 +100,15 @@ export function searchPicks(data: TitleSearchResponse | undefined): SearchPick[]
   return [...media, ...books];
 }
 
+const THIS_YEAR = new Date().getFullYear();
+/** os últimos 20 anos, do mais novo para o mais antigo */
+const RECENT_YEARS = Array.from({ length: 20 }, (_, i) => THIS_YEAR - i);
+
+function validYear(text: string): number | undefined {
+  const n = Number(text);
+  return /^\d{4}$/.test(text) && n >= 1870 && n <= THIS_YEAR + 5 ? n : undefined;
+}
+
 /**
  * Busca de títulos no catálogo (TMDB). `mode="import"` permite marcar vários e importar;
  * `mode="pick"` devolve um único resultado (usado para adicionar favoritos no perfil).
@@ -129,9 +138,15 @@ export function TitleSearch({
   const q = useDebounced(text.trim());
   // D-23: vazio = padrão do servidor (sua ordem; na busca por nome, relevância)
   const [sort, setSort] = useState<SearchSort | ''>('');
+  // ano de lançamento: todos, um dos últimos 20 anos ou outro ano digitado
+  const [yearChoice, setYearChoice] = useState<string>('');
+  const [otherYear, setOtherYear] = useState('');
+  const typedYear = useDebounced(otherYear.trim());
+  const year = yearChoice === 'other' ? validYear(typedYear) : yearChoice ? Number(yearChoice) : undefined;
   const search = useQuery({
-    queryKey: ['search-titles', q, kind, aiParam, sort],
-    queryFn: () => api.searchTitles({ q, kind: kind || undefined, ...(aiParam ? { ai: aiParam } : {}), ...(sort ? { sort } : {}) }),
+    queryKey: ['search-titles', q, kind, aiParam, sort, year],
+    queryFn: () =>
+      api.searchTitles({ q, kind: kind || undefined, ...(aiParam ? { ai: aiParam } : {}), ...(sort ? { sort } : {}), ...(year ? { year } : {}) }),
     enabled: q.length >= 2,
     staleTime: 60_000,
   });
@@ -192,6 +207,33 @@ export function TitleSearch({
             ))}
           </select>
         </label>
+        <label>
+          <span className="sr-only">Ano de lançamento</span>
+          <select value={yearChoice} onChange={(e) => setYearChoice(e.target.value)} aria-label="Ano de lançamento">
+            <option value="">Todos os anos</option>
+            {RECENT_YEARS.map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+            <option value="other">Outro ano…</option>
+          </select>
+        </label>
+        {yearChoice === 'other' && (
+          <label>
+            <span className="sr-only">Digite o ano</span>
+            <input
+              className="search-year"
+              inputMode="numeric"
+              placeholder="Ano"
+              maxLength={4}
+              value={otherYear}
+              onChange={(e) => setOtherYear(e.target.value.replace(/\D/g, ''))}
+              aria-label="Digite o ano"
+              autoFocus
+            />
+          </label>
+        )}
         <button
           type="button"
           className={useAi ? 'chip chip-on search-ai' : 'chip search-ai'}
@@ -237,7 +279,9 @@ export function TitleSearch({
       <ErrorNote error={search.error} />
       {search.isFetching && <p className="muted small">Buscando…</p>}
       {q.length >= 2 && data && results.length === 0 && !search.isFetching && (
-        <p className="muted">Nada encontrado. Tente outro nome, o ano ou use a aba "Manual".</p>
+        <p className="muted">
+          {year ? `Nada encontrado de ${year}. Tente outro ano ou "Todos os anos".` : 'Nada encontrado. Tente outro nome, o ano ou use a aba "Manual".'}
+        </p>
       )}
       {q.length >= 2 && data && results.length > 0 && includable(results, mode, allowTaken).length === 0 && !search.isFetching && (
         <p className="muted">Tudo o que achei já está na sua Minha Área.</p>

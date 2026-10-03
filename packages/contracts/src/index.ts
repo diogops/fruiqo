@@ -1361,6 +1361,8 @@ export const TitleSearchQuerySchema = z.object({
    * exceto na busca por nome, que fica por `relevance`)
    */
   sort: z.enum(['score', 'auto', 'general', 'relevance']).optional(),
+  /** só títulos lançados neste ano (filtro da busca; vence o ano/década escritos no texto) */
+  year: z.coerce.number().int().min(1870).max(2100).optional(),
 });
 export type TitleSearchQuery = z.infer<typeof TitleSearchQuerySchema>;
 

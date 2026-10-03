@@ -120,6 +120,7 @@ export class SearchService {
     kind?: 'movie' | 'series' | 'book',
     forceAi = false,
     sortParam?: SearchSort,
+    yearFilter?: number,
   ): Promise<TitleSearchResponse> {
     if (!this.searchLimiter.take(userId)) throw tooMany();
     // "Buscar com IA" sem IA disponível (desligada ou sem consentimento): busca normal, não palavras soltas
@@ -129,9 +130,16 @@ export class SearchService {
       aiUnavailable = true;
     }
     // RF-48: livros só pela Open Library (sem TMDB, sem LLM)
-    if (kind === 'book' || (!kind && !this.tmdb && this.books)) return this.searchBooksOnly(userId, q);
+    if (kind === 'book' || (!kind && !this.tmdb && this.books)) return this.searchBooksOnly(userId, q, yearFilter);
     const tmdb = this.requireTmdb();
     const interp = interpretSearchQuery(q, kind);
+    // filtro de ano da tela: vence o ano/década/"recente" do texto (o ano escrito ainda decide pessoa × título)
+    const textYear = interp.year;
+    if (yearFilter) {
+      interp.year = yearFilter;
+      delete interp.decade;
+      interp.recent = false;
+    }
     // sem tipo: livros em paralelo (título/autor; gênero e descrição ficam no TMDB); a Open Library
     // lenta não segura a busca de filmes/séries: depois de BOOKS_IN_MIXED_SEARCH_MS, segue sem livros
     const booksPromise: Promise<BookHit[] | null> =
@@ -177,7 +185,7 @@ export class SearchService {
     try {
       // D-23: "melhor série da Netflix", "lançamentos de terror", "filmes em breve"...
       const browse = !forceAi ? interpretBrowseQuery(q, kind) : null;
-      const browsed = browse ? await this.byBrowse(tmdb, browse) : null;
+      const browsed = browse ? await this.byBrowse(tmdb, browse, yearFilter) : null;
       if (browse && browsed) {
         type = 'browse';
         labels = browse.labels;
@@ -202,7 +210,7 @@ export class SearchService {
         const bestSim = Math.max(0, ...multi.titles.map((h) => titleSimilarity(interp.text, h)));
         const topPerson = multi.people.find((p) => similarity(interp.text, p.name) >= PERSON_MATCH);
 
-        if (topPerson && bestSim < 0.9 && !interp.year) {
+        if (topPerson && bestSim < 0.9 && !textYear) {
           type = 'person';
           person = topPerson.name;
           const credits = (await tmdb.personCredits(topPerson.id)).filter((h) => !mediaType || h.mediaType === mediaType);
@@ -222,6 +230,7 @@ export class SearchService {
       throw new ServiceUnavailableException('Busca indisponível agora; tente de novo');
     }
 
+    if (yearFilter) hits = hits.filter((h) => h.hit.year === yearFilter);
     // D-23: sua ordem (manual → estrelas → automática → geral); busca por nome ou pessoa fica por
     // relevância (a filmografia na ordem de popularidade do TMDB)
     const sort: SearchSort = sortParam ?? (type === 'title' || type === 'person' ? 'relevance' : 'score');
@@ -229,7 +238,8 @@ export class SearchService {
     const items = await this.mediaResults(tmdb, userId, hits, sort, library);
     // livros palpitados pela IA (já conferidos na busca de livros) vêm antes dos da busca por texto
     const searched = await booksPromise;
-    const bookHits = searched || aiBooks.length > 0 ? dedupeBooks([...aiBooks, ...(searched ?? [])]) : null;
+    const bookHits =
+      searched || aiBooks.length > 0 ? dedupeBooks([...aiBooks, ...(searched ?? [])]).filter((h) => !yearFilter || h.year === yearFilter) : null;
     return {
       query: q,
       ...(bookHits ? { books: bookResults(bookHits, interp.text, library) } : {}),
@@ -456,12 +466,13 @@ export class SearchService {
   }
 
   /** RF-48: busca só de livros (título ou autor, ex.: "Machado de Assis"). */
-  private async searchBooksOnly(userId: string, q: string): Promise<TitleSearchResponse> {
+  private async searchBooksOnly(userId: string, q: string, yearFilter?: number): Promise<TitleSearchResponse> {
     const books = this.requireBooks();
     const text = q.trim();
     let hits: BookHit[];
     try {
       hits = await books.searchBooks(text, MAX_RESULTS);
+      if (yearFilter) hits = hits.filter((h) => h.year === yearFilter);
     } catch {
       throw new ServiceUnavailableException('Busca indisponível agora; tente de novo');
     }
@@ -469,7 +480,13 @@ export class SearchService {
     const author = authorIn(text, hits);
     return {
       query: q,
-      interpreted: { type: author ? 'person' : 'title', ...(author ? { person: author } : {}), genres: [], aiUsed: false },
+      interpreted: {
+        type: author ? 'person' : 'title',
+        ...(author ? { person: author } : {}),
+        ...(yearFilter ? { year: yearFilter } : {}),
+        genres: [],
+        aiUsed: false,
+      },
       items: [],
       books: bookResults(hits, text, library),
     };
@@ -590,7 +607,7 @@ export class SearchService {
     };
   }
 
-  private async byBrowse(tmdb: TmdbResolver, b: BrowseInterpretation): Promise<{ hits: TmdbHit[]; person?: string } | null> {
+  private async byBrowse(tmdb: TmdbResolver, b: BrowseInterpretation, year?: number): Promise<{ hits: TmdbHit[]; person?: string } | null> {
     let personId: number | undefined;
     let personName: string | undefined;
     if (b.person) {
@@ -602,7 +619,7 @@ export class SearchService {
     const medias: ('movie' | 'tv')[] = b.short || b.kind === 'movie' ? ['movie'] : b.miniseries || b.kind === 'series' ? ['tv'] : ['movie', 'tv'];
     const providerIds = b.services.flatMap((k) => SERVICES.find((s) => s.key === k)?.tmdbIds ?? []);
     const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
-    const dates =
+    const dates: { fromDate?: string; toDate?: string } =
       b.releases === 'recent'
         ? { fromDate: day(-RECENT_DAYS), toDate: day(0) }
         : b.releases === 'upcoming'
@@ -610,6 +627,7 @@ export class SearchService {
           : b.decade
             ? { fromDate: `${b.decade}-01-01`, toDate: `${b.decade + 9}-12-31` }
             : {};
+    if (year) Object.assign(dates, { fromDate: `${year}-01-01`, toDate: `${year}-12-31` });
     const best = b.best && b.releases !== 'upcoming';
     const narrow = providerIds.length > 0 || b.genres.length > 0 || b.keywordIds.length > 0 || b.miniseries;
     // mínimo de votos para "melhor": sem ele, nota alta de poucos votos (vídeos, compilações) domina o topo
@@ -667,10 +685,10 @@ export class SearchService {
 
   private async byGenre(tmdb: TmdbResolver, interp: SearchInterpretation): Promise<TmdbHit[]> {
     const medias: ('movie' | 'tv')[] = interp.kind === 'series' ? ['tv'] : interp.kind === 'movie' ? ['movie'] : ['movie', 'tv'];
-    // "recente/lançamento": últimos 3 anos; década explícita vence
+    // "recente/lançamento": últimos 3 anos; década explícita vence; filtro de ano vence tudo
     const recentFrom = interp.recent ? new Date().getFullYear() - 3 : undefined;
-    const from = interp.decade ?? recentFrom;
-    const to = interp.decade ? interp.decade + 9 : undefined;
+    const from = interp.year ?? interp.decade ?? recentFrom;
+    const to = interp.year ?? (interp.decade ? interp.decade + 9 : undefined);
     const lists = await Promise.all(
       medias.map((m) => {
         const ids = tmdbGenreIds(interp.genres, m);

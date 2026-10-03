@@ -149,7 +149,7 @@ export class SearchController {
 
   @Get('titles')
   titles(@CurrentAuth() auth: AccessClaims, @Query(new ZodPipe(TitleSearchQuerySchema)) query: TitleSearchQuery): Promise<TitleSearchResponse> {
-    return this.search.search(auth.userId, query.q, query.kind, query.ai === '1', query.sort);
+    return this.search.search(auth.userId, query.q, query.kind, query.ai === '1', query.sort, query.year);
   }
 
   /** D-23: categoria (Filme/Série) sugerida pelo TMDB para os títulos lidos num import */

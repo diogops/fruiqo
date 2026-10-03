@@ -205,6 +205,20 @@ describe('RF-46: busca e importação', () => {
     await post(user, '/library/import', { items: [{ tmdbId: 9910016, mediaType: 'tv' }], listId: randomUUID() }).expect(400);
   });
 
+  it('filtro de ano: só títulos daquele ano (vence o ano escrito no texto)', async () => {
+    const user = await newUser();
+    const all = (await get(user, '/search/titles?q=Monstra').expect(200)).body;
+    const other = all.items.find((i: { year?: number }) => i.year && i.year !== 2022);
+    expect(other).toBeTruthy();
+    const res = (await get(user, '/search/titles?q=Monstra&year=2022').expect(200)).body;
+    expect(res.interpreted).toMatchObject({ year: 2022 });
+    expect(res.items.length).toBeGreaterThan(0);
+    expect(res.items.every((i: { year?: number }) => i.year === 2022)).toBe(true);
+    const typed = (await get(user, `/search/titles?q=Monstra%202022&year=${other.year}`).expect(200)).body;
+    expect(typed.items.every((i: { year?: number }) => i.year === other.year)).toBe(true);
+    await get(user, '/search/titles?q=Monstra&year=abc').expect(400);
+  });
+
   it('pessoa, gênero e descrição (IA só com liberação + consentimento; só o texto digitado vai ao LLM)', async () => {
     const user = await newUser();
     const routes: Record<string, unknown> = {

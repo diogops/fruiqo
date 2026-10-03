@@ -47,6 +47,29 @@ describe('conferir a obra antes de incluir', () => {
 });
 
 describe('adicionar título por busca (RF-46)', () => {
+  it('filtro de ano: todos por padrão, um dos últimos 20 anos ou outro ano digitado', async () => {
+    __setAccessToken('tok');
+    const { calls } = mockApi({ 'GET /search/titles': response(), 'GET /lists': [] });
+    const user = userEvent.setup();
+    renderWithProviders(<AddTitle onClose={vi.fn()} />);
+    await user.type(screen.getByRole('searchbox', { name: 'Buscar filme, série ou livro' }), 'duna');
+    await screen.findByText('com Timothée Chalamet, Zendaya');
+    const yearSel = screen.getByRole('combobox', { name: 'Ano de lançamento' }) as HTMLSelectElement;
+    expect(yearSel.value).toBe('');
+    const now = new Date().getFullYear();
+    const years = [...yearSel.options].map((o) => o.value);
+    expect(years).toHaveLength(22); // todos + 20 anos + outro
+    expect(years[1]).toBe(String(now));
+    expect(years[20]).toBe(String(now - 19));
+    await user.selectOptions(yearSel, String(now - 2));
+    await waitFor(() => expect(calls.some((c) => c.path === `/search/titles?q=duna&year=${now - 2}`)).toBe(true));
+    await user.selectOptions(yearSel, 'other');
+    const typed = screen.getByRole('textbox', { name: 'Digite o ano' });
+    await user.type(typed, '19a84');
+    expect((typed as HTMLInputElement).value).toBe('1984');
+    await waitFor(() => expect(calls.some((c) => c.path === '/search/titles?q=duna&year=1984')).toBe(true));
+  });
+
   it('foca o campo, mostra cards com elenco, esconde o que já está na Minha Área e envia os marcados como Quero assistir', async () => {
     __setAccessToken('tok');
     const onClose = vi.fn();
