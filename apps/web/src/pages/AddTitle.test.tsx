@@ -47,7 +47,7 @@ describe('conferir a obra antes de incluir', () => {
 });
 
 describe('adicionar título por busca (RF-46)', () => {
-  it('foca o campo, mostra cards com elenco e "já está na Minha Área", e envia os marcados como Quero assistir', async () => {
+  it('foca o campo, mostra cards com elenco, esconde o que já está na Minha Área e envia os marcados como Quero assistir', async () => {
     __setAccessToken('tok');
     const onClose = vi.fn();
     const { calls } = mockApi({
@@ -63,8 +63,9 @@ describe('adicionar título por busca (RF-46)', () => {
 
     await screen.findByText('com Timothée Chalamet, Zendaya');
     const results = screen.getByRole('list', { name: 'Resultados da busca' });
-    expect(within(results).getByText('já está na Minha Área (#12)')).toBeTruthy();
-    expect(within(results).getByRole('checkbox', { name: 'Selecionar Duna (1984)' })).toHaveProperty('disabled', true);
+    // o que já está na Minha Área não aparece na inclusão
+    expect(within(results).queryByRole('checkbox', { name: 'Selecionar Duna (1984)' })).toBeNull();
+    expect(screen.getByText('1 título que já está na sua Minha Área não aparece.')).toBeTruthy();
     expect(within(results).getByText('de Frank Herbert')).toBeTruthy();
     expect(screen.getAllByText(/TMDB/).length).toBeGreaterThan(0);
     expect(calls.find((c) => c.path.startsWith('/search/titles'))?.path).toBe('/search/titles?q=duna');

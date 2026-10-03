@@ -239,6 +239,9 @@ export function TitleSearch({
       {q.length >= 2 && data && results.length === 0 && !search.isFetching && (
         <p className="muted">Nada encontrado. Tente outro nome, o ano ou use a aba "Manual".</p>
       )}
+      {q.length >= 2 && data && results.length > 0 && includable(results, mode, allowTaken).length === 0 && !search.isFetching && (
+        <p className="muted">Tudo o que achei já está na sua Minha Área.</p>
+      )}
       {/* a busca mista espera a Open Library por pouco tempo; se ela demorar, os livros não vêm */}
       {kind === '' && q.length >= 2 && data && !hasBooks && !search.isFetching && (
         <p className="muted small">
@@ -263,6 +266,16 @@ export function TitleSearch({
   );
 }
 
+/** D-23: já na Minha Área (quero assistir, assistindo, assistido); só no Catálogo ou abandonado ainda pode ser incluído */
+function inMyArea(r: SearchPick): boolean {
+  return r.inLibrary !== null && r.inLibrary.status !== 'catalog' && r.inLibrary.status !== 'dropped';
+}
+
+/** na inclusão, o que já está na Minha Área não aparece (só nos favoritos, com `allowTaken`) */
+function includable(results: SearchPick[], mode: 'import' | 'pick', allowTaken: boolean): SearchPick[] {
+  return mode === 'import' && !allowTaken ? results.filter((r) => !inMyArea(r)) : results;
+}
+
 /** Lista de resultados com pôster: marcar vários (`import`) ou escolher um (`pick`). */
 function PickResults({
   results,
@@ -279,73 +292,81 @@ function PickResults({
   onPick?: (r: SearchPick) => void;
   allowTaken?: boolean;
 }) {
+  const shown = includable(results, mode, allowTaken);
+  const hidden = results.length - shown.length;
   return (
-    <ul className="search-results" aria-label="Resultados da busca">
-      {results.map((r) => {
-        const key = r.key;
-        // D-23: já no Catálogo (ou abandonado) ainda pode ir para a Minha Área
-        const taken = r.inLibrary !== null && r.inLibrary.status !== 'catalog' && r.inLibrary.status !== 'dropped';
-        const checked = selected?.has(key) ?? false;
-        return (
-          <li key={key} className={checked ? 'search-card selected' : 'search-card'}>
-            <WorkLink href={r.page?.url} label={`Ver ${r.title} no ${r.page?.label}`} className="work-link-thumb">
-              <Thumb src={r.posterUrl} title={r.title} width={54} height={81} />
-            </WorkLink>
-            <div className="grow">
-              <WorkLink href={r.page?.url} label={`Ver ${r.title} no ${r.page?.label}`}>
-                <strong>{r.title}</strong>
-                {r.page && <Icon name="external" size={13} className="work-ext-icon" />}
+    <>
+      {hidden > 0 && shown.length > 0 && (
+        <p className="muted small">
+          {hidden === 1 ? '1 título que já está na sua Minha Área não aparece.' : `${hidden} títulos que já estão na sua Minha Área não aparecem.`}
+        </p>
+      )}
+      <ul className="search-results" aria-label="Resultados da busca">
+        {shown.map((r) => {
+          const key = r.key;
+          const taken = inMyArea(r);
+          const checked = selected?.has(key) ?? false;
+          return (
+            <li key={key} className={checked ? 'search-card selected' : 'search-card'}>
+              <WorkLink href={r.page?.url} label={`Ver ${r.title} no ${r.page?.label}`} className="work-link-thumb">
+                <Thumb src={r.posterUrl} title={r.title} width={54} height={81} />
               </WorkLink>
-              <div className="muted small">
-                {[
-                  kindLabel(r.kind),
-                  r.year,
-                  r.inLibrary?.rating != null ? `você ${scoreText(r.inLibrary.rating)}★` : null,
-                  r.autoRating != null ? `auto ${scoreText(r.autoRating)}` : null,
-                  r.generalRating != null ? `TMDB ${scoreText(r.generalRating)}` : null,
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
-                {r.originalTitle && r.originalTitle !== r.title ? ` · ${r.originalTitle}` : ''}
-              </div>
-              {r.people.length > 0 && (
-                <div className="small">
-                  {r.kind === 'book' ? 'de' : 'com'} {r.people.join(', ')}
+              <div className="grow">
+                <WorkLink href={r.page?.url} label={`Ver ${r.title} no ${r.page?.label}`}>
+                  <strong>{r.title}</strong>
+                  {r.page && <Icon name="external" size={13} className="work-ext-icon" />}
+                </WorkLink>
+                <div className="muted small">
+                  {[
+                    kindLabel(r.kind),
+                    r.year,
+                    r.inLibrary?.rating != null ? `você ${scoreText(r.inLibrary.rating)}★` : null,
+                    r.autoRating != null ? `auto ${scoreText(r.autoRating)}` : null,
+                    r.generalRating != null ? `TMDB ${scoreText(r.generalRating)}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                  {r.originalTitle && r.originalTitle !== r.title ? ` · ${r.originalTitle}` : ''}
                 </div>
+                {r.people.length > 0 && (
+                  <div className="small">
+                    {r.kind === 'book' ? 'de' : 'com'} {r.people.join(', ')}
+                  </div>
+                )}
+                {r.aiReason && (
+                  <p className="small ai-reason">
+                    <Icon name="sparkles" size={12} /> {r.aiReason}
+                  </p>
+                )}
+                {r.overview && <p className="small clamp-2">{r.overview}</p>}
+                {r.inLibrary && (
+                  <span className="badge">
+                    {taken
+                      ? `já está na Minha Área${r.inLibrary.rank ? ` (#${r.inLibrary.rank})` : ''}`
+                      : 'no seu catálogo'}
+                  </span>
+                )}
+              </div>
+              {mode === 'import' ? (
+                <label className="check search-check">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={taken && !allowTaken}
+                    onChange={() => onToggle?.(r)}
+                    aria-label={`Selecionar ${r.title}${r.year ? ` (${r.year})` : ''}`}
+                  />
+                </label>
+              ) : (
+                <button type="button" className="btn" onClick={() => onPick?.(r)}>
+                  Escolher
+                </button>
               )}
-              {r.aiReason && (
-                <p className="small ai-reason">
-                  <Icon name="sparkles" size={12} /> {r.aiReason}
-                </p>
-              )}
-              {r.overview && <p className="small clamp-2">{r.overview}</p>}
-              {r.inLibrary && (
-                <span className="badge">
-                  {taken
-                    ? `já está na Minha Área${r.inLibrary.rank ? ` (#${r.inLibrary.rank})` : ''}`
-                    : 'no seu catálogo'}
-                </span>
-              )}
-            </div>
-            {mode === 'import' ? (
-              <label className="check search-check">
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  disabled={taken && !allowTaken}
-                  onChange={() => onToggle?.(r)}
-                  aria-label={`Selecionar ${r.title}${r.year ? ` (${r.year})` : ''}`}
-                />
-              </label>
-            ) : (
-              <button type="button" className="btn" onClick={() => onPick?.(r)}>
-                Escolher
-              </button>
-            )}
-          </li>
-        );
-      })}
-    </ul>
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }
 
