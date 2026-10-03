@@ -84,7 +84,11 @@ describe('"O que assistir hoje?" (D-25)', () => {
         rec = this as never;
       }
       stop() {
-        this.onend?.();
+        // o texto final chega depois do stop, no fim do reconhecimento
+        setTimeout(() => {
+          this.onresult?.({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: 'suspense nórdico' } }] });
+          this.onend?.();
+        }, 10);
       }
       abort() {}
     }
@@ -100,11 +104,12 @@ describe('"O que assistir hoje?" (D-25)', () => {
       expect(mic.parentElement).toBe(screen.getByRole('button', { name: 'Sugerir' }).parentElement);
       await userEvent.click(mic);
       expect(rec!.lang).toBe('pt-BR');
-      expect(screen.getByRole('button', { name: 'Parar de gravar' }).getAttribute('aria-pressed')).toBe('true');
+      expect(screen.getByRole('button', { name: /Gravando: toque para parar/ }).getAttribute('aria-pressed')).toBe('true');
       act(() => rec!.onresult({ resultIndex: 0, results: [{ isFinal: false, 0: { transcript: 'suspense' } }] }));
       expect(input.value).toBe('suspense');
-      act(() => rec!.onresult({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: 'suspense nórdico' } }] }));
-      act(() => rec!.onend());
+      // tocar no botão piscando: para, espera o texto final da transcrição e pesquisa
+      await userEvent.click(screen.getByRole('button', { name: /Gravando: toque para parar/ }));
+      expect(await screen.findByRole('button', { name: 'Falar o pedido' })).toBeTruthy();
       expect(input.value).toBe('suspense nórdico');
       expect(await screen.findByText('Prisioneiros')).toBeTruthy();
       const post = calls.find((c) => c.method === 'POST' && c.path === '/tonight');
