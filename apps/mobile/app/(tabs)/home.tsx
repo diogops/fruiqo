@@ -8,6 +8,7 @@ import { discover, getHome, updateTitle } from '../../src/api/client';
 import { MOOD_MAX_CHARS, buildMoodRequest, buildSurpriseRequest, progressOf } from '../../src/discover/logic';
 import { useMoodOptIn } from '../../src/discover/moodOptIn';
 import { putResult } from '../../src/discover/store';
+import { VoiceButton } from '../../src/discover/VoiceButton';
 import { useReviewCount } from '../../src/catalog/reviewCount';
 import { ImportPrints } from '../../src/share/ImportPrints';
 import { Button, Chip, Poster, ProgressBar } from '../../src/ui/components';
@@ -73,8 +74,8 @@ export default function Home() {
     }
   }
 
-  async function sendMood(optInJustAccepted = false) {
-    const body = buildMoodRequest(moodText);
+  async function sendMood(optInJustAccepted = false, text = moodText) {
+    const body = buildMoodRequest(text);
     if (!body || body.mode !== 'mood') return;
     if (!optIn.accepted && !optInJustAccepted) {
       setShowOptIn(true);
@@ -214,7 +215,22 @@ export default function Home() {
             maxLength={MOOD_MAX_CHARS}
             autoCorrect
           />
-          <Button title="Sugerir algo" icon="sparkles" onPress={() => void sendMood()} disabled={!moodText.trim()} loading={busy === 'mood'} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={{ flex: 1 }}>
+              <Button title="Sugerir algo" icon="sparkles" onPress={() => void sendMood()} disabled={!moodText.trim()} loading={busy === 'mood'} />
+            </View>
+            {/* falar o pedido: tocar no botão piscando para, transcreve e já pede a sugestão */}
+            <VoiceButton
+              base={moodText}
+              onText={(t) => setMoodText(t.slice(0, MOOD_MAX_CHARS))}
+              onDone={(t) => {
+                const text = t.slice(0, MOOD_MAX_CHARS);
+                setMoodText(text);
+                void sendMood(false, text);
+              }}
+              disabled={busy !== null}
+            />
+          </View>
           <Text style={ui.muted}>O texto não é guardado: só a intenção interpretada.</Text>
         </View>
       )}

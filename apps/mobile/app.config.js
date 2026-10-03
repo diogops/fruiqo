@@ -9,6 +9,8 @@ const allowCleartext = variant !== 'production';
 const isDev = variant === 'development';
 const appId = isDev ? 'com.fruiqo.app.dev' : 'com.fruiqo.app';
 
+const MIC_TEXT = 'O Fruiqo usa o microfone só enquanto você fala o seu pedido no "Como estou", para transformar a fala em texto.';
+
 /** @param {import('expo/config').ConfigContext} ctx @returns {import('expo/config').ExpoConfig} */
 module.exports = ({ config }) => ({
   ...config,
@@ -26,7 +28,8 @@ module.exports = ({ config }) => ({
   android: {
     package: appId,
     // RF-40: galeria/arquivos usam os seletores do sistema (Photo Picker/SAF), que não exigem permissão.
-    // Bloqueia as permissões de armazenamento/mídia/microfone que bibliotecas declaram por padrão.
+    // Bloqueia as permissões de armazenamento/mídia que bibliotecas declaram por padrão. O microfone (RECORD_AUDIO)
+    // é usado só para falar o pedido do "Como estou" (expo-speech-recognition).
     blockedPermissions: [
       'android.permission.READ_MEDIA_IMAGES',
       'android.permission.READ_MEDIA_VIDEO',
@@ -34,7 +37,6 @@ module.exports = ({ config }) => ({
       'android.permission.READ_MEDIA_VISUAL_USER_SELECTED',
       'android.permission.READ_EXTERNAL_STORAGE',
       'android.permission.WRITE_EXTERNAL_STORAGE',
-      'android.permission.RECORD_AUDIO',
       // biometria vem do expo-secure-store e não é usada
       'android.permission.USE_BIOMETRIC',
       'android.permission.USE_FINGERPRINT',
@@ -48,10 +50,19 @@ module.exports = ({ config }) => ({
     [
       'expo-image-picker',
       {
-        // iOS: sem NSPhotoLibraryUsageDescription (o PHPicker não precisa) e sem microfone.
+        // iOS: sem NSPhotoLibraryUsageDescription (o PHPicker não precisa). O texto do microfone é o mesmo do
+        // reconhecimento de voz (o picker não grava vídeo).
         photosPermission: false,
-        microphonePermission: false,
+        microphonePermission: MIC_TEXT,
         cameraPermission: 'O Fruiqo usa a câmera para você fotografar listas de filmes, séries e músicas. A foto é lida no seu aparelho e não sai do celular.',
+      },
+    ],
+    [
+      'expo-speech-recognition',
+      {
+        microphonePermission: MIC_TEXT,
+        speechRecognitionPermission:
+          'O Fruiqo transforma em texto o que você fala no "Como estou". O áudio não é enviado ao Fruiqo nem guardado.',
       },
     ],
     'expo-document-picker',

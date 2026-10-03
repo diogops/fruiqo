@@ -51,8 +51,9 @@ export function Privacy() {
             enviada; só o texto lido chega ao Fruiqo.
           </li>
           <li>
-            <strong>Falar o pedido (microfone):</strong> no "O que assistir hoje?", o botão de microfone usa o reconhecimento de
-            voz do seu navegador (no Chrome, feito pelo Google; no Safari, pela Apple). O áudio não passa pelo Fruiqo nem é
+            <strong>Falar o pedido (microfone):</strong> no "O que assistir hoje?" (site) e no "Como estou" (app), o botão de
+            microfone usa o reconhecimento de voz do seu navegador ou do celular (no Chrome e no Android, feito pelo Google,
+            no próprio aparelho quando possível; no Safari e no iPhone, pela Apple). O áudio não passa pelo Fruiqo nem é
             guardado por nós; só o texto reconhecido entra no campo, como se você tivesse digitado.
           </li>
           <li>

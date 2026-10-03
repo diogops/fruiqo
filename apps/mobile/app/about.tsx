@@ -43,6 +43,11 @@ export default function About() {
         arquivos e câmera); o app recebe só as imagens escolhidas.
       </Text>
       <Text style={ui.body}>
+        expo-speech-recognition — Copyright (c) jamsch. Licença MIT. Usa o reconhecimento de voz do sistema (no aparelho
+        quando disponível; senão, o serviço do Google no Android ou da Apple no iOS) para transformar em texto o pedido
+        falado no "Como estou". O áudio não passa pelo Fruiqo.
+      </Text>
+      <Text style={ui.body}>
         Expo, React Native, React e demais bibliotecas incluídas são distribuídas sob suas próprias licenças de código
         aberto (majoritariamente MIT).
       </Text>
