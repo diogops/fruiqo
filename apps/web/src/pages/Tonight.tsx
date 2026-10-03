@@ -20,6 +20,7 @@ import { ApiError, api } from '../api/client';
 import { ErrorNote } from '../components/shared';
 import { useToast } from '../components/Toast';
 import { Icon, WorkLink } from '../components/ui';
+import { VoiceButton } from '../components/VoiceButton';
 import { kindLabel } from '../labels';
 
 type KindChoice = '' | 'movie' | 'series' | 'book' | 'music';
@@ -324,6 +325,15 @@ export function TonightPage() {
   const shownRef = useRef(shown);
   shownRef.current = shown;
 
+  // pedido falado: depois que o texto transcrito entra no campo (próximo render), pesquisa sozinho
+  const [voiceSearch, setVoiceSearch] = useState(false);
+  useEffect(() => {
+    if (!voiceSearch) return;
+    setVoiceSearch(false);
+    ask.mutate(shown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceSearch]);
+
   function submit(e?: FormEvent) {
     e?.preventDefault();
     ask.mutate(shown);
@@ -396,9 +406,12 @@ export function TonightPage() {
               autoComplete="off"
               autoFocus
             />
-            <button type="submit" className="btn btn-primary tonight-go" disabled={ask.isPending} aria-busy={ask.isPending}>
-              {ask.isPending ? 'Procurando…' : data ? 'Buscar de novo' : 'Sugerir'}
-            </button>
+            <div className="tonight-go-row">
+              <VoiceButton base={mood} onText={(t) => setMood(t.slice(0, TONIGHT_MOOD_MAX_CHARS))} onDone={(t) => { setMood(t.slice(0, TONIGHT_MOOD_MAX_CHARS)); setVoiceSearch(true); }} onError={(m) => toast.show(m)} disabled={ask.isPending} />
+              <button type="submit" className="btn btn-primary tonight-go" disabled={ask.isPending} aria-busy={ask.isPending}>
+                {ask.isPending ? 'Procurando…' : data ? 'Buscar de novo' : 'Sugerir'}
+              </button>
+            </div>
           </div>
           <div id="tonight-options" className="tonight-options" hidden={!optionsOpen}>
             <label className="pill-select">

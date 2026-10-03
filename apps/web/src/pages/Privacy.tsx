@@ -3,7 +3,7 @@
 import { Link } from 'react-router';
 import { BrandMark } from '../components/ui';
 
-const UPDATED = '2 de outubro de 2026';
+const UPDATED = '3 de outubro de 2026';
 const CONTROLLER = 'Diogo Daniel';
 const CONTACT = 'diogops@gmail.com';
 
@@ -49,6 +49,11 @@ export function Privacy() {
           <li>
             <strong>Prints de tela:</strong> a leitura do texto (OCR) acontece no seu aparelho ou navegador. A imagem nunca é
             enviada; só o texto lido chega ao Fruiqo.
+          </li>
+          <li>
+            <strong>Falar o pedido (microfone):</strong> no "O que assistir hoje?", o botão de microfone usa o reconhecimento de
+            voz do seu navegador (no Chrome, feito pelo Google; no Safari, pela Apple). O áudio não passa pelo Fruiqo nem é
+            guardado por nós; só o texto reconhecido entra no campo, como se você tivesse digitado.
           </li>
           <li>
             <strong>Perfil de gosto:</strong> o resumo que você escreve, favoritos, níveis por gênero e subgênero, títulos que você

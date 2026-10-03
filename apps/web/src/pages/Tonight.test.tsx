@@ -1,5 +1,5 @@
 import type { TonightDefaults, TonightResponse } from '@fruiqo/contracts';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { __setAccessToken } from '../api/client';
@@ -68,6 +68,58 @@ describe('"O que assistir hoje?" (D-25)', () => {
     const where = screen.getByRole('group', { name: 'Onde procurar' });
     expect(within(where).getByRole('button', { name: 'Netflix' }).getAttribute('aria-pressed')).toBe('true');
     expect(within(where).getByRole('button', { name: 'Globoplay' }).getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('microfone ao lado do botão: grava, transcreve no campo e já pesquisa com o texto falado', async () => {
+    __setAccessToken('tok');
+    let rec: { onresult: (e: unknown) => void; onend: () => void; lang: string } | null = null;
+    class FakeRecognition {
+      lang = '';
+      interimResults = false;
+      continuous = false;
+      onresult: ((e: unknown) => void) | null = null;
+      onerror = null;
+      onend: (() => void) | null = null;
+      start() {
+        rec = this as never;
+      }
+      stop() {
+        this.onend?.();
+      }
+      abort() {}
+    }
+    (window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition = FakeRecognition;
+    try {
+      const { calls } = mockApi({
+        'GET /tonight/defaults': defaults,
+        'POST /tonight': { aiUsed: false, services: [], items: [item(1, 'Prisioneiros', 'suspense')] },
+      });
+      renderWithProviders(<TonightPage />);
+      const input = (await screen.findByLabelText(/O que você quer assistir\?/)) as HTMLInputElement;
+      const mic = screen.getByRole('button', { name: 'Falar o pedido' });
+      expect(mic.parentElement).toBe(screen.getByRole('button', { name: 'Sugerir' }).parentElement);
+      await userEvent.click(mic);
+      expect(rec!.lang).toBe('pt-BR');
+      expect(screen.getByRole('button', { name: 'Parar de gravar' }).getAttribute('aria-pressed')).toBe('true');
+      act(() => rec!.onresult({ resultIndex: 0, results: [{ isFinal: false, 0: { transcript: 'suspense' } }] }));
+      expect(input.value).toBe('suspense');
+      act(() => rec!.onresult({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: 'suspense nórdico' } }] }));
+      act(() => rec!.onend());
+      expect(input.value).toBe('suspense nórdico');
+      expect(await screen.findByText('Prisioneiros')).toBeTruthy();
+      const post = calls.find((c) => c.method === 'POST' && c.path === '/tonight');
+      expect(post!.body).toMatchObject({ mood: 'suspense nórdico' });
+    } finally {
+      delete (window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition;
+    }
+  });
+
+  it('sem reconhecimento de voz no navegador, o microfone não aparece', async () => {
+    __setAccessToken('tok');
+    mockApi({ 'GET /tonight/defaults': defaults });
+    renderWithProviders(<TonightPage />);
+    await screen.findByLabelText(/O que você quer assistir\?/);
+    expect(screen.queryByRole('button', { name: 'Falar o pedido' })).toBeNull();
   });
 
   it('busca que passa do prazo (20 s) sai do "procurando" com um aviso', async () => {
