@@ -1227,20 +1227,21 @@ img.tn-poster.loaded { opacity: 1; }
   overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scroll-padding: 0 0.25rem;
   list-style: none; margin: 0; padding: 0.25rem 0.25rem 0.75rem; scrollbar-width: thin;
 }
-.shelf-card { position: relative; scroll-snap-align: start; display: grid; gap: 0.4rem; align-content: start; min-width: 0; }
+.shelf-card { position: relative; scroll-snap-align: start; display: grid; grid-template-rows: auto 1fr; gap: 0.4rem; min-width: 0; }
 .shelf-cover { position: relative; }
 .shelf-poster { position: relative; display: block; border-radius: 10px; }
 @media (prefers-reduced-motion: no-preference) {
   .shelf-poster .tn-poster { transition: transform 200ms var(--ease), box-shadow 200ms var(--ease); }
   .shelf-card:hover .tn-poster { transform: translateY(-3px); box-shadow: var(--shadow-3); }
 }
-.shelf-info { display: grid; gap: 0.1rem; min-width: 0; }
+.shelf-info { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
 .shelf-title { font-weight: 600; font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .shelf-where { color: var(--ok); font-size: 0.74rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* "−" e "+" pequenos, na linha do tipo/ano: não cobrem a capa nem o título */
 .shelf-meta { display: flex; align-items: center; justify-content: space-between; gap: 0.3rem; min-width: 0; }
 .shelf-meta > .muted { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.shelf-acts { display: inline-flex; gap: 0.2rem; flex: none; }
+.shelf-acts { display: flex; align-items: center; justify-content: space-between; margin-top: auto; padding-top: 0.2rem; }
+.shelf-acts .shelf-hide { margin-left: auto; }
 .shelf-add, .shelf-hide {
   width: 22px; height: 22px; display: grid; place-items: center; padding: 0;
   border-radius: 999px; cursor: pointer; border: 1px solid var(--border-strong);

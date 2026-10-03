@@ -850,36 +850,37 @@ function Shelf({ shelf }: { shelf: TonightShelvesResponse['shelves'][number] }) 
                 </span>
                 <span className="shelf-meta">
                   <span className="muted small">{[kindLabel(it.kind), it.year].filter(Boolean).join(' · ')}</span>
-                  <span className="shelf-acts">
-                    <button
-                      type="button"
-                      className="shelf-hide"
-                      aria-label={`Não mostrar mais: ${it.title}`}
-                      title="Não mostrar mais"
-                      disabled={busy === key}
-                      onClick={() => void hide(it)}
-                    >
-                      <Icon name="minus" size={12} />
-                    </button>
-                    {!mine && (
-                      <button
-                        type="button"
-                        className="shelf-add"
-                        aria-label={`Quero assistir: ${it.title}`}
-                        title="Quero assistir"
-                        disabled={busy === key}
-                        onClick={() => void want(it)}
-                      >
-                        <Icon name="plus" size={12} />
-                      </button>
-                    )}
-                  </span>
                 </span>
                 {it.availableOn && it.availableOn.length > 0 && (
                   <span className="shelf-where" title={`Em: ${it.availableOn.join(', ')}`}>
                     {it.availableOn.join(', ')}
                   </span>
                 )}
+                {/* "+" no canto esquerdo e "−" no canto direito do card */}
+                <span className="shelf-acts">
+                  {!mine && (
+                    <button
+                      type="button"
+                      className="shelf-add"
+                      aria-label={`Quero assistir: ${it.title}`}
+                      title="Quero assistir"
+                      disabled={busy === key}
+                      onClick={() => void want(it)}
+                    >
+                      <Icon name="plus" size={12} />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="shelf-hide"
+                    aria-label={`Não mostrar mais: ${it.title}`}
+                    title="Não mostrar mais"
+                    disabled={busy === key}
+                    onClick={() => void hide(it)}
+                  >
+                    <Icon name="minus" size={12} />
+                  </button>
+                </span>
               </div>
             </li>
           );
