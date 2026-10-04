@@ -27,3 +27,6 @@ reports/
 
 # motor e idiomas do OCR do web, copiados de node_modules no build (scripts/copy-tesseract.mjs)
 apps/web/public/tesseract/
+
+# Claude Code: permissões pessoais
+.claude/settings.local.json
